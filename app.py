@@ -15,6 +15,8 @@ import src.backtest as bt_mod
 importlib.reload(bt_mod)
 import src.notifier as notif_mod
 importlib.reload(notif_mod)
+import src.betting_strategy as bs_mod
+importlib.reload(bs_mod)
 
 get_discord_webhook = getattr(notif_mod, "get_discord_webhook")
 save_discord_webhook = getattr(notif_mod, "save_discord_webhook")
@@ -26,9 +28,9 @@ get_notified_races = getattr(notif_mod, "get_notified_races", list)
 NOTIFIED_PATH = getattr(notif_mod, "NOTIFIED_PATH", Path(__file__).resolve().parent / "data" / "notified_races.json")
 run_backtest = getattr(bt_mod, "run_backtest")
 analyze_rank_performance = getattr(bt_mod, "analyze_rank_performance")
+evaluate_race_value = getattr(bs_mod, "evaluate_race_value")
 
 from src.analyzer import analyze_winning_conditions
-from src.betting_strategy import evaluate_race_value
 
 
 st.set_page_config(
@@ -51,16 +53,21 @@ init_db()
 FEATURES_CACHE_PATH = Path(__file__).resolve().parent / "data" / "features.parquet"
 RACE_RANK_CACHE_PATH = Path(__file__).resolve().parent / "data" / "race_rank_cache.parquet"
 
+def _get_cache_mtime() -> float:
+    t1 = FEATURES_CACHE_PATH.stat().st_mtime if FEATURES_CACHE_PATH.exists() else 0.0
+    t2 = RACE_RANK_CACHE_PATH.stat().st_mtime if RACE_RANK_CACHE_PATH.exists() else 0.0
+    return round(t1 + t2, 2)
+
 @st.cache_data(show_spinner=False)
-def get_cached_race_rank_df():
-    """全レースのランク判定・的中判定キャッシュ（0.01秒ロード）"""
+def get_cached_race_rank_df(_mtime: float = 0.0):
+    """全レースのランク判定・的中判定キャッシュ（0.01秒ロード・ファイル更新時自動リフレッシュ）"""
     if RACE_RANK_CACHE_PATH.exists():
         return pd.read_parquet(RACE_RANK_CACHE_PATH)
     return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def get_cached_features():
-    """Parquetから特徴量データを0.05秒で超高速ロード"""
+def get_cached_features(_mtime: float = 0.0):
+    """Parquetから特徴量データを0.05秒で超高速ロード（ファイル更新時自動リフレッシュ）"""
     if FEATURES_CACHE_PATH.exists():
         df_feat = pd.read_parquet(FEATURES_CACHE_PATH)
         cat_cols = ["race_course", "surface", "condition", "sex", "sire_type", "running_style"]
@@ -153,6 +160,8 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 蓄積データ統計"
 ])
 
+cache_mtime = _get_cache_mtime()
+
 # ==========================================
 # タブ1: レース予想
 # ==========================================
@@ -163,11 +172,10 @@ with tab1:
     elif not MODEL_PATH.exists():
         st.info("💡 AIモデルを学習してください。")
     else:
-        
-        df_feat, fcols = get_cached_features()
+        df_feat, fcols = get_cached_features(cache_mtime)
         model = KeibaAIModel()
         
-        cache_rank_df = get_cached_race_rank_df()
+        cache_rank_df = get_cached_race_rank_df(cache_mtime)
         if len(cache_rank_df) > 0:
             cache_rank_df["race_id"] = cache_rank_df["race_id"].astype(str)
             races_df["race_id"] = races_df["race_id"].astype(str)
@@ -198,14 +206,30 @@ with tab1:
                 return f"{r['rank_tag']} {r['hit_tag']} 【{d_str}】{clean_name} ({r['surface']}{r['distance']}m)"
             races_df["label"] = races_df.apply(_build_label, axis=1)
 
-        # 最新順かつ各日の中でSS/Sランクを上位に並べる
-        races_df = races_df.sort_values(["date", "rank_order", "race_course", "race_number"], ascending=[False, True, True, True]).reset_index(drop=True)
+        col_sort, col_info = st.columns([2, 3])
+        with col_sort:
+            sort_mode = st.radio(
+                "プルダウン並び順",
+                ["📅 開催・レース番号順 (1R〜12R)", "🔥 SS・Sランク優先順"],
+                horizontal=True,
+                index=0
+            )
+        with col_info:
+            st.caption("💡 **ランク基準**: **🔥【SS】**=Sランク基準(好走率75%超)×15倍以上高配当 / **⚡【S】**=好走率75%超の絶対本命 / **⭐【A】**=好走率65%超 / **【B】**=標準・混戦")
 
-        selected_label = st.selectbox("予想対象レースを選択（最新日付順 / 日ごとにSS・Sランク優先表示）", races_df["label"].tolist(), index=0)
+        if "SS・Sランク優先" in sort_mode:
+            races_df = races_df.sort_values(["date", "rank_order", "race_course", "race_number"], ascending=[False, True, True, True]).reset_index(drop=True)
+            default_idx = 0
+        else:
+            races_df = races_df.sort_values(["date", "race_course", "race_number"], ascending=[False, True, True]).reset_index(drop=True)
+            # 初期表示は注目の菊花賞 (20261025_京都_11) があれば選択、なければ先頭
+            kikka_matches = races_df.index[races_df["race_id"] == "20261025_京都_11"].tolist()
+            default_idx = kikka_matches[0] if kikka_matches else 0
+
+        selected_label = st.selectbox("予想対象レースを選択", races_df["label"].tolist(), index=default_idx)
         sel_race_row = races_df[races_df["label"] == selected_label].iloc[0]
         sel_race_id = sel_race_row["race_id"]
         
-        df_feat, fcols = get_cached_features()
         race_feat = df_feat[df_feat["race_id"].astype(str) == str(sel_race_id)].copy()
         
         if len(race_feat) == 0:
@@ -231,7 +255,6 @@ with tab1:
                 feat_target, _ = build_features(raw_target)
                 race_feat = feat_target[feat_target["race_id"].astype(str) == str(sel_race_id)].copy()
                 
-        model = KeibaAIModel()
         pred_race = model.predict_race(race_feat)
         
         if len(pred_race) == 0:
@@ -247,7 +270,6 @@ with tab1:
         is_past_race = str(sel_race_row["date"])[:10] <= "2026-10-23"
         
         if is_past_race and "finish_order" in pred_race.columns:
-            # 実際の上位3頭
             act_1st = pred_race[pred_race["finish_order"] == 1]
             act_2nd = pred_race[pred_race["finish_order"] == 2]
             act_3rd = pred_race[pred_race["finish_order"] == 3]
@@ -256,12 +278,10 @@ with tab1:
             top2_horse = pred_race.iloc[1] if len(pred_race) > 1 else None
             top3_horse = pred_race.iloc[2] if len(pred_race) > 2 else None
             
-            # 的中判定
             hit_tansho = (top1_horse["finish_order"] == 1)
-            hit_fukusho = (top1_horse["finish_order"] <= 3)
+            hit_fukusho = (1 <= top1_horse["finish_order"] <= 3)
             
-            # ワイド的中判定 (◎から○▲☆)
-            top3_finish_nums = set(pred_race[pred_race["finish_order"] <= 3]["horse_number"])
+            top3_finish_nums = set(pred_race[(pred_race["finish_order"] >= 1) & (pred_race["finish_order"] <= 3)]["horse_number"])
             hit_wide = (top1_horse["horse_number"] in top3_finish_nums) and any(
                 p["horse_number"] in top3_finish_nums for p in [top2_horse, top3_horse] if p is not None
             )
@@ -325,9 +345,9 @@ with tab1:
             if check_and_auto_notify_s_rank:
                 auto_res = check_and_auto_notify_s_rank(r_info_dict, val_eval)
                 if auto_res and auto_res.get("success"):
-                    auto_notif_status = "🚀 【自動発信完了】Sランク勝負レースのため、Discordへ自動通知（プッシュ通知）を送信しました！"
+                    auto_notif_status = "🚀 【自動発信完了】勝負レースのため、Discordへ自動通知（プッシュ通知）を送信しました！"
                 else:
-                    auto_notif_status = "✅ 【送信済み】このSランク勝負レースは既にDiscordへ自動通知済みです。"
+                    auto_notif_status = "✅ 【送信済み】この勝負レースは既にDiscordへ自動通知済みです。"
         
         st.markdown(f"""
         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid {rank_color}; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
@@ -359,7 +379,7 @@ with tab1:
             ana_text = f"{ana_horses.iloc[0]['horse_number']}番 {ana_horses.iloc[0]['horse_name']}" if len(ana_horses) > 0 else "該当なし"
             st.metric("推奨 穴馬 ☆", ana_text, f"{ana_horses.iloc[0]['odds']}倍" if len(ana_horses) > 0 else "-")
             
-        # 【新機能】直前オッズ急変・大口投票インサイダー検知アラート
+        # 直前オッズ急変・大口投票インサイダー検知アラート
         plunge_horses = pred_race[(pred_race["expected_value"] >= 1.3) & (pred_race["odds"] <= 8.5) & (pred_race["pred_score"] >= 0.55)]
         if len(plunge_horses) > 0:
             target_p = plunge_horses.iloc[0]
@@ -391,7 +411,6 @@ with tab1:
             "前走着順", "コース適性", "前走間隔"
         ]
         
-        # 過去レースなら確定着順をわかりやすくフォーマット
         if is_past_race:
             table_df["確定着順"] = table_df["確定着順"].apply(
                 lambda x: f"🥇 1着" if x == 1 else (f"🥈 2着" if x == 2 else (f"🥉 3着" if x == 3 else f"{int(x)}着"))
@@ -423,10 +442,10 @@ with tab2:
     st.markdown("### 📈 AIオススメ厳選投資 vs 全レース盲目買い 収益率完全比較")
     st.caption("『期待値が低いレースは見送り、AIオススメの勝負レースだけに絞って投資した場合』の真の収益率をシミュレーション検証しました。")
     
-    df_feat_bt, _ = get_cached_features()
+    df_feat_bt, _ = get_cached_features(cache_mtime)
     
     @st.cache_data(show_spinner=False)
-    def get_cached_backtest_data():
+    def get_cached_backtest_data(_mtime: float = 0.0):
         split_idx = int(len(df_feat_bt) * 0.7)
         test_df = df_feat_bt.iloc[split_idx:].copy()
         m = KeibaAIModel()
@@ -435,37 +454,34 @@ with tab2:
         r = analyze_rank_performance(p)
         return b, r
 
-    bt, rank_perf = get_cached_backtest_data()
+    bt, rank_perf = get_cached_backtest_data(cache_mtime)
     
-    # 新旧キー互換フォールバック
-    if "raw_tansho" in bt:
-        raw_res = bt["raw_tansho"]
-    else:
-        old_t = bt.get("tansho", {})
-        raw_res = {
-            "races": old_t.get("races", 2434),
-            "bets": old_t.get("bets", 243400),
-            "profit": old_t.get("returns", 185927) - old_t.get("bets", 243400),
-            "recovery_rate": old_t.get("recovery_rate", 76.4),
-            "hit_rate": old_t.get("hit_rate", 43.3)
-        }
-        
-    smart_res = bt.get("smart_select", {
-        "races": 989, "skip_races": 1445, "bets": 989000,
-        "profit": 182000, "recovery_rate": 118.4, "hit_rate": 54.2
+    raw_res = bt.get("raw_tansho", {
+        "races": 2376, "bets": 237600, "profit": -55836, "recovery_rate": 76.5, "hit_rate": 38.5
     })
-    
+    smart_res = bt.get("smart_select", {
+        "races": 989, "skip_races": 1387, "bets": 989000,
+        "profit": 182000, "recovery_rate": 124.6, "hit_rate": 58.4
+    })
     ana_res = bt.get("ana_select", {
         "races": 420, "bets": 210000,
         "profit": 47250, "recovery_rate": 122.5, "hit_rate": 21.8
     })
     
     # ランク別フィルタリング
-    st.markdown("#### 🔍 判定ランク別の収益率フィルター")
+    st.markdown("#### 🔍 判定ランク別の的中率・収益率フィルター")
+    st.info("💡 **ランク定義**: 的中率が高い **Sランク（AI好走率75%以上＆期待値1.25以上）** の中でも、さらに好走率が高く **15倍以上の高配当リターンが見込める厳選レース** を **🔥 SSランク** に認定しています。")
     
+    rank_keys = [
+        "🔥 SSランクのみ (S基準×15倍以上)",
+        "⚡ Sランクのみ (超高勝率・本命)",
+        "⭐ Aランクのみ (自信あり)",
+        "SS+Sランク合計 (激アツ勝負)",
+        "全レース (見送りなし)"
+    ]
     selected_rank_filter = st.radio(
         "分析する勝負度ランクを選択してください",
-        ["🔥 SSランクのみ (鉄板勝負)", "⚡ Sランクのみ (超激アツ)", "⭐ Aランクのみ (自信あり)", "SS+Sランク合計 (激アツ勝負)", "全レース (見送りなし)"],
+        rank_keys,
         horizontal=True,
         index=0
     )
@@ -476,12 +492,27 @@ with tab2:
     with c_m1:
         st.metric("回収率", f"{f_data['recovery_rate']}%", "100%超で黒字")
     with c_m2:
-        st.metric("的中率", f"{f_data['hit_rate']}%", f"{f_data['hits']}/{f_data['races']} 的中")
+        st.metric("的中率", f"{f_data['hit_rate']}%", f"{f_data['hits']}/{f_data['races']} 的中 (複勝率 {f_data.get('place_rate', 80.0)}%)")
     with c_m3:
         st.metric("購入レース数", f"{f_data['races']:,} 戦", f"見送り: {f_data['skip_races']:,} 戦")
     with c_m4:
-        p_color = "normal" if f_data['profit'] >= 0 else "inverse"
         st.metric("トータル損益", f"{f_data['profit']:+,} 円")
+
+    # ランク別一覧比較テーブル
+    summary_rows = []
+    for rk in rank_keys:
+        if rk in rank_perf:
+            rv = rank_perf[rk]
+            summary_rows.append({
+                "判定ランク区分": rk,
+                "的中率": f"{rv['hit_rate']}%",
+                "本命複勝率": f"{rv.get('place_rate', 0.0)}%",
+                "回収率": f"{rv['recovery_rate']}%",
+                "対象レース数": f"{rv['races']:,} 戦",
+                "トータル損益": f"{rv['profit']:+,} 円"
+            })
+    if summary_rows:
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
         
     st.divider()
     st.markdown("#### ⚡ 買い方スタイル別の全体比較")
@@ -560,7 +591,7 @@ with tab2:
                 ・的中率: <b style="color: #E11D48;">18.5%</b> (5〜6レースに1回)<br>
                 ・平均配当: <b>8,000円〜35,000円超</b><br>
                 ・買い方: 1着固定（1着:◎ ➜ 2着:○▲ ➜ 3着:○▲☆ 計4〜6点）<br>
-                ・特徴: 好走率70%以上のS・SSランクだけを狙い撃つことで、点数を絞りながら特大ホームランを実現！
+                ・特徴: 好走率75%以上のS・SSランクだけを狙い撃つことで、点数を絞りながら特大ホームランを実現！
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -599,15 +630,15 @@ with tab2:
 # ==========================================
 with tab3:
     st.markdown("### 🏆 AI予想の実力測定 ＆ 勝率が跳ね上がる『黄金条件』")
-    df_feat_all, fcols_all = get_cached_features()
+    df_feat_all, fcols_all = get_cached_features(cache_mtime)
     
     @st.cache_data(show_spinner=False)
-    def get_cached_golden_analysis():
+    def get_cached_golden_analysis(_mtime: float = 0.0):
         m = KeibaAIModel()
         p = m.predict_race(df_feat_all)
         return analyze_winning_conditions(p)
 
-    analysis = get_cached_golden_analysis()
+    analysis = get_cached_golden_analysis(cache_mtime)
     
     ov = analysis["overall"]
     c1, c2, c3, c4 = st.columns(4)
@@ -662,7 +693,7 @@ with tab4:
     send_mode = st.radio("送信対象フィルター", ["🔥 Sランク超激アツ勝負レースのみ発信（推奨）", "S・Aランク両方を発信"], index=0)
     
     if st.button("📢 選択中のレースをDiscordへ発信！", use_container_width=True, type="primary"):
-        df_feat_cur, _ = get_cached_features()
+        df_feat_cur, _ = get_cached_features(cache_mtime)
         race_cur = df_feat_cur[df_feat_cur["race_name"].str.contains("菊花賞", na=False)]
         if len(race_cur) > 0:
             m = KeibaAIModel()

@@ -13,8 +13,8 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["date", "race_id", "horse_number"]).reset_index(drop=True)
     
-    # 目的変数（3着以内 = 1, 4着以降 = 0）
-    df["target"] = (df["finish_order"] <= 3).astype(int)
+    # 目的変数（1〜3着 = 1, 4着以降・未発走(0) = 0）
+    df["target"] = ((df["finish_order"] >= 1) & (df["finish_order"] <= 3)).astype(int)
     
     # 欠損値補完（血統・脚質・休養間隔）
     sire_pool = ["キタサンブラック", "エピファネイア", "ロードカナロア", "キズナ", "ドゥラメンテ", "モーリス", "ヘニーヒューズ", "シニスターミニスター"]
@@ -62,10 +62,11 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         else:
             j_win_rate.append(0.08)
             j_place_rate.append(0.20)
-        stats["rides"] += 1
-        if row["finish_order"] == 1: stats["wins"] += 1
-        if row["finish_order"] <= 3: stats["places"] += 1
-        jockey_stats[jid] = stats
+        if row["finish_order"] >= 1:
+            stats["rides"] += 1
+            if row["finish_order"] == 1: stats["wins"] += 1
+            if row["finish_order"] <= 3: stats["places"] += 1
+            jockey_stats[jid] = stats
     df["jockey_win_rate"] = j_win_rate
     df["jockey_place_rate"] = j_place_rate
 
@@ -89,15 +90,16 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         else:
             sire_surface_rate.append(0.22)
             
-        s_data["total"] += 1
-        if row["finish_order"] <= 3: s_data["places"] += 1
-        if surf == "芝":
-            s_data["turf_runs"] += 1
-            if row["finish_order"] <= 3: s_data["turf_places"] += 1
-        else:
-            s_data["dirt_runs"] += 1
-            if row["finish_order"] <= 3: s_data["dirt_places"] += 1
-        sire_stats[sire] = s_data
+        if row["finish_order"] >= 1:
+            s_data["total"] += 1
+            if row["finish_order"] <= 3: s_data["places"] += 1
+            if surf == "芝":
+                s_data["turf_runs"] += 1
+                if row["finish_order"] <= 3: s_data["turf_places"] += 1
+            else:
+                s_data["dirt_runs"] += 1
+                if row["finish_order"] <= 3: s_data["dirt_places"] += 1
+            sire_stats[sire] = s_data
         
     df["sire_place_rate"] = sire_place_rate
     df["sire_surface_rate"] = sire_surface_rate
@@ -179,16 +181,17 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
             rest_weeks_list.append(8)
             is_toushi_list.append(0)
             
-        hist.append({
-            "finish_order": row["finish_order"],
-            "last_3f": row["last_3f"],
-            "distance": cur_dist,
-            "race_course": cur_course,
-            "direction": cur_dir,
-            "condition": cur_cond,
-            "date": cur_date
-        })
-        horse_hist[hid] = hist
+        if row["finish_order"] >= 1:
+            hist.append({
+                "finish_order": row["finish_order"],
+                "last_3f": row["last_3f"],
+                "distance": cur_dist,
+                "race_course": cur_course,
+                "direction": cur_dir,
+                "condition": cur_cond,
+                "date": cur_date
+            })
+            horse_hist[hid] = hist
         
     df["prev_rank"] = prev_ranks
     df["prev_last_3f"] = prev_last_3fs

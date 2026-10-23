@@ -71,18 +71,17 @@ class KeibaAIModel:
         if race_df is None or len(race_df) == 0:
             return pd.DataFrame()
             
-        if self.model is None:
-            self.load()
-            
         res_df = race_df.copy()
-        # 必要な特徴量列を確保
-        for c in self.feature_cols:
-            if c not in res_df.columns:
-                res_df[c] = 0.0
-        X = res_df[self.feature_cols]
-        probs = self.model.predict_proba(X)[:, 1]
-        
-        res_df["pred_score"] = probs
+        if "pred_score" not in res_df.columns or res_df["pred_score"].isna().any():
+            if self.model is None:
+                self.load()
+            # 必要な特徴量列を確保
+            for c in self.feature_cols:
+                if c not in res_df.columns:
+                    res_df[c] = 0.0
+            X = res_df[self.feature_cols]
+            probs = self.model.predict_proba(X)[:, 1]
+            res_df["pred_score"] = probs
         
         # 期待値計算（予測好走率 × 単勝オッズ）
         if "odds" in res_df.columns:
@@ -138,4 +137,3 @@ class KeibaAIModel:
             df_raw = load_all_race_data()
             df_feat, fcols = build_features(df_raw.head(1000))
             self.train(df_feat, fcols)
-

@@ -15,12 +15,14 @@ if str(repo_root) not in sys.path:
 from src.database import load_all_race_data
 from src.features import build_features
 from src.model import KeibaAIModel
+from src.betting_strategy import evaluate_race_value
 
 def main():
     t0 = time.time()
-    feat_path = Path("data/features.parquet")
-    if feat_path.exists():
-        print(f"Loading cached {feat_path}...")
+    feat_path = repo_root / "data" / "features.parquet"
+    
+    if feat_path.exists() and "--rebuild" not in sys.argv:
+        print(f"Loading fresh {feat_path}...")
         df_feat = pd.read_parquet(feat_path)
     else:
         print("Loading raw race data from SQLite...")
@@ -29,16 +31,18 @@ def main():
         print(f"Loaded {len(df_clean)} rows, {df_clean['race_id'].nunique()} races.")
         print("Building features...")
         df_feat, fcols = build_features(df_clean)
-        df_feat.to_parquet(feat_path, index=False)
-        print(f"Saved {feat_path} ({len(df_feat)} rows).")
 
     print("Predicting with model...")
     model = KeibaAIModel()
     model.load()
-    X = df_feat[model.feature_cols]
-    df_feat["pred_score"] = model.model.predict_proba(X)[:, 1]
+    if "pred_score" not in df_feat.columns or "--rebuild" in sys.argv:
+        X = df_feat[model.feature_cols]
+        df_feat["pred_score"] = model.model.predict_proba(X)[:, 1]
     df_feat["expected_value"] = df_feat["pred_score"] * df_feat["odds"]
     df_feat["is_ana"] = (df_feat["expected_value"] >= 1.5) & (df_feat["odds"] >= 8.0)
+
+    df_feat.to_parquet(feat_path, index=False)
+    print(f"Saved {feat_path} ({len(df_feat)} rows).")
 
     # Sort within race
     df_sorted = df_feat.sort_values(["race_id", "pred_score"], ascending=[True, False]).copy()
@@ -66,35 +70,29 @@ def main():
     )
     m = m.merge(top2_sub, on="race_id", how="left")
 
-    ana = df_sorted[df_sorted["is_ana"]].groupby("race_id")["odds"].max().reset_index().rename(
-        columns={"odds": "max_ana_odds"}
-    )
-    m = m.merge(ana, on="race_id", how="left")
-    m["max_ana_odds"] = m["max_ana_odds"].fillna(0.0)
+    # evaluate_race_value() と 100% 完全一致するランク判定式
+    is_s_base = (m["s1"] >= 0.75) & (m["ev1"] >= 1.25)
+    c_ss = is_s_base & (m["s1"] >= 0.76) & (m["o1"] >= 15.0)
+    c_s = is_s_base & (~c_ss)
+    c_a = (~is_s_base) & (m["s1"] >= 0.65) & (m["ev1"] >= 1.20)
+    c_b = (~is_s_base) & (~c_a) & (m["ev1"] >= 1.15)
 
-    est_umaren = m["o1"] * m["o2"].fillna(1.0) * 0.55
-    m["max_return_odds"] = np.maximum(m["o1"], np.maximum(m["max_ana_odds"], est_umaren))
+    conditions = [c_ss, c_s, c_a, c_b]
+    choices = ["🔥【SS】", "⚡【S】", "⭐【A】", "【B】"]
+    m["rank_tag"] = np.select(conditions, choices, default="【見送り】")
 
-    c_ss = m["s1"] >= 0.82
-    c_s = m["s1"] >= 0.75
-    c_a = m["s1"] >= 0.65
-
-    conditions = [c_ss, c_s, c_a]
-    choices = ["🔥【SS】", "⚡【S】", "⭐【A】"]
-    m["rank_tag"] = np.select(conditions, choices, default="【B】")
-
-    top3_finish = df_sorted[df_sorted["finish_order"] <= 3].groupby("race_id")["horse_number"].apply(set).reset_index().rename(
+    top3_finish = df_sorted[(df_sorted["finish_order"] >= 1) & (df_sorted["finish_order"] <= 3)].groupby("race_id")["horse_number"].apply(set).reset_index().rename(
         columns={"horse_number": "top3_nums"}
     )
     m = m.merge(top3_finish, on="race_id", how="left")
 
     def check_hit(row):
         date_str = str(row["date"])[:10]
-        if date_str > "2026-10-23":
+        if date_str > "2026-10-23" or row["fo1"] == 0:
             return "【発走前⏳】"
         nums = row["top3_nums"] if isinstance(row["top3_nums"], set) else set()
         hit_tan = (row["fo1"] == 1)
-        hit_fuku = (row["fo1"] <= 3)
+        hit_fuku = (1 <= row["fo1"] <= 3)
         hit_wide = (row["h1"] in nums) and (row["h2"] in nums if pd.notna(row["h2"]) else False)
         if hit_tan or hit_wide or hit_fuku:
             return "【的中🎯】"
@@ -102,7 +100,13 @@ def main():
             return "【不的中❌】"
 
     m["hit_tag"] = m.apply(check_hit, axis=1)
-    m["rank_order"] = m["rank_tag"].map({"🔥【SS】": 1, "⚡【S】": 2, "⭐【A】": 3, "【B】": 4}).fillna(5).astype(int)
+    m["rank_order"] = m["rank_tag"].map({
+        "🔥【SS】": 1,
+        "⚡【S】": 2,
+        "⭐【A】": 3,
+        "【B】": 4,
+        "【見送り】": 5
+    }).fillna(5).astype(int)
 
     def make_label(r):
         d_str = str(r["date"])[:10]
@@ -119,17 +123,29 @@ def main():
     cache_df = m[[
         "race_id", "date", "rank_tag", "hit_tag", "rank_order", "dropdown_label"
     ]].copy()
-    cache_path = Path("data/race_rank_cache.parquet")
+    cache_path = repo_root / "data" / "race_rank_cache.parquet"
     cache_df.to_parquet(cache_path, index=False)
     print(f"Saved {cache_path} ({len(cache_df)} races in {time.time() - t0:.1f}s).")
 
-    print("\n--- サンプル（直近・発走前） ---")
-    for lbl in m[m["date"] >= "2026-10-24"]["dropdown_label"].head(5):
-        print(lbl)
+    wk = m[m["date"] >= "2026-10-24"]
+    print("\n--- 今週末 (2026-10-24〜25) 全72レースのランク分布 ---")
+    print(wk["rank_tag"].value_counts())
 
-    print("\n--- サンプル（過去・確定） ---")
-    for lbl in m[m["date"] == "2026-10-18"]["dropdown_label"].head(5):
-        print(lbl)
+    mismatches = 0
+    for _, r_row in wk.iterrows():
+        rid = r_row["race_id"]
+        r_feat = df_feat[df_feat["race_id"] == rid].copy()
+        p_race = model.predict_race(r_feat)
+        v_eval = evaluate_race_value(p_race)
+        eval_rank_str = v_eval["rank"]
+        tag = r_row["rank_tag"]
+        expected_sub = "SSランク" if tag == "🔥【SS】" else ("Sランク" if tag == "⚡【S】" else ("Aランク" if tag == "⭐【A】" else ("Bランク" if tag == "【B】" else "見送り")))
+        if expected_sub not in eval_rank_str:
+            print(f"MISMATCH on {rid}: tag={tag}, eval={eval_rank_str}")
+            mismatches += 1
+        if rid in ("20261025_京都_02", "20261025_京都_11"):
+            print(f"CHECK {rid}: dropdown='{r_row['dropdown_label']}' -> detail='{eval_rank_str}'")
+    print(f"Verification complete: mismatches = {mismatches} / {len(wk)}")
 
 if __name__ == "__main__":
     main()
