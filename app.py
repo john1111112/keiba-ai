@@ -162,21 +162,26 @@ with tab1:
         df_feat, fcols = get_cached_features()
         model = KeibaAIModel()
         
-        # レースごとのAI判定ランクを高速タグ付け
-        rank_cache = {}
-        for rid, group in df_feat.groupby("race_id"):
-            if len(group) > 0:
-                pred_s = model.predict_race(group.head(5))
-                if len(pred_s) > 0:
-                    v_ev = evaluate_race_value(pred_s)
-                    rk = v_ev.get("rank", "")
-                    if "SSランク" in rk:
-                        rank_cache[str(rid)] = "🔥【SSランク】"
-                    elif "Sランク" in rk:
-                        rank_cache[str(rid)] = "⚡【Sランク】"
-                    elif "Aランク" in rk:
-                        rank_cache[str(rid)] = "⭐【Aランク】"
+        # レースごとのAI判定ランクをキャッシュ化してCPU負荷をゼロにする
+        @st.cache_data(show_spinner=False)
+        def get_all_race_rank_tags():
+            tags = {}
+            for rid, group in df_feat.groupby("race_id"):
+                if len(group) > 0:
+                    top_h = group.iloc[0]
+                    ev = top_h.get("expected_value", 0.0)
+                    odds = top_h.get("odds", 0.0)
+                    score = top_h.get("pred_score", 0.0)
+                    # 高速ルール判定（重い再計算をバイパス）
+                    if (score >= 0.70 and ev >= 1.3 and odds >= 15.0) or (score >= 0.50 and odds >= 15.0 and ev >= 2.0):
+                        tags[str(rid)] = "🔥【SSランク】"
+                    elif score >= 0.70 and ev >= 1.3:
+                        tags[str(rid)] = "⚡【Sランク】"
+                    elif score >= 0.60 and ev >= 1.25:
+                        tags[str(rid)] = "⭐【Aランク】"
+            return tags
 
+        rank_cache = get_all_race_rank_tags()
         races_df["rank_tag"] = races_df["race_id"].astype(str).map(lambda x: rank_cache.get(x, ""))
         races_df["label"] = races_df.apply(
             lambda r: f"{r['rank_tag']}【{r['date']}】{r['race_course']}{r['race_number']}R {r['race_name']} ({r['surface']}{r['distance']}m)",
@@ -388,15 +393,18 @@ with tab2:
     st.caption("『期待値が低いレースは見送り、AIオススメの勝負レースだけに絞って投資した場合』の真の収益率をシミュレーション検証しました。")
     
     df_feat_bt, _ = get_cached_features()
-    split_idx_bt = int(len(df_feat_bt) * 0.7)
-    test_df_bt = df_feat_bt.iloc[split_idx_bt:].copy()
     
-    model_bt = KeibaAIModel()
-    pred_test_bt = model_bt.predict_race(test_df_bt)
-    import importlib
-    import src.backtest as bt_mod
-    importlib.reload(bt_mod)
-    bt = bt_mod.run_backtest(pred_test_bt)
+    @st.cache_data(show_spinner=False)
+    def get_cached_backtest_data():
+        split_idx = int(len(df_feat_bt) * 0.7)
+        test_df = df_feat_bt.iloc[split_idx:].copy()
+        m = KeibaAIModel()
+        p = m.predict_race(test_df)
+        b = run_backtest(p)
+        r = analyze_rank_performance(p)
+        return b, r
+
+    bt, rank_perf = get_cached_backtest_data()
     
     # 新旧キー互換フォールバック
     if "raw_tansho" in bt:
@@ -423,7 +431,6 @@ with tab2:
     
     # ランク別フィルタリング
     st.markdown("#### 🔍 判定ランク別の収益率フィルター")
-    rank_perf = analyze_rank_performance(pred_test_bt)
     
     selected_rank_filter = st.radio(
         "分析する勝負度ランクを選択してください",
@@ -561,9 +568,14 @@ with tab2:
 with tab3:
     st.markdown("### 🏆 AI予想の実力測定 ＆ 勝率が跳ね上がる『黄金条件』")
     df_feat_all, fcols_all = get_cached_features()
-    model_eval = KeibaAIModel()
-    pred_all = model_eval.predict_race(df_feat_all)
-    analysis = analyze_winning_conditions(pred_all)
+    
+    @st.cache_data(show_spinner=False)
+    def get_cached_golden_analysis():
+        m = KeibaAIModel()
+        p = m.predict_race(df_feat_all)
+        return analyze_winning_conditions(p)
+
+    analysis = get_cached_golden_analysis()
     
     ov = analysis["overall"]
     c1, c2, c3, c4 = st.columns(4)
