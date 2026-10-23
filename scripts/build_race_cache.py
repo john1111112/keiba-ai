@@ -75,12 +75,9 @@ def main():
     est_umaren = m["o1"] * m["o2"].fillna(1.0) * 0.55
     m["max_return_odds"] = np.maximum(m["o1"], np.maximum(m["max_ana_odds"], est_umaren))
 
-    c_ss = (
-        ((m["s1"] >= 0.70) & (m["ev1"] >= 1.3) & (m["max_return_odds"] >= 15.0)) |
-        ((m["s1"] >= 0.50) & (m["o1"] >= 15.0) & (m["ev1"] >= 2.0))
-    )
-    c_s = (m["s1"] >= 0.70) & (m["ev1"] >= 1.3)
-    c_a = (m["s1"] >= 0.60) & (m["ev1"] >= 1.25)
+    c_ss = m["s1"] >= 0.82
+    c_s = m["s1"] >= 0.75
+    c_a = m["s1"] >= 0.65
 
     conditions = [c_ss, c_s, c_a]
     choices = ["🔥【SS】", "⚡【S】", "⭐【A】"]

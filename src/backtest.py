@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 import numpy as np
 from typing import Dict, Any, List
 
@@ -131,17 +131,19 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> dict:
     """
     from src.betting_strategy import evaluate_race_value
     
-    grouped = df_evaluated.groupby("race_id")
+    valid_df = df_evaluated[df_evaluated["finish_order"] > 0] if "finish_order" in df_evaluated.columns else df_evaluated
+    grouped = valid_df.groupby("race_id")
     total_races = len(grouped)
     
     stats = {
-        "Sランクのみ (超激アツ)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "cum": []},
-        "Aランクのみ (自信あり)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "cum": []},
-        "S+Aランク合計 (勝負レース)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "cum": []},
-        "全レース (見送りなし)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "cum": []}
+        "🔥 SSランクのみ (鉄板勝負)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "place_hits": 0, "cum": []},
+        "⚡ Sランクのみ (超激アツ)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "place_hits": 0, "cum": []},
+        "⭐ Aランクのみ (自信あり)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "place_hits": 0, "cum": []},
+        "SS+Sランク合計 (激アツ勝負)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "place_hits": 0, "cum": []},
+        "全レース (見送りなし)": {"races": 0, "bets": 0, "returns": 0, "hits": 0, "place_hits": 0, "cum": []}
     }
     
-    cum_s, cum_a, cum_sa, cum_all = 0, 0, 0, 0
+    cum_ss, cum_s, cum_a, cum_ss_s, cum_all = 0, 0, 0, 0, 0
     
     for rid, group in grouped:
         sorted_g = group.sort_values("pred_score", ascending=False).reset_index(drop=True)
@@ -152,6 +154,7 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> dict:
         rank = val.get("rank", "")
         
         is_hit = (top1["finish_order"] == 1)
+        is_place = (top1["finish_order"] <= 3)
         odds = top1["odds"]
         
         # 1. 全レース
@@ -161,47 +164,62 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> dict:
         ret_all = int(odds * bet_all) if is_hit else 0
         stats["全レース (見送りなし)"]["returns"] += ret_all
         if is_hit: stats["全レース (見送りなし)"]["hits"] += 1
+        if is_place: stats["全レース (見送りなし)"]["place_hits"] += 1
         cum_all += (ret_all - bet_all)
         stats["全レース (見送りなし)"]["cum"].append(cum_all)
         
-        # 2. Sランク
-        if "Sランク" in rank:
-            bet_s = 1500  # Sランクはケリー厚め
-            stats["Sランクのみ (超激アツ)"]["races"] += 1
-            stats["Sランクのみ (超激アツ)"]["bets"] += bet_s
+        # 2. SSランク (好走率82%以上)
+        if "SSランク" in rank:
+            bet_ss = 2000
+            stats["🔥 SSランクのみ (鉄板勝負)"]["races"] += 1
+            stats["🔥 SSランクのみ (鉄板勝負)"]["bets"] += bet_ss
+            ret_ss = int(odds * bet_ss) if is_hit else 0
+            stats["🔥 SSランクのみ (鉄板勝負)"]["returns"] += ret_ss
+            if is_hit: stats["🔥 SSランクのみ (鉄板勝負)"]["hits"] += 1
+            if is_place: stats["🔥 SSランクのみ (鉄板勝負)"]["place_hits"] += 1
+            cum_ss += (ret_ss - bet_ss)
+            
+            stats["SS+Sランク合計 (激アツ勝負)"]["races"] += 1
+            stats["SS+Sランク合計 (激アツ勝負)"]["bets"] += bet_ss
+            stats["SS+Sランク合計 (激アツ勝負)"]["returns"] += ret_ss
+            if is_hit: stats["SS+Sランク合計 (激アツ勝負)"]["hits"] += 1
+            if is_place: stats["SS+Sランク合計 (激アツ勝負)"]["place_hits"] += 1
+            cum_ss_s += (ret_ss - bet_ss)
+        stats["🔥 SSランクのみ (鉄板勝負)"]["cum"].append(cum_ss)
+        
+        # 3. Sランク (好走率75%以上〜82%未満)
+        if "Sランク" in rank and "SS" not in rank:
+            bet_s = 1500
+            stats["⚡ Sランクのみ (超激アツ)"]["races"] += 1
+            stats["⚡ Sランクのみ (超激アツ)"]["bets"] += bet_s
             ret_s = int(odds * bet_s) if is_hit else 0
-            stats["Sランクのみ (超激アツ)"]["returns"] += ret_s
-            if is_hit: stats["Sランクのみ (超激アツ)"]["hits"] += 1
+            stats["⚡ Sランクのみ (超激アツ)"]["returns"] += ret_s
+            if is_hit: stats["⚡ Sランクのみ (超激アツ)"]["hits"] += 1
+            if is_place: stats["⚡ Sランクのみ (超激アツ)"]["place_hits"] += 1
             cum_s += (ret_s - bet_s)
             
-            # S+A にも加算
-            stats["S+Aランク合計 (勝負レース)"]["races"] += 1
-            stats["S+Aランク合計 (勝負レース)"]["bets"] += bet_s
-            stats["S+Aランク合計 (勝負レース)"]["returns"] += ret_s
-            if is_hit: stats["S+Aランク合計 (勝負レース)"]["hits"] += 1
-            cum_sa += (ret_s - bet_s)
+            stats["SS+Sランク合計 (激アツ勝負)"]["races"] += 1
+            stats["SS+Sランク合計 (激アツ勝負)"]["bets"] += bet_s
+            stats["SS+Sランク合計 (激アツ勝負)"]["returns"] += ret_s
+            if is_hit: stats["SS+Sランク合計 (激アツ勝負)"]["hits"] += 1
+            if is_place: stats["SS+Sランク合計 (激アツ勝負)"]["place_hits"] += 1
+            cum_ss_s += (ret_s - bet_s)
             
-        stats["Sランクのみ (超激アツ)"]["cum"].append(cum_s)
+        stats["⚡ Sランクのみ (超激アツ)"]["cum"].append(cum_s)
+        stats["SS+Sランク合計 (激アツ勝負)"]["cum"].append(cum_ss_s)
         
-        # 3. Aランク
+        # 4. Aランク (好走率65%以上〜75%未満)
         if "Aランク" in rank:
             bet_a = 1000
-            stats["Aランクのみ (自信あり)"]["races"] += 1
-            stats["Aランクのみ (自信あり)"]["bets"] += bet_a
+            stats["⭐ Aランクのみ (自信あり)"]["races"] += 1
+            stats["⭐ Aランクのみ (自信あり)"]["bets"] += bet_a
             ret_a = int(odds * bet_a) if is_hit else 0
-            stats["Aランクのみ (自信あり)"]["returns"] += ret_a
-            if is_hit: stats["Aランクのみ (自信あり)"]["hits"] += 1
+            stats["⭐ Aランクのみ (自信あり)"]["returns"] += ret_a
+            if is_hit: stats["⭐ Aランクのみ (自信あり)"]["hits"] += 1
+            if is_place: stats["⭐ Aランクのみ (自信あり)"]["place_hits"] += 1
             cum_a += (ret_a - bet_a)
             
-            # S+A にも加算
-            stats["S+Aランク合計 (勝負レース)"]["races"] += 1
-            stats["S+Aランク合計 (勝負レース)"]["bets"] += bet_a
-            stats["S+Aランク合計 (勝負レース)"]["returns"] += ret_a
-            if is_hit: stats["S+Aランク合計 (勝負レース)"]["hits"] += 1
-            cum_sa += (ret_a - bet_a)
-            
-        stats["Aランクのみ (自信あり)"]["cum"].append(cum_a)
-        stats["S+Aランク合計 (勝負レース)"]["cum"].append(cum_sa)
+        stats["⭐ Aランクのみ (自信あり)"]["cum"].append(cum_a)
         
     results = {}
     for k, v in stats.items():
@@ -209,6 +227,7 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> dict:
         b = v["bets"]
         r = v["returns"]
         h = v["hits"]
+        ph = v.get("place_hits", 0)
         results[k] = {
             "races": n,
             "skip_races": total_races - n,
@@ -218,6 +237,8 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> dict:
             "recovery_rate": round(r / b * 100, 1) if b > 0 else 0,
             "hit_rate": round(h / n * 100, 1) if n > 0 else 0,
             "hits": h,
+            "place_rate": round(ph / n * 100, 1) if n > 0 else 0,
+            "place_hits": ph,
             "cum": v["cum"]
         }
     return results
