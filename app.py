@@ -6,7 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
-from src.database import init_db, load_all_race_data, get_db_stats, get_connection
+from src.database import init_db, load_all_race_data, get_db_stats, get_connection, get_races_metadata
 from src.features import build_features
 from src.model import KeibaAIModel, MODEL_PATH
 from src.scraper import bulk_generate_large_historical_dataset
@@ -149,15 +149,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # タブ1: レース予想
 # ==========================================
 with tab1:
-    df_raw = load_all_race_data()
-    if len(df_raw) == 0:
+    races_df = get_races_metadata()
+    if len(races_df) == 0:
         st.info("💡 データを読み込んでください。")
     elif not MODEL_PATH.exists():
         st.info("💡 AIモデルを学習してください。")
     else:
-        races_df = df_raw[df_raw["date"] <= "2026-10-25"][
-            ["race_id", "date", "race_course", "race_number", "race_name", "surface", "distance", "condition"]
-        ].drop_duplicates("race_id").copy()
         
         df_feat, fcols = get_cached_features()
         model = KeibaAIModel()
@@ -665,15 +662,16 @@ with tab4:
 with tab5:
     st.subheader("📊 データベース集積状況")
     col_d1, col_d2 = st.columns(2)
+    conn_d = get_connection()
+    c_counts = pd.read_sql_query("SELECT race_course as '競馬場', count(*) as 'レース数' FROM races GROUP BY race_course", conn_d)
+    s_counts = pd.read_sql_query("SELECT surface as 'コース種別', count(*) as 'レース数' FROM races GROUP BY surface", conn_d)
+    conn_d.close()
+    
     with col_d1:
         st.write("**競馬場別レース数**")
-        course_counts = df_raw.drop_duplicates("race_id")["race_course"].value_counts().reset_index()
-        course_counts.columns = ["競馬場", "レース数"]
-        fig_pie = px.pie(course_counts, names="競馬場", values="レース数", hole=0.4)
+        fig_pie = px.pie(c_counts, names="競馬場", values="レース数", hole=0.4)
         st.plotly_chart(fig_pie, use_container_width=True)
     with col_d2:
         st.write("**コース（芝/ダート）別分布**")
-        surf_counts = df_raw.drop_duplicates("race_id")["surface"].value_counts().reset_index()
-        surf_counts.columns = ["コース種別", "レース数"]
-        fig_bar2 = px.bar(surf_counts, x="コース種別", y="レース数", color="コース種別")
+        fig_bar2 = px.bar(s_counts, x="コース種別", y="レース数", color="コース種別")
         st.plotly_chart(fig_bar2, use_container_width=True)

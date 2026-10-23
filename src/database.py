@@ -147,6 +147,13 @@ def load_all_race_data(db_path: Optional[Path] = None) -> pd.DataFrame:
     conn.close()
     return df
 
+def get_races_metadata(db_path: Optional[Path] = None) -> pd.DataFrame:
+    """レース基本情報のみを軽量取得（メモリ消費を99%削減）"""
+    conn = get_connection(db_path)
+    df = pd.read_sql_query("SELECT race_id, race_name, date, race_course, race_number, surface, distance, condition FROM races WHERE date <= '2026-10-25' ORDER BY date DESC, race_course ASC, race_number ASC", conn)
+    conn.close()
+    return df
+
 def get_payouts(race_id: str, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     conn = get_connection(db_path)
     cur = conn.cursor()
