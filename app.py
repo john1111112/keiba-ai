@@ -197,9 +197,26 @@ with tab1:
         race_feat = df_feat[df_feat["race_id"].astype(str) == str(sel_race_id)].copy()
         
         if len(race_feat) == 0:
-            raw_target = df_raw[df_raw["race_id"].astype(str) == str(sel_race_id)].copy()
+            conn_single = get_connection()
+            query_single = """
+            SELECT 
+                r.race_id, r.race_name, r.date, r.race_course, r.race_number,
+                r.surface, r.distance, r.direction, r.weather, r.condition, r.grade,
+                res.finish_order, res.bracket_number, res.horse_number,
+                res.horse_id, res.horse_name, res.sex, res.age, res.weight_carry,
+                res.jockey_id, res.jockey_name, res.time_str, res.time_sec,
+                res.margin_str, res.last_3f, res.odds, res.popularity,
+                res.horse_weight, res.horse_weight_diff, res.trainer_id, res.trainer_name,
+                res.sire, res.sire_type, res.running_style, res.corner_4_pos, res.rest_weeks
+            FROM races r
+            JOIN race_results res ON r.race_id = res.race_id
+            WHERE r.race_id = ?
+            ORDER BY res.horse_number ASC
+            """
+            raw_target = pd.read_sql_query(query_single, conn_single, params=(str(sel_race_id),))
+            conn_single.close()
             if len(raw_target) > 0:
-                feat_target, _ = build_features(pd.concat([df_raw.head(200), raw_target]))
+                feat_target, _ = build_features(raw_target)
                 race_feat = feat_target[feat_target["race_id"].astype(str) == str(sel_race_id)].copy()
                 
         model = KeibaAIModel()
