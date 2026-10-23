@@ -49,6 +49,14 @@ st.markdown("""
 init_db()
 
 FEATURES_CACHE_PATH = Path(__file__).resolve().parent / "data" / "features.parquet"
+RACE_RANK_CACHE_PATH = Path(__file__).resolve().parent / "data" / "race_rank_cache.parquet"
+
+@st.cache_data(show_spinner=False)
+def get_cached_race_rank_df():
+    """全レースのランク判定・的中判定キャッシュ（0.01秒ロード）"""
+    if RACE_RANK_CACHE_PATH.exists():
+        return pd.read_parquet(RACE_RANK_CACHE_PATH)
+    return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
 def get_cached_features():
@@ -159,37 +167,41 @@ with tab1:
         df_feat, fcols = get_cached_features()
         model = KeibaAIModel()
         
-        # レースごとのAI判定ランクをキャッシュ化してCPU負荷をゼロにする
-        @st.cache_data(show_spinner=False)
-        def get_all_race_rank_tags():
-            tags = {}
-            for rid, group in df_feat.groupby("race_id"):
-                if len(group) > 0:
-                    top_h = group.iloc[0]
-                    ev = top_h.get("expected_value", 0.0)
-                    odds = top_h.get("odds", 0.0)
-                    score = top_h.get("pred_score", 0.0)
-                    # 高速ルール判定（重い再計算をバイパス）
-                    if (score >= 0.70 and ev >= 1.3 and odds >= 15.0) or (score >= 0.50 and odds >= 15.0 and ev >= 2.0):
-                        tags[str(rid)] = "🔥【SSランク】"
-                    elif score >= 0.70 and ev >= 1.3:
-                        tags[str(rid)] = "⚡【Sランク】"
-                    elif score >= 0.60 and ev >= 1.25:
-                        tags[str(rid)] = "⭐【Aランク】"
-            return tags
+        cache_rank_df = get_cached_race_rank_df()
+        if len(cache_rank_df) > 0:
+            cache_rank_df["race_id"] = cache_rank_df["race_id"].astype(str)
+            races_df["race_id"] = races_df["race_id"].astype(str)
+            races_df = races_df.merge(
+                cache_rank_df[["race_id", "rank_tag", "hit_tag", "rank_order", "dropdown_label"]],
+                on="race_id",
+                how="left"
+            )
+            races_df["rank_tag"] = races_df["rank_tag"].fillna("【B】")
+            races_df["hit_tag"] = races_df["hit_tag"].fillna("【発走前⏳】")
+            races_df["rank_order"] = races_df["rank_order"].fillna(4).astype(int)
+            def _build_label(r):
+                d_str = str(r["date"])[:10]
+                r_name = str(r["race_name"])
+                prefix = f"{r['race_course']}{r['race_number']}R"
+                clean_name = r_name if r_name.startswith(prefix) else f"{prefix} {r_name}"
+                return f"{r['rank_tag']} {r['hit_tag']} 【{d_str}】{clean_name} ({r['surface']}{r['distance']}m)"
+            races_df["label"] = races_df["dropdown_label"].fillna(races_df.apply(_build_label, axis=1))
+        else:
+            races_df["rank_tag"] = "【-】"
+            races_df["hit_tag"] = races_df["date"].apply(lambda d: "【発走前⏳】" if str(d)[:10] > "2026-10-23" else "")
+            races_df["rank_order"] = 4
+            def _build_label(r):
+                d_str = str(r["date"])[:10]
+                r_name = str(r["race_name"])
+                prefix = f"{r['race_course']}{r['race_number']}R"
+                clean_name = r_name if r_name.startswith(prefix) else f"{prefix} {r_name}"
+                return f"{r['rank_tag']} {r['hit_tag']} 【{d_str}】{clean_name} ({r['surface']}{r['distance']}m)"
+            races_df["label"] = races_df.apply(_build_label, axis=1)
 
-        rank_cache = get_all_race_rank_tags()
-        races_df["rank_tag"] = races_df["race_id"].astype(str).map(lambda x: rank_cache.get(x, ""))
-        races_df["label"] = races_df.apply(
-            lambda r: f"{r['rank_tag']}【{r['date']}】{r['race_course']}{r['race_number']}R {r['race_name']} ({r['surface']}{r['distance']}m)",
-            axis=1
-        )
-        
-        # SSランク・Sランクを優先して見やすくソート（ランクあり ➜ 日付最新順）
-        races_df["has_rank"] = races_df["rank_tag"].map(lambda x: 1 if "SS" in x else (2 if "S" in x else (3 if "A" in x else 4)))
-        races_df = races_df.sort_values(["has_rank", "date", "race_course", "race_number"], ascending=[True, False, True, True]).reset_index(drop=True)
-        
-        selected_label = st.selectbox("予想対象レースを選択（最新順 / SS・Sランク上位表示）", races_df["label"].tolist(), index=0)
+        # 最新順かつ各日の中でSS/Sランクを上位に並べる
+        races_df = races_df.sort_values(["date", "rank_order", "race_course", "race_number"], ascending=[False, True, True, True]).reset_index(drop=True)
+
+        selected_label = st.selectbox("予想対象レースを選択（最新日付順 / 日ごとにSS・Sランク優先表示）", races_df["label"].tolist(), index=0)
         sel_race_row = races_df[races_df["label"] == selected_label].iloc[0]
         sel_race_id = sel_race_row["race_id"]
         
@@ -232,7 +244,7 @@ with tab1:
         """)
         
         # 過去レース（2026-10-23以前）の場合は「確定着順 ＆ AI的中判定」を表示
-        is_past_race = sel_race_row["date"] <= "2026-10-23"
+        is_past_race = str(sel_race_row["date"])[:10] <= "2026-10-23"
         
         if is_past_race and "finish_order" in pred_race.columns:
             # 実際の上位3頭
@@ -254,19 +266,24 @@ with tab1:
                 p["horse_number"] in top3_finish_nums for p in [top2_horse, top3_horse] if p is not None
             )
             
-            status_color = "#16A34A" if hit_tansho or hit_wide else "#DC2626"
-            hit_badge = "🎉 【的中！】 AI予想が的中しました！" if hit_tansho or hit_wide else "❌ 【不的中】 今回は悔しい結果となりました"
+            is_hit_overall = hit_tansho or hit_wide or hit_fukusho
+            status_color = "#16A34A" if is_hit_overall else "#DC2626"
+            hit_badge = "🎉 【的中！】 AI予想が的中しました！" if is_hit_overall else "❌ 【不的中】 今回は悔しい結果となりました"
+            
+            act_1st_str = f"{act_1st.iloc[0]['horse_number']}番 {act_1st.iloc[0]['horse_name']} ({act_1st.iloc[0]['odds']}倍)" if len(act_1st) > 0 else "-"
+            act_2nd_str = f"{act_2nd.iloc[0]['horse_number']}番 {act_2nd.iloc[0]['horse_name']} ({act_2nd.iloc[0]['odds']}倍)" if len(act_2nd) > 0 else "-"
+            act_3rd_str = f"{act_3rd.iloc[0]['horse_number']}番 {act_3rd.iloc[0]['horse_name']} ({act_3rd.iloc[0]['odds']}倍)" if len(act_3rd) > 0 else "-"
             
             st.markdown(f"""
-            <div style="background: {'#F0FDF4' if hit_tansho or hit_wide else '#FEF2F2'}; border: 2px solid {status_color}; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.5rem;">
+            <div style="background: {'#F0FDF4' if is_hit_overall else '#FEF2F2'}; border: 2px solid {status_color}; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.5rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="font-size: 1.25rem; font-weight: bold; color: {status_color};">{hit_badge}</div>
                     <div style="font-size: 0.9rem; background:{status_color}; color:white; padding:3px 10px; border-radius:20px; font-weight:bold;">レース確定</div>
                 </div>
                 <div style="margin-top: 0.8rem; display: flex; gap: 2rem; flex-wrap: wrap;">
-                    <div><b>🥇 1着:</b> {act_1st.iloc[0]['horse_number']}番 {act_1st.iloc[0]['horse_name']} ({act_1st.iloc[0]['odds']}倍)</div>
-                    <div><b>🥈 2着:</b> {act_2nd.iloc[0]['horse_number']}番 {act_2nd.iloc[0]['horse_name']} ({act_2nd.iloc[0]['odds']}倍) if len(act_2nd) > 0 else ''</div>
-                    <div><b>🥉 3着:</b> {act_3rd.iloc[0]['horse_number']}番 {act_3rd.iloc[0]['horse_name']} ({act_3rd.iloc[0]['odds']}倍) if len(act_3rd) > 0 else ''</div>
+                    <div><b>🥇 1着:</b> {act_1st_str}</div>
+                    <div><b>🥈 2着:</b> {act_2nd_str}</div>
+                    <div><b>🥉 3着:</b> {act_3rd_str}</div>
                 </div>
                 <div style="margin-top: 0.6rem; font-size: 0.95rem; color: #374151;">
                     ・本命 (◎) {top1_horse['horse_name']}: <b>確定 {top1_horse['finish_order']}着</b> {'(単勝的中！🎯)' if hit_tansho else ('(複勝的中！🎯)' if hit_fukusho else '(着外)')}<br>
