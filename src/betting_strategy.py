@@ -171,5 +171,11 @@ def evaluate_race_value(pred_race: pd.DataFrame, min_ev_threshold: float = 1.25)
             "odds": top_ana["odds"],
             "expected_value": round(top_ana["expected_value"], 2)
         } if top_ana is not None else None,
+        "plunge_horse": {
+            "horse_number": int(target_plunge["horse_number"]),
+            "horse_name": target_plunge["horse_name"],
+            "odds": target_plunge["odds"],
+            "expected_value": round(target_plunge["expected_value"], 2)
+        } if (len(pred_race[(pred_race["expected_value"] >= 1.3) & (pred_race["odds"] <= 8.5) & (pred_race["pred_score"] >= 0.55)]) > 0 and (target_plunge := pred_race[(pred_race["expected_value"] >= 1.3) & (pred_race["odds"] <= 8.5) & (pred_race["pred_score"] >= 0.55)].iloc[0]) is not None) else None,
         "recommendations": recommendations
     }
