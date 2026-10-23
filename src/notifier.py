@@ -94,8 +94,8 @@ def send_race_alert(race_info: Dict[str, Any], val_eval: Dict[str, Any], webhook
             "inline": False
         })
         
-    # 大口投票インサイダー検知
-    if val_eval.get("plunge_horse"):
+    # 大口投票インサイダー検知（SランクまたはSSランクの勝負レース時のみ掲載）
+    if ("Sランク" in rank or "SSランク" in rank) and val_eval.get("plunge_horse"):
         p_h = val_eval["plunge_horse"]
         fields.append({
             "name": "🚨 大口投票・オッズ急降下検知 (関係者勝負気配)",
