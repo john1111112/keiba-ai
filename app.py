@@ -426,7 +426,7 @@ with tab2:
     else:
         old_t = bt.get("tansho", {})
         raw_res = {
-            "races": len(pred_test_bt.groupby("race_id")),
+            "races": old_t.get("races", 2434),
             "bets": old_t.get("bets", 243400),
             "profit": old_t.get("returns", 185927) - old_t.get("bets", 243400),
             "recovery_rate": old_t.get("recovery_rate", 76.4),
@@ -558,7 +558,8 @@ with tab2:
     
     st.divider()
     st.subheader("🔍 AIが重視しているファクター（特徴量重要度）")
-    fi_bt = model_bt.get_feature_importance().head(12)
+    m_fi = KeibaAIModel()
+    fi_bt = m_fi.get_feature_importance().head(12)
     label_map_bt = {
         "past_avg_rank": "過去平均着順", "jockey_place_rate": "騎手複勝率",
         "past_race_count": "キャリア出走数", "past_place_rate": "過去複勝率",
