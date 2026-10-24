@@ -24,6 +24,7 @@ send_discord_test = getattr(notif_mod, "send_discord_test")
 send_race_alert = getattr(notif_mod, "send_race_alert")
 send_s_rank_alert = getattr(notif_mod, "send_s_rank_alert", send_race_alert)
 check_and_auto_notify_s_rank = getattr(notif_mod, "check_and_auto_notify_s_rank", None)
+notify_all_predicted_ss_s_races = getattr(notif_mod, "notify_all_predicted_ss_s_races", None)
 get_notified_races = getattr(notif_mod, "get_notified_races", list)
 NOTIFIED_PATH = getattr(notif_mod, "NOTIFIED_PATH", Path(__file__).resolve().parent / "data" / "notified_races.json")
 run_backtest = getattr(bt_mod, "run_backtest")
@@ -174,6 +175,10 @@ with tab1:
     else:
         df_feat, fcols = get_cached_features(cache_mtime)
         model = KeibaAIModel()
+        
+        # レース選択を待たず、AI予想データ生成時点で未通知の発走前SS/Sランク全鞍を一括自動プッシュ通知
+        if notify_all_predicted_ss_s_races:
+            notify_all_predicted_ss_s_races(df_feat, model)
         
         cache_rank_df = get_cached_race_rank_df(cache_mtime)
         if len(cache_rank_df) > 0:
@@ -333,25 +338,10 @@ with tab1:
         else:
             rank_color = "#4B5563"
         
-        # SSランク・Sランク予想かつ未送信の場合は自動でDiscord通知を発信
+        # 画面でのレース選択時に遅延通知するのではなく、AI予想算出時点で一括自動通知済みであることを表示
         auto_notif_status = ""
-        if "Sランク" in val_eval.get("rank", ""):
-            r_info_dict = {
-                "race_id": str(sel_race_id),
-                "date": sel_race_row["date"],
-                "race_course": sel_race_row["race_course"],
-                "race_number": sel_race_row["race_number"],
-                "race_name": sel_race_row["race_name"],
-                "surface": sel_race_row["surface"],
-                "distance": sel_race_row["distance"],
-                "condition": sel_race_row["condition"]
-            }
-            if check_and_auto_notify_s_rank:
-                auto_res = check_and_auto_notify_s_rank(r_info_dict, val_eval)
-                if auto_res and auto_res.get("success"):
-                    auto_notif_status = "🚀 【自動発信完了】勝負レースのため、Discordへ自動通知（プッシュ通知）を送信しました！"
-                else:
-                    auto_notif_status = "✅ 【送信済み】この勝負レースは既にDiscordへ自動通知済みです。"
+        if "Sランク" in val_eval.get("rank", "") and not is_past_race:
+            auto_notif_status = "✅ 【AI予想算出時に自動プッシュ通知済み】この勝負レースはAIがSS/Sランクと判定した時点でDiscordへ自動通知済みです。"
         
         st.markdown(f"""
         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-left: 6px solid {rank_color}; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
@@ -692,38 +682,27 @@ with tab4:
                 st.error(f"❌ 送信エラー: {t_res['message']}")
                 
     st.divider()
-    st.markdown("#### 2. 勝負レースのDiscord発信フィルター")
-    send_mode = st.radio("送信対象フィルター", ["🔥 Sランク超激アツ勝負レースのみ発信（推奨）", "S・Aランク両方を発信"], index=0)
-    
-    if st.button("📢 選択中のレースをDiscordへ発信！", use_container_width=True, type="primary"):
-        df_feat_cur, _ = get_cached_features(cache_mtime)
-        race_cur = df_feat_cur[df_feat_cur["race_name"].str.contains("菊花賞", na=False)]
-        if len(race_cur) > 0:
-            m = KeibaAIModel()
-            p_cur = m.predict_race(race_cur)
-            v_eval = evaluate_race_value(p_cur)
-            r_info = {
-                "date": "2026-10-25", "race_course": "京都", "race_number": 11,
-                "race_name": "菊花賞 (G1)", "surface": "芝", "distance": 3000, "condition": "良"
-            }
-            if "Sランクのみ" in send_mode:
-                send_res = send_s_rank_alert(r_info, v_eval, tab_hook_input)
-            else:
-                send_res = send_race_alert(r_info, v_eval, tab_hook_input)
-                
-            if send_res["success"]:
-                st.success(f"🚀 {r_info['race_name']} の予想をDiscordに送信しました！")
-            else:
-                st.info(f"ℹ️ {send_res['message']}")
-                
-    st.divider()
-    st.markdown("#### 3. 🤖 Sランク自動送信ステータス")
+    st.markdown("#### 2. 🤖 AI予想算出時の一括自動通知ステータス")
     notified_list = get_notified_races()
-    st.info(f"現在、**{len(notified_list)}件** の勝負レースがDiscordに自動通知済みです（重複送信は自動防止されます）。")
-    if st.button("🔄 送信済み履歴をリセット（再テスト用）"):
-        if NOTIFIED_PATH.exists():
-            NOTIFIED_PATH.unlink()
-        st.success("送信済み履歴をクリアしました！")
+    st.success(f"現在、AIがSSランク・Sランクと予想した発走前勝負レース **{len(notified_list)}鞍** が、予想算出時点でDiscordへ一括自動通知済みです（サイトを開いてレースを選択する前に自動通知されます）。")
+    col_n1, col_n2 = st.columns(2)
+    with col_n1:
+        if st.button("🚀 今週末の全SS・Sランク予想を今すぐ一括再送信する", use_container_width=True, type="primary"):
+            if NOTIFIED_PATH.exists():
+                NOTIFIED_PATH.unlink()
+            df_feat_cur, _ = get_cached_features(cache_mtime)
+            m = KeibaAIModel()
+            if notify_all_predicted_ss_s_races:
+                b_res = notify_all_predicted_ss_s_races(df_feat_cur, m, tab_hook_input)
+                if b_res.get("success"):
+                    st.success(f"🎉 {b_res.get('message')}")
+                else:
+                    st.error(b_res.get("message", "送信エラー"))
+    with col_n2:
+        if st.button("🔄 送信済み履歴をリセット", use_container_width=True):
+            if NOTIFIED_PATH.exists():
+                NOTIFIED_PATH.unlink()
+            st.success("送信済み履歴をクリアしました！")
 
 # ==========================================
 # タブ5: 蓄積データ統計

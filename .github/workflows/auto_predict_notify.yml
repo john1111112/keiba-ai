@@ -1,0 +1,27 @@
+name: Auto Predict & Discord Notify (SS/S Rank)
+
+on:
+  schedule:
+    # 毎週土曜・日曜の朝 08:00 JST (金曜・土曜 23:00 UTC) に自動実行してDiscordへプッシュ通知
+    - cron: '0 23 * * 5,6'
+  workflow_dispatch:
+
+jobs:
+  predict-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run AI prediction & auto-notify SS/S rank races to Discord
+        run: |
+          python scripts/build_race_cache.py

@@ -16,6 +16,7 @@ from src.database import load_all_race_data
 from src.features import build_features
 from src.model import KeibaAIModel
 from src.betting_strategy import evaluate_race_value
+from src.notifier import notify_all_predicted_ss_s_races
 
 def main():
     t0 = time.time()
@@ -128,6 +129,11 @@ def main():
     wk = m[m["date"] >= "2026-10-24"]
     print("\n--- 今週末 (2026-10-24〜25) 全72レースのランク分布 ---")
     print(wk["rank_tag"].value_counts())
+
+    # AI予想算出完了時点で即座にSSランク・Sランク全鞍をDiscordへ一括自動通知
+    print("\nSending automatic Discord notifications for all predicted SS/S rank races...")
+    notif_res = notify_all_predicted_ss_s_races(df_feat, model)
+    print("Notification result:", notif_res)
 
     r_nakayama = m[m["race_id"] == "20270008077"]
     if len(r_nakayama) > 0:
