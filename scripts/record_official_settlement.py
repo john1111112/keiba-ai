@@ -64,14 +64,17 @@ def record_single_official_settlement(
         if cur.fetchone():
             raise ValueError(f"Race {race_id} Horse {horse_number} is already settled")
 
-        # 精算レコードの作成・適用
+        # 精算レコードの作成・適用 (真正性メタデータを永続保持)
         record = {
             "race_id": race_id,
             "horse_number": horse_number,
             "prediction_at": prediction_at,
             "won": won,
             "official_payout_yen": official_payout_yen,
-            "settled_at": clean_settled_at
+            "settled_at": clean_settled_at,
+            "source_url": source_url.strip(),
+            "verified_by": verified_by.strip(),
+            "verification_status": "verified"
         }
         settle(ledger_path, [record])
 

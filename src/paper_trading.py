@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS predictions (
 CREATE TABLE IF NOT EXISTS settlements (
  race_id TEXT NOT NULL, horse_number INTEGER NOT NULL, prediction_at TEXT NOT NULL,
  won INTEGER NOT NULL CHECK(won IN (0,1)), official_payout_yen INTEGER NOT NULL CHECK(official_payout_yen>=0),
- settled_at TEXT NOT NULL, PRIMARY KEY(race_id,horse_number,prediction_at),
+ settled_at TEXT NOT NULL,
+ source_url TEXT,
+ verified_by TEXT,
+ verification_status TEXT DEFAULT 'verified',
+ PRIMARY KEY(race_id,horse_number,prediction_at),
  FOREIGN KEY(race_id,horse_number,prediction_at) REFERENCES predictions(race_id,horse_number,prediction_at)
 );
 CREATE TRIGGER IF NOT EXISTS predictions_immutable_update BEFORE UPDATE ON predictions BEGIN SELECT RAISE(ABORT,'immutable'); END;
@@ -42,6 +46,15 @@ def connect(path):
     c = sqlite3.connect(p)
     c.execute('PRAGMA foreign_keys=ON')
     c.executescript(SCHEMA)
+    # 安全なマイグレーション: 真正性カラムがなければ動的に追加
+    cur = c.execute("PRAGMA table_info(settlements)")
+    cols = {r[1] for r in cur.fetchall()}
+    if cols and 'source_url' not in cols:
+        c.execute("ALTER TABLE settlements ADD COLUMN source_url TEXT")
+    if cols and 'verified_by' not in cols:
+        c.execute("ALTER TABLE settlements ADD COLUMN verified_by TEXT")
+    if cols and 'verification_status' not in cols:
+        c.execute("ALTER TABLE settlements ADD COLUMN verification_status TEXT DEFAULT 'verified'")
     return c
 
 def capture(path, records):
@@ -73,9 +86,20 @@ def settle(path, records):
         payout = int(r['official_payout_yen'])
         if won not in (0,1) or payout < 0 or (won == 0 and payout != 0) or (won == 1 and payout < 100):
             raise ValueError('inconsistent official payout')
-        rows.append((str(r['race_id']),int(r['horse_number']),utc_time(r['prediction_at']),won,payout,utc_time(r['settled_at'])))
+        source_url = str(r.get('source_url', '')).strip() or None
+        verified_by = str(r.get('verified_by', '')).strip() or None
+        status = str(r.get('verification_status', r.get('status', 'verified'))).strip() or 'verified'
+        rows.append((
+            str(r['race_id']), int(r['horse_number']), utc_time(r['prediction_at']),
+            won, payout, utc_time(r['settled_at']), source_url, verified_by, status
+        ))
     with connect(path) as c:
-        c.executemany('INSERT INTO settlements VALUES (?,?,?,?,?,?)', rows)
+        c.executemany('''
+            INSERT INTO settlements (
+                race_id, horse_number, prediction_at, won, official_payout_yen, settled_at,
+                source_url, verified_by, verification_status
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+        ''', rows)
     return len(rows)
 
 def report(path, stake=100):

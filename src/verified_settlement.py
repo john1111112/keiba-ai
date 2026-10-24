@@ -44,7 +44,13 @@ def validate_and_plan(ledger_path, csv_path):
                     raise ValueError('no matching prediction')
                 if c.execute('SELECT 1 FROM settlements WHERE race_id=? AND horse_number=? AND prediction_at=?',key).fetchone():
                     raise ValueError('already settled')
-                planned.append(dict(race_id=race,horse_number=number,prediction_at=pred_at,won=won,official_payout_yen=payout,settled_at=settled_at))
+                planned.append(dict(
+                    race_id=race, horse_number=number, prediction_at=pred_at,
+                    won=won, official_payout_yen=payout, settled_at=settled_at,
+                    source_url=r['source_url'].strip(),
+                    verified_by=r['verified_by'].strip(),
+                    verification_status='verified'
+                ))
             except (ValueError,TypeError,KeyError) as exc:
                 raise ValueError(f'CSV line {index}: {exc}') from exc
     return planned

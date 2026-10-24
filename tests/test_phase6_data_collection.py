@@ -251,6 +251,115 @@ class TestPhase6DataCollection(unittest.TestCase):
             unverified = get_verified_payouts("202610250102", ledger_path=ledger_path)
             self.assertEqual(unverified, [], "Unverified race without provenance must return empty list")
 
+    def test_9_payouts_missing_columns_safe_handling(self):
+        """指示5: payoutsテーブルにstatusやverified_at等のカラムが存在しない場合でもOperationalErrorにならず安全に除外"""
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "test_missing_cols.db"
+            ledger_path = Path(td) / "empty_ledger.db"
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("""
+            CREATE TABLE races (
+                race_id TEXT PRIMARY KEY,
+                race_name TEXT
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE payouts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id TEXT NOT NULL,
+                bet_type TEXT NOT NULL,
+                combination TEXT NOT NULL,
+                payout INTEGER NOT NULL,
+                popularity INTEGER
+            )
+            """)
+            cur.execute("INSERT INTO races (race_id, race_name) VALUES ('202610250101', 'Test Race')")
+            cur.execute("INSERT INTO payouts (race_id, bet_type, combination, payout, popularity) VALUES ('202610250101', '単勝', '1', 300, 1)")
+            conn.commit()
+            conn.close()
+
+            # カラム不足のDBに対してget_verified_payoutsを実行 -> エラーにならず空リスト返却
+            res = get_verified_payouts("202610250101", db_path=db_path, ledger_path=ledger_path)
+            self.assertEqual(res, [], "payouts without status/source_url must safely return empty list without SQL errors")
+
+    def test_10_settlements_unverified_and_invalid_status_excluded(self):
+        """指示3, 4, 5: settlementsテーブルから取得時、不正な確認状態・未確認データ・情報不足データを厳格に除外"""
+        with tempfile.TemporaryDirectory() as td:
+            ledger_path = Path(td) / "paper_trading.db"
+            connect(ledger_path)
+
+            pred_at = "2026-10-25T06:20:00+00:00"
+            cutoff_at = "2026-10-25T06:40:00+00:00"
+
+            capture(ledger_path, [
+                {"race_id": "202610250201", "horse_number": 1, "odds": 2.0, "win_probability": 0.5,
+                 "model_id": "m1", "prediction_at": pred_at, "cutoff_at": cutoff_at,
+                 "odds_observed_at": pred_at, "odds_fetched_at": pred_at, "source": "sample"},
+                {"race_id": "202610250201", "horse_number": 2, "odds": 3.0, "win_probability": 0.3,
+                 "model_id": "m1", "prediction_at": pred_at, "cutoff_at": cutoff_at,
+                 "odds_observed_at": pred_at, "odds_fetched_at": pred_at, "source": "sample"},
+                {"race_id": "202610250201", "horse_number": 3, "odds": 4.0, "win_probability": 0.2,
+                 "model_id": "m1", "prediction_at": pred_at, "cutoff_at": cutoff_at,
+                 "odds_observed_at": pred_at, "odds_fetched_at": pred_at, "source": "sample"},
+                {"race_id": "202610250201", "horse_number": 4, "odds": 5.0, "win_probability": 0.1,
+                 "model_id": "m1", "prediction_at": pred_at, "cutoff_at": cutoff_at,
+                 "odds_observed_at": pred_at, "odds_fetched_at": pred_at, "source": "sample"},
+            ])
+
+            # 正常レコード (horse 1): verified
+            record_single_official_settlement(
+                ledger_path=ledger_path, race_id="202610250201", horse_number=1,
+                won=1, official_payout_yen=200, source_url="https://www.jra.go.jp/official", verified_by="auditor_ok"
+            )
+
+            # 直接DBを操作して不正な状態をシミュレーション
+            con = sqlite3.connect(ledger_path)
+            try:
+                # horse 2: status = 'pending' (未確認)
+                con.execute("""
+                INSERT INTO settlements (
+                    race_id, horse_number, prediction_at, won, official_payout_yen, settled_at,
+                    source_url, verified_by, verification_status
+                ) VALUES (
+                    '202610250201', 2, ?, 1, 300, '2026-10-25T07:00:00+00:00',
+                    'https://www.jra.go.jp/official', 'auditor_ok', 'pending'
+                )
+                """, (pred_at,))
+                # horse 3: source_url が不正（URL形式でない）
+                con.execute("""
+                INSERT INTO settlements (
+                    race_id, horse_number, prediction_at, won, official_payout_yen, settled_at,
+                    source_url, verified_by, verification_status
+                ) VALUES (
+                    '202610250201', 3, ?, 1, 400, '2026-10-25T07:00:00+00:00',
+                    'not_a_valid_url', 'auditor_ok', 'verified'
+                )
+                """, (pred_at,))
+                # horse 4: verified_by が欠損 (None/unknown)
+                con.execute("""
+                INSERT INTO settlements (
+                    race_id, horse_number, prediction_at, won, official_payout_yen, settled_at,
+                    source_url, verified_by, verification_status
+                ) VALUES (
+                    '202610250201', 4, ?, 1, 500, '2026-10-25T07:00:00+00:00',
+                    'https://www.jra.go.jp/official', 'unknown', 'verified'
+                )
+                """, (pred_at,))
+                con.commit()
+            finally:
+                con.close()
+
+            # 検証済み払戻を取得
+            v_list = get_verified_payouts("202610250201", ledger_path=ledger_path)
+
+            # horse 1 のみ取得され、horse 2, 3, 4 は厳格に除外されること
+            combinations = [v["combination"] for v in v_list]
+            self.assertEqual(len(v_list), 1)
+            self.assertEqual(combinations, [1])
+            self.assertEqual(v_list[0]["payout"], 200)
+            self.assertEqual(v_list[0]["status"], "verified")
+
     def test_5_production_db_immutability(self):
         """作業4: 本番データベースの不変検証 (CI上コミットハッシュ または ローカル実運用ハッシュ と一致)"""
         valid_hashes = {

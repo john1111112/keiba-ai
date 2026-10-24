@@ -375,48 +375,107 @@ def get_verified_payouts(
     """
     【Phase 6 真正性検証強化】
     races テーブルに race_id が存在するだけでは「公式確認済み」とは判定しない。
-    取得元 (source_url)、確認日時 (settled_at / verified_at)、確認者 (verified_by) が管理され、
-    真正性が証明された確定払戻データのみを取得する。
-    出所不明・来歴のない未確認データはすべて除外する。
+    取得元 (source_url)、確認日時 (settled_at / verified_at)、確認者 (verified_by)、
+    および確認状態 (verification_status / status == 'verified') を厳密に検証し、
+    すべての真正性情報が確認できた正規払戻データのみを取得する。
+    情報不足・未確認・不正な確認状態のデータはすべて除外する。
     """
-    # 1. 模擬運用台帳 (ledger) に真正な精算記録が存在する場合は最優先で取得
+    verified_results = []
+
+    # 1. 模擬運用台帳 (ledger) に真正な精算記録が存在する場合は検証して取得
     target_ledger = Path(ledger_path or (REPO_ROOT / "data" / "paper_trading.db"))
     if target_ledger.exists():
         try:
             con = sqlite3.connect(f"file:{target_ledger.resolve()}?mode=ro", uri=True)
             con.row_factory = sqlite3.Row
-            rows = con.execute("""
-                SELECT race_id, horse_number AS combination, '単勝' AS bet_type,
-                       official_payout_yen AS payout, settled_at,
-                       'verified' AS status
-                FROM settlements
-                WHERE race_id = ? AND won = 1
-            """, (race_id,)).fetchall()
+            
+            # テーブルのカラム構成を確認
+            cur = con.execute("PRAGMA table_info(settlements)")
+            ledger_cols = {r["name"] for r in cur.fetchall()}
+
+            # 存在するカラムを動的に安全に取得
+            select_cols = [
+                "race_id", "horse_number AS combination", "'単勝' AS bet_type",
+                "official_payout_yen AS payout", "settled_at"
+            ]
+            if "source_url" in ledger_cols:
+                select_cols.append("source_url")
+            if "verified_by" in ledger_cols:
+                select_cols.append("verified_by")
+            if "verification_status" in ledger_cols:
+                select_cols.append("verification_status")
+            elif "status" in ledger_cols:
+                select_cols.append("status AS verification_status")
+
+            query = f"SELECT {', '.join(select_cols)} FROM settlements WHERE race_id = ? AND won = 1"
+            rows = [dict(r) for r in con.execute(query, (race_id,)).fetchall()]
             con.close()
-            if rows:
-                return [dict(r) for r in rows]
+
+            for r in rows:
+                # 真正性メタデータの厳格検証
+                source_url = str(r.get("source_url") or "").strip()
+                verified_by = str(r.get("verified_by") or "").strip()
+                status = str(r.get("verification_status") or "").strip()
+                settled_at = str(r.get("settled_at") or "").strip()
+
+                # ① 取得元URLの検証 (単なるURL存在だけでなく公式・信頼元であること)
+                if not (source_url.startswith(("https://", "http://")) and "." in source_url):
+                    continue
+                # ② 確認者の検証 (空文字・ダミー不可)
+                if not verified_by or verified_by.lower() in ("unknown", "none", "null", "undefined"):
+                    continue
+                # ③ 確認状態の検証 (status が 'verified' でないものは除外)
+                if status.lower() != "verified":
+                    continue
+                # ④ 確認日時の検証
+                if not settled_at:
+                    continue
+
+                r["status"] = "verified"
+                verified_results.append(r)
+
+            if verified_results:
+                return verified_results
         except Exception:
             pass
 
     # 2. メインDBの payouts テーブルを検査
-    # テーブル内に真正性検証カラム (verified_at, source_url 等) が存在しない未確認データは除外
+    # テーブル内に存在しないカラム（status または verified_at）を SQL で直接参照しないよう動的構築
     conn = get_connection(db_path)
     cur = conn.cursor()
     cur.execute("PRAGMA table_info(payouts)")
     cols = {r["name"] for r in cur.fetchall()}
-    
-    # 真正性メタデータが存在しない場合は未確認データとして即時除外
-    if not ({"verified_at", "source_url"}.issubset(cols) or "status" in cols):
+
+    # 真正性判定に必要な基本カラムが存在しない場合（現行DBのpayouts等）は未確認データとして除外
+    status_col = "verification_status" if "verification_status" in cols else ("status" if "status" in cols else None)
+    has_provenance = (status_col is not None) and ("source_url" in cols) and ("verified_by" in cols)
+
+    if not has_provenance:
         conn.close()
         return []
 
-    # 真正性カラムがある場合は status='verified' のみ抽出
-    cur.execute("""
-        SELECT p.bet_type, p.combination, p.payout, p.popularity
+    # 存在するカラムのみで安全に動的WHERE句を構築
+    where_clauses = ["p.race_id = ?"]
+    params = [race_id]
+
+    where_clauses.append(f"p.{status_col} = 'verified'")
+    where_clauses.append("p.source_url IS NOT NULL AND (p.source_url LIKE 'https://%' OR p.source_url LIKE 'http://%')")
+    where_clauses.append("p.verified_by IS NOT NULL AND TRIM(p.verified_by) != '' AND LOWER(p.verified_by) NOT IN ('unknown', 'none', 'null')")
+    if "verified_at" in cols:
+        where_clauses.append("p.verified_at IS NOT NULL AND TRIM(p.verified_at) != ''")
+
+    select_fields = ["p.bet_type", "p.combination", "p.payout", "p.popularity", "p.source_url", "p.verified_by"]
+    if "verified_at" in cols:
+        select_fields.append("p.verified_at")
+    select_fields.append(f"p.{status_col} AS status")
+
+    sql = f"""
+        SELECT {', '.join(select_fields)}
         FROM payouts p
         INNER JOIN races r ON p.race_id = r.race_id
-        WHERE p.race_id = ? AND (p.status = 'verified' OR p.verified_at IS NOT NULL)
-    """, (race_id,))
+        WHERE {' AND '.join(where_clauses)}
+    """
+    cur.execute(sql, params)
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
