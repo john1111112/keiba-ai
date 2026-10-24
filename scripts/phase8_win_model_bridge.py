@@ -31,6 +31,24 @@ def build_prediction_rows(features, model, *, prediction_at, cutoff_at,
         raise ValueError('missing race or horse identifier')
     if features.duplicated(['race_id','horse_number']).any():
         raise ValueError('duplicate race/horse features')
+    # Refuse known post-race outcome columns. The current win-model API
+    # expects finish_order/time_str even for upcoming races: inject only
+    # explicitly unconfirmed placeholders after rejecting outcome data.
+    forbidden = {'target', 'is_winner', 'win_result', 'payout',
+                 'official_payout_yen', 'finish_time', 'result_confirmed'}
+    present = forbidden.intersection(features.columns)
+    if present:
+        raise ValueError('post-race columns forbidden: ' + ', '.join(sorted(present)))
+    if 'finish_order' in features.columns:
+        ranks = pd.to_numeric(features['finish_order'], errors='coerce')
+        if ranks.isna().any() or (ranks != 0).any():
+            raise ValueError('only unconfirmed finish_order=0 is allowed')
+    if 'time_str' in features.columns:
+        if features['time_str'].fillna('').astype(str).str.strip().ne('').any():
+            raise ValueError('post-race time_str is forbidden')
+    features = features.copy()
+    features['finish_order'] = 0
+    features['time_str'] = ''
     results = []
     for race_id, group in features.groupby('race_id', sort=False):
         # Predict separately for each race: win normalization must not cross races.
