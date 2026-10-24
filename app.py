@@ -54,21 +54,22 @@ init_db()
 FEATURES_CACHE_PATH = Path(__file__).resolve().parent / "data" / "features.parquet"
 RACE_RANK_CACHE_PATH = Path(__file__).resolve().parent / "data" / "race_rank_cache.parquet"
 
-def _get_cache_mtime() -> float:
+def _get_cache_key() -> str:
     t1 = FEATURES_CACHE_PATH.stat().st_mtime if FEATURES_CACHE_PATH.exists() else 0.0
     t2 = RACE_RANK_CACHE_PATH.stat().st_mtime if RACE_RANK_CACHE_PATH.exists() else 0.0
-    return round(t1 + t2, 2)
+    s1 = FEATURES_CACHE_PATH.stat().st_size if FEATURES_CACHE_PATH.exists() else 0
+    s2 = RACE_RANK_CACHE_PATH.stat().st_size if RACE_RANK_CACHE_PATH.exists() else 0
+    return f"v4_{t1:.0f}_{t2:.0f}_{s1}_{s2}"
 
-@st.cache_data(show_spinner=False)
-def get_cached_race_rank_df(_mtime: float = 0.0):
-    """全レースのランク判定・的中判定キャッシュ（0.01秒ロード・ファイル更新時自動リフレッシュ）"""
+def load_race_rank_df(cache_key: str = ""):
+    """全レースのランク判定・的中判定データを直接高速ロード（キャッシュ不整合を完全排除）"""
     if RACE_RANK_CACHE_PATH.exists():
         return pd.read_parquet(RACE_RANK_CACHE_PATH)
     return pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def get_cached_features(_mtime: float = 0.0):
-    """Parquetから特徴量データを0.05秒で超高速ロード（ファイル更新時自動リフレッシュ）"""
+def load_features_v4(cache_key: str = ""):
+    """Parquetから特徴量データを超高速ロード（cache_keyにより更新時確実に再読込）"""
     if FEATURES_CACHE_PATH.exists():
         df_feat = pd.read_parquet(FEATURES_CACHE_PATH)
         cat_cols = ["race_course", "surface", "condition", "sex", "sire_type", "running_style"]
@@ -161,7 +162,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 蓄積データ統計"
 ])
 
-cache_mtime = _get_cache_mtime()
+cache_key = _get_cache_key()
 
 # ==========================================
 # タブ1: レース予想
@@ -173,14 +174,14 @@ with tab1:
     elif not MODEL_PATH.exists():
         st.info("💡 AIモデルを学習してください。")
     else:
-        df_feat, fcols = get_cached_features(cache_mtime)
+        df_feat, fcols = load_features_v4(cache_key)
         model = KeibaAIModel()
         
         # レース選択を待たず、AI予想データ生成時点で未通知の発走前SS/Sランク全鞍を一括自動プッシュ通知
         if notify_all_predicted_ss_s_races:
             notify_all_predicted_ss_s_races(df_feat, model)
         
-        cache_rank_df = get_cached_race_rank_df(cache_mtime)
+        cache_rank_df = load_race_rank_df(cache_key)
         if len(cache_rank_df) > 0:
             cache_rank_df["race_id"] = cache_rank_df["race_id"].astype(str)
             races_df["race_id"] = races_df["race_id"].astype(str)
@@ -436,10 +437,10 @@ with tab2:
     st.markdown("### 📈 AIオススメ厳選投資 vs 全レース盲目買い 収益率完全比較")
     st.caption("『期待値が低いレースは見送り、AIオススメの勝負レースだけに絞って投資した場合』の真の収益率をシミュレーション検証しました。")
     
-    df_feat_bt, _ = get_cached_features(cache_mtime)
+    df_feat_bt, _ = load_features_v4(cache_key)
     
     @st.cache_data(show_spinner=False)
-    def get_cached_backtest_data(_mtime: float = 0.0):
+    def load_backtest_v4(cache_key: str = ""):
         confirmed_df = df_feat_bt[df_feat_bt["finish_order"] >= 1].copy()
         m = KeibaAIModel()
         p = m.predict_race(confirmed_df)
@@ -447,7 +448,7 @@ with tab2:
         r = analyze_rank_performance(p)
         return b, r
 
-    bt, rank_perf = get_cached_backtest_data(cache_mtime)
+    bt, rank_perf = load_backtest_v4(cache_key)
     
     raw_res = bt.get("raw_tansho", {
         "races": 2376, "bets": 237600, "profit": -55836, "recovery_rate": 76.5, "hit_rate": 38.5
@@ -623,15 +624,15 @@ with tab2:
 # ==========================================
 with tab3:
     st.markdown("### 🏆 AI予想の実力測定 ＆ 勝率が跳ね上がる『黄金条件』")
-    df_feat_all, fcols_all = get_cached_features(cache_mtime)
+    df_feat_all, fcols_all = load_features_v4(cache_key)
     
     @st.cache_data(show_spinner=False)
-    def get_cached_golden_analysis(_mtime: float = 0.0):
+    def load_golden_v4(cache_key: str = ""):
         m = KeibaAIModel()
         p = m.predict_race(df_feat_all)
         return analyze_winning_conditions(p)
 
-    analysis = get_cached_golden_analysis(cache_mtime)
+    analysis = load_golden_v4(cache_key)
     
     ov = analysis["overall"]
     c1, c2, c3, c4 = st.columns(4)
@@ -690,7 +691,7 @@ with tab4:
         if st.button("🚀 今週末の全SS・Sランク予想を今すぐ一括再送信する", use_container_width=True, type="primary"):
             if NOTIFIED_PATH.exists():
                 NOTIFIED_PATH.unlink()
-            df_feat_cur, _ = get_cached_features(cache_mtime)
+            df_feat_cur, _ = load_features_v4(cache_key)
             m = KeibaAIModel()
             if notify_all_predicted_ss_s_races:
                 b_res = notify_all_predicted_ss_s_races(df_feat_cur, m, tab_hook_input)
