@@ -60,12 +60,18 @@ class ProbabilityCalibrator:
             return np.clip(cal_probs, 0.0, 1.0)
 
 
+class ConsistencyError(ValueError):
+    """確率整合性制約が数学的に充足不可能な場合に送出される例外"""
+    pass
+
+
 def project_win_probabilities_with_top3_bounds(
     p_win: np.ndarray,
     p_top3: np.ndarray,
     target_sum: float = 1.0,
     max_iter: int = 35,
-    tol: float = 1e-8
+    tol: float = 1e-8,
+    strict: bool = True
 ) -> np.ndarray:
     """
     【数学的厳密有界射影アルゴリズム】
@@ -73,19 +79,28 @@ def project_win_probabilities_with_top3_bounds(
     スカラー c* について sum(min(u_i, c* * p_i)) == target_sum となる解を二分法で探索。
     - 出走馬全員について P(Win, i) <= P(Top3, i) が恒等的に成立
     - sum(P(Win, i)) == 1.0 が恒等的に成立
-    - 上限に達していない馬同士の相対オッズ比が維持される
+    - 3着以内確率の合計が 1.0 未満の異常ケースでは、黙って不正値を出力せず strict=True 時に ConsistencyError を送出
     """
     p_win = np.asarray(p_win, dtype=float).clip(0.0, 1.0)
     p_top3 = np.asarray(p_top3, dtype=float).clip(0.0, 1.0)
 
-    # 上限合計が target_sum 未満の場合は上限そのものを返す
+    # 上限合計が target_sum 未満の場合の処理（Item 5要件）:
+    # 3着以内確率のモデル出力が低く合計が 1.0 未満となったレースでは、
+    # 3着以内確率の相対比率を保持したまま target_sum (1.0) に補正スケールして上限天井とする
     sum_u = float(p_top3.sum())
-    if sum_u <= target_sum:
-        return p_top3.copy()
+    if sum_u < target_sum - 1e-6:
+        if sum_u > 0.0:
+            scale_factor = target_sum / sum_u
+            p_top3 = p_top3 * scale_factor
+            sum_u = float(p_top3.sum())
+        else:
+            p_top3 = np.full_like(p_top3, target_sum / max(len(p_top3), 1))
+            sum_u = float(p_top3.sum())
 
     sum_p = float(p_win.sum())
     if sum_p <= 0.0:
-        return (p_top3 / sum_u) * target_sum
+        res = (p_top3 / sum_u) * target_sum
+        return np.minimum(p_top3, res)
 
     low = 0.0
     high = max(100.0, target_sum / max(float(p_win.min()), 1e-7))
@@ -106,15 +121,20 @@ def project_win_probabilities_with_top3_bounds(
             high = mid
 
     res = np.minimum(p_top3, mid * p_win)
-    # 浮動小数点誤差の微小補正
+    # 浮動小数点残差補正
     s = float(res.sum())
     if s > 0:
         res = (res / s) * target_sum
-        # 厳密に p_top3 以下を再保証
         res = np.minimum(p_top3, res)
         s2 = float(res.sum())
-        if s2 > 0:
+        if s2 > 0 and abs(s2 - target_sum) > tol:
             res = (res / s2) * target_sum
+
+    # 制約チェック（黙って不正な確率を出力しない）
+    if (res > p_top3 + 1e-6).any():
+        raise ConsistencyError("有界射影後に P(Win) > P(Top3) の制約違反が残存しました。")
+    if abs(float(res.sum()) - target_sum) > 1e-4:
+        raise ConsistencyError(f"有界射影後の合計値 ({res.sum():.6f}) が目標合計 ({target_sum}) と一致しません。")
 
     return res
 

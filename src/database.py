@@ -189,31 +189,27 @@ def evaluate_race_completeness_and_export_csv(
         # 未確定レース判定: 全馬が finish_order == 0（日付だけで確定扱いしない）
         is_unconfirmed = bool((fo_series == 0).all())
         if is_unconfirmed:
-            if entry_count >= 6:
-                summary_records.append({
-                    "race_id": str(rid),
-                    "date": d_str,
-                    "is_confirmed": False,
-                    "is_complete_for_eval": True,
-                    "usable_for_horse_history": False,
-                    "entry_count": entry_count,
-                    "valid_finishers": 0,
-                    "scratched_or_aborted": 0,
-                    "incomplete_reason": "",
-                })
-            else:
-                reason = f"UPCOMING_UNDER_6_ENTRIES(entry_count={entry_count})"
-                summary_records.append({
-                    "race_id": str(rid),
-                    "date": d_str,
-                    "is_confirmed": False,
-                    "is_complete_for_eval": False,
-                    "usable_for_horse_history": False,
-                    "entry_count": entry_count,
-                    "valid_finishers": 0,
-                    "scratched_or_aborted": 0,
-                    "incomplete_reason": reason,
-                })
+            is_valid_entry = (entry_count >= 5)
+            status_str = "UPCOMING_UNCONFIRMED"
+            reason = "" if is_valid_entry else f"UPCOMING_UNDER_5_ENTRIES(entry_count={entry_count})"
+            summary_records.append({
+                "race_id": str(rid),
+                "date": d_str,
+                "status": status_str,
+                "is_confirmed": False,
+                "is_confirmed_complete": False,  # 未確定のため学習・バックテスト評価の対象外
+                "is_unconfirmed": True,
+                "is_incomplete": (not is_valid_entry),
+                "is_complete_for_eval": False,   # 過去データ学習・評価用フラグは厳密にFalse
+                "is_complete_card": is_valid_entry,
+                "usable_for_training_eval": False,
+                "usable_for_horse_history": False,
+                "entry_count": entry_count,
+                "valid_finishers": 0,
+                "scratched_or_aborted": 0,
+                "incomplete_reason": reason,
+            })
+            if not is_valid_entry:
                 incomplete_records.append({
                     "race_id": str(rid),
                     "date": d_str,
@@ -257,11 +253,17 @@ def evaluate_race_completeness_and_export_csv(
         # 過去走抜粋によってレース全体としては不完全でも、個別の完走馬レコード（valid_fin_mask == True）はその馬自身の過去走履歴としては実在データのため利用可能
         usable_hist = bool(n_valid > 0)
 
+        status_str = "PAST_CONFIRMED_COMPLETE" if is_complete else "PAST_INCOMPLETE_EXTRACT"
         summary_records.append({
             "race_id": str(rid),
             "date": d_str,
+            "status": status_str,
             "is_confirmed": True,
+            "is_confirmed_complete": is_complete,
+            "is_unconfirmed": False,
+            "is_incomplete": (not is_complete),
             "is_complete_for_eval": is_complete,
+            "usable_for_training_eval": is_complete,
             "usable_for_horse_history": usable_hist,
             "entry_count": entry_count,
             "valid_finishers": n_valid,
