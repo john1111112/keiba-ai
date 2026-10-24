@@ -65,7 +65,7 @@ def audit(predictions_csv, odds_csv, manifest_path, *, now=None):
         if row['race_id'] != race or utc_time(row['race_start_at']) != start:
             raise ValueError('odds race/start differs from manifest')
         validate_pre_race_record(row, now_utc=current, require_start_time=True)
-    planned = plan_capture(predictions_csv, odds_csv)
+    planned = plan_capture(predictions_csv, odds_csv, now_utc=current)
     if len(planned) != len(predictions):
         raise ValueError('card coverage mismatch')
     # This is an audit of declared metadata, not independent verification.

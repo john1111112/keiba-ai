@@ -32,13 +32,13 @@ def read_csv(path, required):
         raise ValueError('empty CSV')
     return rows
 
-def plan_capture(predictions_csv, odds_csv):
+def plan_capture(predictions_csv, odds_csv, *, now_utc=None):
     predictions = read_csv(predictions_csv, PRED_COLUMNS)
     odds_rows = read_csv(odds_csv, ODDS_COLUMNS)
     odds_by_key = {}
     for row in odds_rows:
         race, horse, odds, observed, fetched, source, status = validate_pre_race_record(
-            row, require_start_time=True)
+            row, now_utc=now_utc, require_start_time=True)
         if status not in ('pre_race_flash','pre_race') or observed is None:
             raise ValueError(f'unverified pre-race odds: {race}/{horse}')
         key = (race, horse)
