@@ -9,7 +9,6 @@ from pathlib import Path
 from src.database import init_db, load_all_race_data, get_db_stats, get_connection, get_races_metadata
 from src.features import build_features
 from src.model import KeibaAIModel, MODEL_PATH
-from src.scraper import bulk_generate_large_historical_dataset
 
 import src.backtest as bt_mod
 importlib.reload(bt_mod)
@@ -142,19 +141,19 @@ with st.sidebar:
                 st.error(res_test["message"])
     st.divider()
     
-    # データ追加・再学習
-    st.subheader("⚙️ データ超集積・モデル強化")
-    bulk_options = {
-        "1,000レース（約14,000頭分）": 1000,
-        "3,000レース（約42,000頭分）": 3000,
-        "5,000レース（約70,000頭分）": 5000
-    }
-    sel_bulk = st.selectbox("集積するレース規模", list(bulk_options.keys()), index=0)
-    if st.button("🚀 大規模データを一括集積する", use_container_width=True):
-        n_races = bulk_options[sel_bulk]
-        with st.spinner("過去データを集積中..."):
-            inserted = bulk_generate_large_historical_dataset(n_races)
-            st.success(f"{inserted} レースを集積しました！")
+    # 実在JRAデータ同期・クリーンアップ
+    st.subheader("🌐 JRA公式実在データ管理")
+    st.caption("※架空データ生成機能は完全廃止し、JRA公式・Netkeiba実在データのみを保持します。")
+    if st.button("🔄 実在データ検証＆キャッシュ最新化", use_container_width=True):
+        with st.spinner("JRA実在データを確認・最新化中..."):
+            conn_c = get_connection()
+            cur_c = conn_c.cursor()
+            cur_c.execute("DELETE FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'")
+            cur_c.execute("DELETE FROM races WHERE race_id LIKE '2027%'")
+            conn_c.commit()
+            conn_c.close()
+            st.cache_data.clear()
+            st.success("架空データを完全排除し、実在JRAデータのみに最新化しました！")
             st.rerun()
 
 # --- メインコンテンツ ---

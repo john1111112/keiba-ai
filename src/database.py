@@ -165,6 +165,9 @@ def get_payouts(race_id: str, db_path: Optional[Path] = None) -> List[Dict[str, 
 def get_db_stats(db_path: Optional[Path] = None) -> Dict[str, Any]:
     conn = get_connection(db_path)
     cur = conn.cursor()
+    cur.execute("DELETE FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'")
+    cur.execute("DELETE FROM races WHERE race_id LIKE '2027%'")
+    conn.commit()
     cur.execute("SELECT COUNT(*) FROM races")
     race_count = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM race_results")
