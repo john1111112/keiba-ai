@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 import pandas as pd
@@ -86,6 +87,56 @@ class Phase8Tests(unittest.TestCase):
                 return frame.assign(pred_win_prob=float('nan'))
         with self.assertRaises(ValueError):
             build_prediction_rows(self.features, BadModel(), **self.args)
+
+    def test_integration_with_phase7_paper_workflow(self):
+        """Phase 8 -> Phase 7: prediction CSV export -> capture -> settle -> report integration test"""
+        import csv
+        import tempfile
+        from scripts.phase7_workflow import main as phase7_main
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pred_path = root / 'predictions.csv'
+            odds_path = root / 'odds.csv'
+            settle_path = root / 'settlements.csv'
+            ledger_path = root / 'paper_ledger.db'
+
+            # 1. Phase 8 export
+            rows = build_prediction_rows(self.features, FakeWinModel(), **self.args)
+            with open(pred_path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.DictWriter(f, fieldnames=['race_id','horse_number','prediction_at','cutoff_at','win_probability','model_id','source'])
+                w.writeheader()
+                w.writerows(rows)
+
+            # 2. Pre-race odds CSV
+            with open(odds_path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow(['race_id','horse_number','odds_value','observed_at','fetched_at','race_start_at','source'])
+                w.writerow(['202610200101', 1, '2.0', '2026-10-20T06:20:00+09:00', '2026-10-20T06:21:00+09:00', '2026-10-20T06:45:00+09:00', 'sample_odds'])
+                w.writerow(['202610200101', 2, '4.0', '2026-10-20T06:20:00+09:00', '2026-10-20T06:21:00+09:00', '2026-10-20T06:45:00+09:00', 'sample_odds'])
+
+            # 3. Phase 7 capture
+            cap_res = phase7_main(['capture', '--predictions', str(pred_path), '--odds', str(odds_path), '--ledger', str(ledger_path), '--apply'])
+            self.assertEqual(cap_res['applied'], 2)
+
+            # 4. Phase 7 report (unsettled)
+            rep1 = phase7_main(['report', '--ledger', str(ledger_path)])
+            self.assertEqual(rep1['overall']['unsettled'], 2)
+            self.assertIsNone(rep1['overall']['roi'])
+
+            # 5. Phase 7 settle
+            with open(settle_path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow(['race_id','horse_number','prediction_at','won','official_payout_yen','settled_at','source_url','verified_by'])
+                w.writerow(['202610200101', 1, '2026-10-20T06:30:00+09:00', 1, 200, '2026-10-20T07:00:00+09:00', 'https://www.jra.go.jp/official', 'auditor_p8'])
+                w.writerow(['202610200101', 2, '2026-10-20T06:30:00+09:00', 0, 0, '2026-10-20T07:00:00+09:00', 'https://www.jra.go.jp/official', 'auditor_p8'])
+            settle_res = phase7_main(['settle', '--csv', str(settle_path), '--ledger', str(ledger_path), '--apply'])
+            self.assertEqual(settle_res['applied'], 2)
+
+            # 6. Phase 7 report (settled)
+            rep2 = phase7_main(['report', '--ledger', str(ledger_path)])
+            self.assertEqual(rep2['overall']['unsettled'], 0)
+            self.assertEqual(rep2['overall']['settled'], 2)
+            self.assertEqual(rep2['overall']['roi'], 1.0)
 
 if __name__ == '__main__':
     unittest.main()
