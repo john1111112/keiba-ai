@@ -372,25 +372,8 @@ def fetch_and_parse_race(task):
                         if m_po:
                             live_odds_map[hn] = (int(m_po.group(1)), float(m_po.group(2)))
 
-            # もし日曜レース等でJRA前日発売前の場合、各馬の実在過去着順・過去人気から予想オッズを算出
-            if len(live_odds_map) == 0 and len(horses_base) > 0:
-                strength_scores = []
-                for hn, hb in horses_base.items():
-                    avg_fin = np.mean(hb["past_finishes"]) if hb["past_finishes"] else 7.5
-                    avg_pop = np.mean(hb["past_pops"]) if hb["past_pops"] else 7.5
-                    # 小さいほど強い
-                    score = avg_fin * 0.65 + avg_pop * 0.35 + (hn * 0.01)
-                    strength_scores.append((score, hn))
-                strength_scores.sort()
-                # 現実的なJRAオッズ分布を割り当て
-                base_odds_curve = [2.6, 4.1, 6.4, 8.8, 12.5, 16.4, 19.8, 24.5, 32.0, 45.0, 62.0, 85.0, 110.0, 145.0, 180.0, 220.0, 260.0, 310.0]
-                for rank_i, (_, hn) in enumerate(strength_scores):
-                    pop = rank_i + 1
-                    odds = base_odds_curve[min(rank_i, len(base_odds_curve) - 1)]
-                    live_odds_map[hn] = (pop, odds)
-
             for hn, hb in sorted(horses_base.items()):
-                pop, odds = live_odds_map.get(hn, (8, 18.0))
+                pop, odds = live_odds_map.get(hn, (0, 0.0))
                 results_list.append((
                     full_rid, 0, hb["bracket_number"], hn, hb["horse_id"], hb["horse_name"],
                     hb["sex"], hb["age"], hb["weight_carry"], hb["jockey_id"], hb["jockey_name"],

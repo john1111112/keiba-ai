@@ -92,15 +92,7 @@ def send_race_alert(race_info: Dict[str, Any], val_eval: Dict[str, Any], webhook
     if top_ana:
         fields.append({
             "name": "💎 推奨 穴馬 (☆)",
-            "value": f"**{top_ana['horse_number']}番 {top_ana['horse_name']}**\n単勝オッズ: **{top_ana['odds']}倍** | 期待値: **{top_ana['expected_value']}倍** (妙味十分！)",
-            "inline": False
-        })
-        
-    if ("Sランク" in rank or "SSランク" in rank) and val_eval.get("plunge_horse"):
-        p_h = val_eval["plunge_horse"]
-        fields.append({
-            "name": "🚨 大口投票・オッズ急降下検知 (関係者勝負気配)",
-            "value": f"**{p_h['horse_number']}番 {p_h['horse_name']}** (単勝{p_h['odds']}倍)\n直前にプロ・大口資金流入を確認！過去の同条件回収率は**158.4%**！",
+            "value": f"**{top_ana['horse_number']}番 {top_ana['horse_name']}**\n単勝オッズ: **{top_ana['odds']}倍** | 期待値: **{top_ana['expected_value']}倍**",
             "inline": False
         })
         

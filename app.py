@@ -227,7 +227,7 @@ with tab1:
                 index=0
             )
         with col_info:
-            st.caption("💡 **ランク基準**: **🔥【SS】**=Sランク基準(好走率75%超)×15倍以上高配当 / **⚡【S】**=好走率75%超の絶対本命 / **⭐【A】**=好走率65%超 / **【B】**=標準・混戦")
+            st.caption("💡 **ランク基準 (LightGBM実予測確率)**: **🔥【SS】**=3着内率30%超×15〜30倍 / **⚡【S】**=3着内率52%超 / **⭐【A】**=3着内率42%超 / **⏳【オッズ未確定】**=JRA発売前")
 
         if "SS・Sランク優先" in sort_mode:
             races_df = races_df.sort_values(["date", "rank_order", "race_course", "race_number"], ascending=[False, True, True, True]).reset_index(drop=True)
@@ -405,27 +405,13 @@ with tab1:
         top3 = pred_race.iloc[2] if len(pred_race) > 2 else None
         
         c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("本命 ◎ 単勝", f"{top1['horse_number']}番 {top1['horse_name']}", f"好走率: {top1['pred_score']*100:.1f}%")
-        with c2: st.metric("対抗 ○", f"{top2['horse_number']}番 {top2['horse_name']}" if top2 is not None else "-", f"好走率: {top2['pred_score']*100:.1f}%" if top2 is not None else "-")
-        with c3: st.metric("単穴 ▲", f"{top3['horse_number']}番 {top3['horse_name']}" if top3 is not None else "-", f"好走率: {top3['pred_score']*100:.1f}%" if top3 is not None else "-")
+        with c1: st.metric("本命 ◎ 単勝", f"{top1['horse_number']}番 {top1['horse_name']}", f"予測3着内率: {top1['pred_score']*100:.1f}%")
+        with c2: st.metric("対抗 ○", f"{top2['horse_number']}番 {top2['horse_name']}" if top2 is not None else "-", f"予測3着内率: {top2['pred_score']*100:.1f}%" if top2 is not None else "-")
+        with c3: st.metric("単穴 ▲", f"{top3['horse_number']}番 {top3['horse_name']}" if top3 is not None else "-", f"予測3着内率: {top3['pred_score']*100:.1f}%" if top3 is not None else "-")
         with c4:
             ana_horses = pred_race[pred_race["is_ana"]]
             ana_text = f"{ana_horses.iloc[0]['horse_number']}番 {ana_horses.iloc[0]['horse_name']}" if len(ana_horses) > 0 else "該当なし"
             st.metric("推奨 穴馬 ☆", ana_text, f"{ana_horses.iloc[0]['odds']}倍" if len(ana_horses) > 0 else "-")
-            
-        # 直前オッズ急変・大口投票インサイダー検知アラート
-        plunge_horses = pred_race[(pred_race["expected_value"] >= 1.3) & (pred_race["odds"] <= 8.5) & (pred_race["pred_score"] >= 0.55)]
-        if len(plunge_horses) > 0:
-            target_p = plunge_horses.iloc[0]
-            st.markdown(f"""
-            <div style="background: #FFF7ED; border: 2px solid #FB923C; border-radius: 8px; padding: 0.9rem; margin: 1rem 0;">
-                <div style="color: #C2410C; font-weight: bold; font-size: 1.05rem;">🚨【大口投票・オッズ急降下を検知！】</div>
-                <div style="color: #431407; font-size: 0.9rem; margin-top: 0.3rem;">
-                    <b>{target_p['horse_number']}番 {target_p['horse_name']}</b>（オッズ: {target_p['odds']}倍 / AI好走率: {target_p['pred_score']*100:.1f}%）にプロ・関係者レベルの急激な資金集中（オッズ断層）を確認。<br>
-                    過去データにおいてこのパターンが発生した際の<b>複勝率は81.5%、単勝回収率は158.4%</b>に跳ね上がっています！
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
             
         st.divider()
         st.subheader("🎯 出走各馬のAIスコア & 予想詳細")
@@ -440,7 +426,7 @@ with tab1:
         table_df = pred_race[display_cols].copy()
         table_df.columns = [
             "印", "確定着順", "枠", "馬番", "馬名",
-            "血統(父)", "脚質", "AI好走率", "期待値",
+            "血統(父)", "過去脚質", "予測3着内率", "期待値",
             "単勝オッズ", "人気", "騎手", "斤量",
             "前走着順", "コース適性", "前走間隔"
         ]
@@ -452,8 +438,10 @@ with tab1:
         else:
             table_df["確定着順"] = "発走前"
         
-        table_df["AI好走率"] = table_df["AI好走率"].apply(lambda x: f"{x*100:.1f}%")
-        table_df["期待値"] = table_df["期待値"].apply(lambda x: f"{x:.2f}")
+        table_df["予測3着内率"] = table_df["予測3着内率"].apply(lambda x: f"{x*100:.1f}%")
+        table_df["期待値"] = table_df["期待値"].apply(lambda x: f"{x:.2f}" if x > 0 else "未確定")
+        table_df["単勝オッズ"] = table_df["単勝オッズ"].apply(lambda x: f"{x:.1f}倍" if x > 0 else "未発表")
+        table_df["人気"] = table_df["人気"].apply(lambda x: f"{int(x)}人気" if x > 0 else "-")
         table_df["前走着順"] = table_df["前走着順"].apply(lambda x: f"{int(x)}着" if x > 0 else "-")
         table_df["コース適性"] = table_df["コース適性"].apply(lambda x: f"{x*100:.0f}%")
         table_df["前走間隔"] = table_df["前走間隔"].apply(lambda x: f"中{int(x)}週" if x > 0 else "初出走")
@@ -502,8 +490,8 @@ with tab2:
     })
     
     # ランク別フィルタリング
-    st.markdown("#### 🔍 判定ランク別の的中率・収益率フィルター")
-    st.info("💡 **ランク定義**: 的中率が高い **Sランク（AI好走率75%以上＆期待値1.25以上）** の中でも、さらに好走率が高く **15倍以上の高配当リターンが見込める厳選レース** を **🔥 SSランク** に認定しています。")
+    st.markdown("#### 🔍 判定ランク別の的中率・単勝回収率フィルター（時系列ウォークフォワード実測値）")
+    st.info("💡 **厳密な検証ルール**: 当日の通過順位リークや推定配当式を完全排除し、**過去データのみで学習した時系列ウォークフォワード予測確率**と、**JRA公式の確定単勝配当（1着時の単勝オッズ×賭け金）のみ**で計算した実測値です。")
     
     rank_keys = [
         "🔥 SSランクのみ (S基準×15倍以上)",
@@ -523,13 +511,13 @@ with tab2:
     
     c_m1, c_m2, c_m3, c_m4 = st.columns(4)
     with c_m1:
-        st.metric("回収率", f"{f_data['recovery_rate']}%", "100%超で黒字")
+        st.metric("単勝回収率 (実配当)", f"{f_data['recovery_rate']}%", "JRA確定単勝ベース")
     with c_m2:
-        st.metric("的中率", f"{f_data['hit_rate']}%", f"{f_data['hits']}/{f_data['races']} 的中 (複勝率 {f_data.get('place_rate', 80.0)}%)")
+        st.metric("単勝1着率 (的中率)", f"{f_data['hit_rate']}%", f"{f_data['hits']}/{f_data['races']} 1着 (3着内複勝率 {f_data.get('place_rate', 0.0)}%)")
     with c_m3:
         st.metric("購入レース数", f"{f_data['races']:,} 戦", f"見送り: {f_data['skip_races']:,} 戦")
     with c_m4:
-        st.metric("トータル損益", f"{f_data['profit']:+,} 円")
+        st.metric("トータル単勝損益", f"{f_data['profit']:+,} 円")
 
     # ランク別一覧比較テーブル
     summary_rows = []
@@ -538,103 +526,67 @@ with tab2:
             rv = rank_perf[rk]
             summary_rows.append({
                 "判定ランク区分": rk,
-                "的中率": f"{rv['hit_rate']}%",
-                "本命複勝率": f"{rv.get('place_rate', 0.0)}%",
-                "回収率": f"{rv['recovery_rate']}%",
+                "単勝1着率": f"{rv['hit_rate']}%",
+                "本命3着内複勝率": f"{rv.get('place_rate', 0.0)}%",
+                "単勝回収率(実配当)": f"{rv['recovery_rate']}%",
                 "対象レース数": f"{rv['races']:,} 戦",
-                "トータル損益": f"{rv['profit']:+,} 円"
+                "トータル単勝損益": f"{rv['profit']:+,} 円"
             })
     if summary_rows:
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
         
     st.divider()
-    st.markdown("#### ⚡ 買い方スタイル別の全体比較")
+    st.markdown("#### ⚡ 買い方スタイル別の全体比較（JRA確定単勝配当のみ）")
     col_c1, col_c2, col_c3 = st.columns(3)
     
     with col_c1:
         st.markdown(f"""
         <div style="background: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 10px; padding: 1.2rem;">
-            <div style="color: #991B1B; font-weight: bold; font-size: 1.1rem;">❌ 全レース盲目ベタ買い</div>
+            <div style="color: #991B1B; font-weight: bold; font-size: 1.1rem;">📊 全レース本命◎単勝ベタ買い</div>
             <div style="font-size: 2.3rem; font-weight: bold; color: #DC2626; margin: 0.5rem 0;">{raw_res['recovery_rate']}%</div>
             <div style="color: #4B5563; font-size: 0.9rem; line-height: 1.6;">
                 ・購入レース数: <b>{raw_res['races']:,} 戦 (全戦全買)</b><br>
                 ・投資総額: {raw_res['bets']:,} 円<br>
-                ・トータル損益: <b style="color:#DC2626;">{raw_res['profit']:,} 円 (大赤字)</b><br>
-                ・的中率: {raw_res['hit_rate']}%
+                ・トータル損益: <b>{raw_res['profit']:+,} 円</b><br>
+                ・単勝1着率: {raw_res['hit_rate']}% (複勝率: {raw_res.get('place_rate', 0.0)}%)
             </div>
-            <div style="color: #EF4444; font-size: 0.85rem; margin-top: 0.8rem;">⚠️ JRAの控除率(約25%)に引きずり込まれ資産が減少</div>
         </div>
         """, unsafe_allow_html=True)
         
     with col_c2:
         st.markdown(f"""
         <div style="background: #F0FDF4; border: 2px solid #86EFAC; border-radius: 10px; padding: 1.2rem;">
-            <div style="color: #166534; font-weight: bold; font-size: 1.1rem;">🔥 AIオススメ厳選投資 (勝負レース)</div>
+            <div style="color: #166534; font-weight: bold; font-size: 1.1rem;">🔥 AI厳選勝負レース (SS/S/A)</div>
             <div style="font-size: 2.3rem; font-weight: bold; color: #16A34A; margin: 0.5rem 0;">{smart_res['recovery_rate']}%</div>
             <div style="color: #4B5563; font-size: 0.9rem; line-height: 1.6;">
                 ・購入レース数: <b>{smart_res['races']:,} 戦のみ</b><br>
                 ・見送り(パス)数: <b>{smart_res['skip_races']:,} 戦カット</b><br>
-                ・トータル損益: <b style="color:#16A34A;">+{smart_res['profit']:,} 円 (大幅黒字！)</b><br>
-                ・的中率: <b>{smart_res['hit_rate']}%</b>
+                ・トータル損益: <b>{smart_res['profit']:+,} 円</b><br>
+                ・単勝1着率: <b>{smart_res['hit_rate']}%</b> (複勝率: {smart_res.get('place_rate', 0.0)}%)
             </div>
-            <div style="color: #15803D; font-size: 0.85rem; margin-top: 0.8rem;">✅ 期待値1.2以上の勝負レースだけに資金集中！</div>
         </div>
         """, unsafe_allow_html=True)
         
     with col_c3:
         st.markdown(f"""
         <div style="background: #FFFBEB; border: 2px solid #FCD34D; border-radius: 10px; padding: 1.2rem;">
-            <div style="color: #92400E; font-weight: bold; font-size: 1.1rem;">💎 推奨穴馬☆ピンポイント</div>
+            <div style="color: #92400E; font-weight: bold; font-size: 1.1rem;">💎 推奨穴馬☆単勝 (8〜25倍)</div>
             <div style="font-size: 2.3rem; font-weight: bold; color: #D97706; margin: 0.5rem 0;">{ana_res['recovery_rate']}%</div>
             <div style="color: #4B5563; font-size: 0.9rem; line-height: 1.6;">
                 ・購入レース数: <b>{ana_res['races']:,} 戦</b><br>
-                ・トータル損益: <b style="color:#D97706;">+{ana_res['profit']:,} 円 (高配当黒字！)</b><br>
-                ・的中率: <b>{ana_res['hit_rate']}%</b> (単勝6〜25倍)<br>
-                ・平均配当: 約12.5倍
-            </div>
-            <div style="color: #B45309; font-size: 0.85rem; margin-top: 0.8rem;">★ 人気の盲点（オッズ妙味）を突いた高回収率</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    st.divider()
-    st.markdown("#### 🎯 券種別（3連複・3連単・ワイド・馬連）AIフォーメーション実戦収益力")
-    st.caption("AIの上位評価馬（◎本命、○対抗、▲単穴、☆穴馬）を組み合わせたフォーメーション買いの実績値です。")
-    
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        st.markdown("""
-        <div style="background: #F5F3FF; border: 2px solid #C4B5FD; border-radius: 10px; padding: 1.2rem;">
-            <div style="color: #6D28D9; font-weight: bold; font-size: 1.15rem;">👑 3連複 フォーメーション (◎ ➜ ○▲ ➜ ○▲☆ 計5点)</div>
-            <div style="font-size: 2.3rem; font-weight: bold; color: #7C3AED; margin: 0.5rem 0;">134.6% <span style="font-size: 1rem; color: #4B5563;">(回収率)</span></div>
-            <div style="color: #374151; font-size: 0.95rem; line-height: 1.7;">
-                ・的中率: <b style="color: #7C3AED;">38.4%</b> (約2.6レースに1回的中)<br>
-                ・平均配当: <b>3,500円〜18,000円</b><br>
-                ・買い目点数: わずか<b>5点</b>（無駄な買い目を極限まで削ぎ落とし）<br>
-                ・特徴: ◎が馬券圏内に入れば、高確率で相手関係も拾い万馬券を射程に捉える黄金戦略！
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with col_t2:
-        st.markdown("""
-        <div style="background: #FFF1F2; border: 2px solid #FECDD3; border-radius: 10px; padding: 1.2rem;">
-            <div style="color: #BE123C; font-weight: bold; font-size: 1.15rem;">🚀 3連単 ピンポイント爆撃 (SSランク/Sランク限定)</div>
-            <div style="font-size: 2.3rem; font-weight: bold; color: #E11D48; margin: 0.5rem 0;">148.2% <span style="font-size: 1rem; color: #4B5563;">(勝負レース回収率)</span></div>
-            <div style="color: #374151; font-size: 0.95rem; line-height: 1.7;">
-                ・的中率: <b style="color: #E11D48;">18.5%</b> (5〜6レースに1回)<br>
-                ・平均配当: <b>8,000円〜35,000円超</b><br>
-                ・買い方: 1着固定（1着:◎ ➜ 2着:○▲ ➜ 3着:○▲☆ 計4〜6点）<br>
-                ・特徴: 好走率75%以上のS・SSランクだけを狙い撃つことで、点数を絞りながら特大ホームランを実現！
+                ・投資総額: {ana_res['bets']:,} 円<br>
+                ・トータル損益: <b>{ana_res['profit']:+,} 円</b><br>
+                ・単勝1着率: <b>{ana_res['hit_rate']}%</b>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
     st.divider()
     st.markdown("""
-    #### 💡 なぜ「オススメ厳選投資」にすると回収率が118%〜148%まで跳ね上がるのか？
-    1. **「見送り（ケン）」の徹底**: 全レースの約40%にあたる「オッズが低すぎるレース」や「大混戦レース」を**完全にパス（投資0円）**したため、無駄な負けが根こそぎカットされます。
-    2. **期待値1.2以上だけを狙い撃ち**: 「AI好走確率 × 単勝オッズ」がプラスの勝負レースだけに絞って投資するため、回数を重ねるほど数学的に資産が増加します。
-    3. **券種の使い分け**: 堅実な勝負には「単勝＋ワイド流し」、高配当の一発には「3連複5点＋3連単」を資金配分することでリスクヘッジと高リターンを両立します。
+    #### ⚠️ バックテスト検証に関する重要な注意事項
+    1. **時系列ウォークフォワード検証**: 過去データのみで学習したモデルで未来の期間を予測しており、当日のコーナー通過順位や上がり3Fなどの事後情報（データリーク）は一切使用していません。
+    2. **JRA確定単勝配当のみを使用**: 複勝・馬連・3連複などの推定配当式や固定文字列の宣伝数値はすべて廃止し、データベースに実在するJRA公式の確定単勝オッズのみで厳密に損益を計算しています。
+    3. **確定オッズに関する留意点**: 過去レースのオッズはJRA確定最終オッズを使用しています。実際の馬券購入時は締切直前のオッズ変動により期待値やランク境界（15〜30倍等）が変動する点にご注意ください。
     """)
     
     st.divider()

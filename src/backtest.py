@@ -1,12 +1,11 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from src.betting_strategy import evaluate_race_value
 
 def _filter_complete_past_races(df_evaluated: pd.DataFrame) -> pd.DataFrame:
     """
-    確定着順(1着馬)が存在する完全な実在レースのみを検証対象として抽出。
-    （前走履歴用の部分レコードで1着馬が不在のレースを除外）
+    確定着順(1着馬)が存在する完全な実在JRAレースのみを検証対象として抽出。
     """
     valid_df = df_evaluated[df_evaluated["finish_order"] >= 1].copy()
     if len(valid_df) == 0:
@@ -20,24 +19,24 @@ def _filter_complete_past_races(df_evaluated: pd.DataFrame) -> pd.DataFrame:
 
 def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
     """
-    全レース無差別ベタ買い vs AIオススメ厳選投資（見送りあり）の収益率比較シミュレーション
+    【推定式ゼロ・JRA公式確定単勝オッズ完全準拠】
+    ウォークフォワード検証による「全レース1番人気ベタ買い」vs「AI推奨レース単勝買い」の実収支比較。
+    すべての払戻金はJRA公式確定単勝オッズ(odds * 賭け金)のみで厳密に計算し、架空の複勝/馬連推定式は一切使わない。
     """
     valid_df = _filter_complete_past_races(df_evaluated)
-    grouped = valid_df.groupby("race_id")
+    valid_df = valid_df.sort_values(["date", "race_id"]).copy()
+    grouped = valid_df.groupby("race_id", sort=False)
     total_races = len(grouped)
 
-    # 1. 全レース無差別ベタ買い (見送りなし・単勝1番人気/無差別買い)
     raw_bets = 0
     raw_returns = 0
     raw_hits = 0
 
-    # 2. AIオススメ厳選投資 (SS/S/Aランク勝負レースのみ厳選・推奨プラン投資)
     smart_bets = 0
     smart_returns = 0
     smart_hits = 0
     smart_races = 0
 
-    # 3. 穴馬☆期待値1.5以上ピンポイント（複勝＋単勝プラン）
     ana_bets = 0
     ana_returns = 0
     ana_hits = 0
@@ -54,73 +53,50 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             continue
 
         top1 = sorted_g.iloc[0]
-        top2 = sorted_g.iloc[1] if len(sorted_g) > 1 else None
-        top3 = sorted_g.iloc[2] if len(sorted_g) > 2 else None
         odds = float(top1["odds"])
         fo1 = int(top1["finish_order"])
-        fo2 = int(top2["finish_order"]) if top2 is not None else 99
-        fo3 = int(top3["finish_order"]) if top3 is not None else 99
 
-        # 1. 全レース無差別ベタ買い (比較基準: 人気順1位の単勝100円ベタ買い)
+        # 1. 全レース1番人気ベタ買い (100円)
         pop_sorted = group.sort_values("popularity", ascending=True).reset_index(drop=True)
         fav1 = pop_sorted.iloc[0]
         raw_bets += 100
         if int(fav1["finish_order"]) == 1:
             raw_hits += 1
-            ret = int(float(fav1["odds"]) * 100)
+            ret = int(round(float(fav1["odds"]) * 100))
             raw_returns += ret
             cum_raw += (ret - 100)
         else:
             cum_raw -= 100
 
-        # 2. AIオススメ厳選投資 (SS/S/Aランク推奨プラン)
+        # 2. AI勝負ランク(SS/S/A)単勝買い (1,000円・JRA公式単勝配当のみ)
         val_res = evaluate_race_value(sorted_g)
         rank = val_res["rank"]
-        if any(k in rank for k in ("SSランク", "Sランク", "Aランク")):
+        if any(k in rank for k in ("SSランク", "Sランク", "Aランク")) and odds > 0:
             smart_races += 1
             smart_bets += 1000
-            if odds >= 8.0:
-                # 穴本命プラン: 複勝(700円)＋単勝(300円)
-                fuku_odds = round(1.1 + (odds - 1.0) * 0.22, 1)
-                s_ret = 0
-                if fo1 == 1:
-                    s_ret = int(fuku_odds * 700 + odds * 300)
-                    smart_hits += 1
-                elif 1 <= fo1 <= 3:
-                    s_ret = int(fuku_odds * 700)
-                    smart_hits += 1
+            if fo1 == 1:
+                smart_hits += 1
+                s_ret = int(round(odds * 1000))
+                smart_returns += s_ret
+                cum_smart += (s_ret - 1000)
             else:
-                # 堅実本命プラン: 単勝(700円)＋馬連(300円)
-                s_ret = 0
-                hit_uma = (1 <= fo1 <= 2) and (1 <= fo2 <= 2)
-                if fo1 == 1:
-                    s_ret += int(odds * 700)
-                if hit_uma and top2 is not None:
-                    uma_odds = round(max(2.2, odds * float(top2["odds"]) * 0.38), 1)
-                    s_ret += int(uma_odds * 300)
-                if fo1 == 1 or hit_uma:
-                    smart_hits += 1
-            smart_returns += s_ret
-            cum_smart += (s_ret - 1000)
+                cum_smart -= 1000
 
-        # 3. 穴馬☆期待値ピンポイント (単勝8倍以上の期待値馬・複勝300円＋単勝200円)
-        ana_horses = sorted_g[(sorted_g["expected_value"] >= 1.5) & (sorted_g["odds"] >= 8.0) & (sorted_g["odds"] <= 35.0)]
+        # 3. AI穴馬(単勝10〜30倍かつAI予測確率25%以上)単勝買い (500円・JRA公式単勝配当のみ)
+        ana_horses = sorted_g[(sorted_g["pred_score"] >= 0.25) & (sorted_g["odds"] >= 10.0) & (sorted_g["odds"] <= 30.0)]
         if len(ana_horses) > 0:
             target_ana = ana_horses.iloc[0]
             a_odds = float(target_ana["odds"])
             a_fo = int(target_ana["finish_order"])
             ana_races += 1
             ana_bets += 500
-            a_fuku = round(max(2.1, 1.1 + (a_odds - 1.0) * 0.24), 1)
-            a_ret = 0
             if a_fo == 1:
-                a_ret = int(a_fuku * 350 + a_odds * 150)
                 ana_hits += 1
-            elif 1 <= a_fo <= 3:
-                a_ret = int(a_fuku * 350)
-                ana_hits += 1
-            ana_returns += a_ret
-            cum_ana += (a_ret - 500)
+                a_ret = int(round(a_odds * 500))
+                ana_returns += a_ret
+                cum_ana += (a_ret - 500)
+            else:
+                cum_ana -= 500
 
         timeline.append({
             "race_id": race_id,
@@ -129,12 +105,12 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             "cum_ana": cum_ana
         })
 
-    raw_roi = round(raw_returns / raw_bets * 100, 1) if raw_bets > 0 else 78.0
-    smart_roi = round(smart_returns / smart_bets * 100, 1) if smart_bets > 0 else 128.0
-    ana_roi = round(ana_returns / ana_bets * 100, 1) if ana_bets > 0 else 124.0
-    smart_hit_rate = round(smart_hits / smart_races * 100, 1) if smart_races > 0 else 60.0
-    raw_hit_rate = round(raw_hits / total_races * 100, 1) if total_races > 0 else 32.0
-    ana_hit_rate = round(ana_hits / ana_races * 100, 1) if ana_races > 0 else 38.0
+    raw_roi = round(raw_returns / raw_bets * 100, 1) if raw_bets > 0 else 0.0
+    smart_roi = round(smart_returns / smart_bets * 100, 1) if smart_bets > 0 else 0.0
+    ana_roi = round(ana_returns / ana_bets * 100, 1) if ana_bets > 0 else 0.0
+    smart_hit_rate = round(smart_hits / smart_races * 100, 1) if smart_races > 0 else 0.0
+    raw_hit_rate = round(raw_hits / total_races * 100, 1) if total_races > 0 else 0.0
+    ana_hit_rate = round(ana_hits / ana_races * 100, 1) if ana_races > 0 else 0.0
 
     return {
         "total_races": total_races,
@@ -172,11 +148,13 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
 
 def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
     """
-    判定ランク別（SSランク / Sランク / Aランク / SS+S合計 / 全レース）のパフォーマンス詳細分析
-    各ランクの推奨買い方プラン（8倍以上穴本命＝複勝＆ワイドプラン、8倍未満本命＝単勝＆馬連プラン）に完全準拠して検証
+    【推定式ゼロ・JRA公式単勝配当ベース】
+    判定ランク別（SS / S / A / SS+S合計 / 全レース）のウォークフォワード検証成績。
+    払戻金はすべてJRA公式確定単勝オッズ(odds * 賭け金)で厳密に計算し、1着勝率(hit_rate)と3着以内複勝率(place_rate)を併記する。
     """
     valid_df = _filter_complete_past_races(df_evaluated)
-    grouped = valid_df.groupby("race_id")
+    valid_df = valid_df.sort_values(["date", "race_id"]).copy()
+    grouped = valid_df.groupby("race_id", sort=False)
     total_races = len(grouped)
 
     stats = {
@@ -201,64 +179,33 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         val_res = evaluate_race_value(sorted_g)
         rank = val_res["rank"]
         top1 = sorted_g.iloc[0]
-        top2 = sorted_g.iloc[1] if len(sorted_g) > 1 else None
-        top3 = sorted_g.iloc[2] if len(sorted_g) > 2 else None
         odds = float(top1["odds"])
         fo1 = int(top1["finish_order"])
-        fo2 = int(top2["finish_order"]) if top2 is not None else 99
-        fo3 = int(top3["finish_order"]) if top3 is not None else 99
 
         is_win = (fo1 == 1)
         is_place = (1 <= fo1 <= 3)
-        hit_uma = (1 <= fo1 <= 2) and (1 <= fo2 <= 2)
-        hit_wide = is_place and ((1 <= fo2 <= 3) or (1 <= fo3 <= 3))
 
-        # 推奨プランに基づく払戻金と的中判定を算出する共通ヘルパー（実オッズ準拠・人為的キャップなし）
-        def calc_plan_return(bet_amt: int) -> tuple:
-            if odds >= 8.0:
-                # 穴本命プラン: 複勝メイン(70%)＋単勝ボーナス(30%)
-                fuku_odds = round(1.1 + (odds - 1.0) * 0.22, 1)
-                ret = 0
-                if is_place:
-                    ret += int(bet_amt * 0.70 * fuku_odds)
-                if is_win:
-                    ret += int(bet_amt * 0.30 * odds)
-                return ret, is_place
-            else:
-                # 堅実本命プラン: 単勝メイン(70%)＋馬連本線(30%)
-                ret = 0
-                if is_win:
-                    ret += int(bet_amt * 0.70 * odds)
-                if hit_uma and top2 is not None:
-                    u_odds = round(max(2.2, odds * float(top2["odds"]) * 0.38), 1)
-                    ret += int(bet_amt * 0.30 * u_odds)
-                return ret, (is_win or hit_uma)
-
-        # 1. 全レース (人気1位の単勝1000円ベタ買い)
-        pop_sorted = group.sort_values("popularity", ascending=True).reset_index(drop=True)
-        fav1 = pop_sorted.iloc[0]
-        fav_win = (int(fav1["finish_order"]) == 1)
-        fav_place = (1 <= int(fav1["finish_order"]) <= 3)
+        # 1. 全レース (AI評価1位の単勝1,000円ベタ買い)
         bet_all = 1000
         stats["全レース (見送りなし)"]["races"] += 1
         stats["全レース (見送りなし)"]["bets"] += bet_all
-        ret_all = int(float(fav1["odds"]) * bet_all) if fav_win else 0
+        ret_all = int(round(odds * bet_all)) if is_win else 0
         stats["全レース (見送りなし)"]["returns"] += ret_all
-        if fav_win:
+        if is_win:
             stats["全レース (見送りなし)"]["hits"] += 1
-        if fav_place:
+        if is_place:
             stats["全レース (見送りなし)"]["place_hits"] += 1
         cum_all += (ret_all - bet_all)
         stats["全レース (見送りなし)"]["cum"].append(cum_all)
 
-        # 2. SSランク (Sランク最上位基準 × 単勝15倍以上高配当・複勝＆ワイド高配当プラン)
+        # 2. SSランク (JRA公式単勝配当で厳密計算)
         if "SSランク" in rank:
-            bet_ss = 1500
-            ret_ss, hit_ss = calc_plan_return(bet_ss)
+            bet_ss = 1000
+            ret_ss = int(round(odds * bet_ss)) if is_win else 0
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["races"] += 1
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["bets"] += bet_ss
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["returns"] += ret_ss
-            if hit_ss:
+            if is_win:
                 stats["🔥 SSランクのみ (S基準×15倍以上)"]["hits"] += 1
             if is_place:
                 stats["🔥 SSランクのみ (S基準×15倍以上)"]["place_hits"] += 1
@@ -267,20 +214,20 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             stats["SS+Sランク合計 (激アツ勝負)"]["races"] += 1
             stats["SS+Sランク合計 (激アツ勝負)"]["bets"] += bet_ss
             stats["SS+Sランク合計 (激アツ勝負)"]["returns"] += ret_ss
-            if hit_ss:
+            if is_win:
                 stats["SS+Sランク合計 (激アツ勝負)"]["hits"] += 1
             if is_place:
                 stats["SS+Sランク合計 (激アツ勝負)"]["place_hits"] += 1
             cum_ss_s += (ret_ss - bet_ss)
 
-        # 3. Sランク (超高勝率・絶対本命)
+        # 3. Sランク (JRA公式単勝配当で厳密計算)
         elif "Sランク" in rank:
-            bet_s = 1500
-            ret_s, hit_s = calc_plan_return(bet_s)
+            bet_s = 1000
+            ret_s = int(round(odds * bet_s)) if is_win else 0
             stats["⚡ Sランクのみ (超高勝率・本命)"]["races"] += 1
             stats["⚡ Sランクのみ (超高勝率・本命)"]["bets"] += bet_s
             stats["⚡ Sランクのみ (超高勝率・本命)"]["returns"] += ret_s
-            if hit_s:
+            if is_win:
                 stats["⚡ Sランクのみ (超高勝率・本命)"]["hits"] += 1
             if is_place:
                 stats["⚡ Sランクのみ (超高勝率・本命)"]["place_hits"] += 1
@@ -289,7 +236,7 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             stats["SS+Sランク合計 (激アツ勝負)"]["races"] += 1
             stats["SS+Sランク合計 (激アツ勝負)"]["bets"] += bet_s
             stats["SS+Sランク合計 (激アツ勝負)"]["returns"] += ret_s
-            if hit_s:
+            if is_win:
                 stats["SS+Sランク合計 (激アツ勝負)"]["hits"] += 1
             if is_place:
                 stats["SS+Sランク合計 (激アツ勝負)"]["place_hits"] += 1
@@ -299,14 +246,14 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         stats["⚡ Sランクのみ (超高勝率・本命)"]["cum"].append(cum_s)
         stats["SS+Sランク合計 (激アツ勝負)"]["cum"].append(cum_ss_s)
 
-        # 4. Aランク
+        # 4. Aランク (JRA公式単勝配当で厳密計算)
         if "Aランク" in rank:
             bet_a = 1000
-            ret_a, hit_a = calc_plan_return(bet_a)
+            ret_a = int(round(odds * bet_a)) if is_win else 0
             stats["⭐ Aランクのみ (自信あり)"]["races"] += 1
             stats["⭐ Aランクのみ (自信あり)"]["bets"] += bet_a
             stats["⭐ Aランクのみ (自信あり)"]["returns"] += ret_a
-            if hit_a:
+            if is_win:
                 stats["⭐ Aランクのみ (自信あり)"]["hits"] += 1
             if is_place:
                 stats["⭐ Aランクのみ (自信あり)"]["place_hits"] += 1
