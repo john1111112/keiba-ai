@@ -53,8 +53,8 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         else:
             cum_raw -= 100
             
-        # 2. AIオススメ厳選投資 (好走率65%以上 かつ 期待値1.20以上のみ単勝1,000円)
-        if top1["pred_score"] >= 0.65 and top1["expected_value"] >= 1.20:
+        # 2. AIオススメ厳選投資 (好走率62%以上 かつ 期待値1.20以上 かつ オッズ25倍以下のみ単勝1,000円)
+        if top1["pred_score"] >= 0.62 and top1["expected_value"] >= 1.20 and float(top1["odds"]) <= 25.0:
             smart_races += 1
             smart_bets += 1000
             if top1["finish_order"] == 1:
@@ -135,10 +135,7 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
 def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
     """
     判定ランク別（SSランク / Sランク / Aランク / SS+S合計 / 全レース）のパフォーマンス詳細分析
-    ・Sランク基準: AI好走率75%以上 かつ 期待値1.25以上
-    ・SSランク: Sランク基準の中でも、好走率76%以上 かつ 15倍以上の高配当リターンが見込める厳選レース
-    ・Sランク: Sランク基準の手堅い超高勝率・本命レース
-    ・Aランク: AI好走率65%以上〜75%未満 かつ 期待値1.20以上
+    ※的中判定はすべて「本命(◎)が1着で単勝的中した場合（finish_order == 1）」のみを厳格にカウント
     """
     valid_df = df_evaluated[df_evaluated["finish_order"] >= 1]
     if len(valid_df) == 0:
@@ -168,24 +165,17 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         val_res = evaluate_race_value(sorted_g)
         rank = val_res["rank"]
         top1 = sorted_g.iloc[0]
-        top2 = sorted_g.iloc[1] if len(sorted_g) > 1 else None
-        top3 = sorted_g.iloc[2] if len(sorted_g) > 2 else None
         odds = float(top1["odds"])
         
+        # 的中判定は厳格に「本命(◎)が1着（単勝的中）」のみ！2着・3着は単勝不的中とする
         is_win = (top1["finish_order"] == 1)
         is_place = (1 <= top1["finish_order"] <= 3)
-        # 推奨フォーメーション（単勝・馬連・ワイド・3連複）のいずれか成立
-        partner_in_top3 = any(
-            (p is not None and 1 <= p["finish_order"] <= 3)
-            for p in [top2, top3]
-        )
-        is_formation_hit = is_win or (is_place and partner_in_top3)
         
         # 1. 全レース
         bet_all = 1000
         stats["全レース (見送りなし)"]["races"] += 1
         stats["全レース (見送りなし)"]["bets"] += bet_all
-        ret_all = int(min(odds, 2.0) * bet_all) if is_win else 0
+        ret_all = int(min(odds, 1.8) * bet_all) if is_win else 0
         stats["全レース (見送りなし)"]["returns"] += ret_all
         if is_win:
             stats["全レース (見送りなし)"]["hits"] += 1
@@ -194,20 +184,14 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         cum_all += (ret_all - bet_all)
         stats["全レース (見送りなし)"]["cum"].append(cum_all)
         
-        # 2. SSランク (Sランク基準 × 15倍以上高配当見込み)
+        # 2. SSランク (Sランク最上位基準 × 単勝15倍以上高配当)
         if "SSランク" in rank:
-            bet_ss = 2000
+            bet_ss = 1500
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["races"] += 1
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["bets"] += bet_ss
-            # 単勝＋馬連/ワイド/3連複フォーメーションによる高配当リターン（15倍以上狙い）
-            if is_win:
-                ret_ss = int(min(max(odds, 15.0), 19.5) * 360)
-            elif is_formation_hit:
-                ret_ss = 3500
-            else:
-                ret_ss = 0
+            ret_ss = int(min(max(odds, 15.0), 18.0) * 160) if is_win else 0
             stats["🔥 SSランクのみ (S基準×15倍以上)"]["returns"] += ret_ss
-            if is_formation_hit:
+            if is_win:
                 stats["🔥 SSランクのみ (S基準×15倍以上)"]["hits"] += 1
             if is_place:
                 stats["🔥 SSランクのみ (S基準×15倍以上)"]["place_hits"] += 1
@@ -216,18 +200,18 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             stats["SS+Sランク合計 (激アツ勝負)"]["races"] += 1
             stats["SS+Sランク合計 (激アツ勝負)"]["bets"] += bet_ss
             stats["SS+Sランク合計 (激アツ勝負)"]["returns"] += ret_ss
-            if is_formation_hit:
+            if is_win:
                 stats["SS+Sランク合計 (激アツ勝負)"]["hits"] += 1
             if is_place:
                 stats["SS+Sランク合計 (激アツ勝負)"]["place_hits"] += 1
             cum_ss_s += (ret_ss - bet_ss)
             
-        # 3. Sランク (Sランク基準・超高勝率本命)
+        # 3. Sランク (超高勝率・絶対本命)
         elif "Sランク" in rank:
             bet_s = 1500
             stats["⚡ Sランクのみ (超高勝率・本命)"]["races"] += 1
             stats["⚡ Sランクのみ (超高勝率・本命)"]["bets"] += bet_s
-            ret_s = int(min(odds, 2.3) * bet_s) if is_win else 0
+            ret_s = int(min(odds, 2.1) * bet_s) if is_win else 0
             stats["⚡ Sランクのみ (超高勝率・本命)"]["returns"] += ret_s
             if is_win:
                 stats["⚡ Sランクのみ (超高勝率・本命)"]["hits"] += 1
@@ -253,7 +237,7 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             bet_a = 1000
             stats["⭐ Aランクのみ (自信あり)"]["races"] += 1
             stats["⭐ Aランクのみ (自信あり)"]["bets"] += bet_a
-            ret_a = int(min(odds, 2.7) * bet_a) if is_win else 0
+            ret_a = int(min(odds, 2.3) * bet_a) if is_win else 0
             stats["⭐ Aランクのみ (自信あり)"]["returns"] += ret_a
             if is_win:
                 stats["⭐ Aランクのみ (自信あり)"]["hits"] += 1

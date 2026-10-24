@@ -56,25 +56,25 @@ def evaluate_race_value(pred_race: pd.DataFrame, min_ev_threshold: float = 1.25)
     ev1 = float(top1["expected_value"])
     
     # 厳格なランク認定ルール:
-    # 1. まず的中率の高いSランク基準（AI好走率75%以上 & 期待値1.25以上）
-    is_s_base = (score1 >= 0.75 and ev1 >= 1.25)
+    # 1. SSランク: Sランク基準の中でもAI好走率85%以上 かつ 単勝15倍〜30倍の15倍以上高配当が見込める超厳選レース
+    is_ss = (score1 >= 0.85 and 15.0 <= odds1 <= 30.0 and ev1 >= 1.25)
+    # 2. Sランク: AI好走率73%以上 かつ 単勝15倍未満の手堅い超高勝率・絶対本命レース
+    is_s = (not is_ss) and (score1 >= 0.73 and odds1 < 15.0 and ev1 >= 1.25)
+    # 3. Aランク: AI好走率62%以上〜73%未満 かつ 期待値1.20以上（単勝25倍以下）の自信あり本命レース
+    is_a = (not is_ss) and (not is_s) and (0.62 <= score1 < 0.73 and odds1 <= 25.0 and ev1 >= 1.20)
     
-    # 2. そのSランクの中でも「さらに好走率が高く(76%以上) かつ 15倍以上の高配当が見込めるもの」を【🔥 SSランク】に認定
-    if is_s_base and score1 >= 0.76 and odds1 >= 15.0:
+    if is_ss:
         rank = "🔥【SSランク】高勝率×15倍以上特大配当レース"
-        reason = f"AI好走率{score1*100:.1f}%のSランク基準でありながら、単勝{odds1:.1f}倍（15倍以上）の特大リターンが見込める厳選お宝レース！"
+        reason = f"AI好走率{score1*100:.1f}%のSランク最上位基準でありながら、単勝{odds1:.1f}倍（15倍以上）の特大リターンが見込める厳選お宝レース！"
         should_bet = True
-    # 3. Sランク基準で手堅い配当は【⚡ Sランク】（超高勝率・絶対本命）
-    elif is_s_base:
+    elif is_s:
         rank = "⚡【Sランク】超高勝率・絶対本命レース"
-        reason = f"AI好走率{score1*100:.1f}%（単勝的中率70%超・複勝90%）！手堅く高確率で勝てる絶対本命勝負レース。"
+        reason = f"AI好走率{score1*100:.1f}%！手堅く高確率で1着（単勝）を狙える絶対本命勝負レース。"
         should_bet = True
-    # 4. 次点となるのが【⭐ Aランク】（好走率65%以上 & 期待値1.20以上）
-    elif score1 >= 0.65 and ev1 >= 1.20:
+    elif is_a:
         rank = "⭐【Aランク】自信あり本命レース"
         reason = f"AI好走率{score1*100:.1f}%。十分な勝率と期待値が見込める好条件レース。"
         should_bet = True
-    # 5. それ以外は【Bランク】または見送り
     elif ev1 >= 1.15:
         rank = "【Bランク】標準・少額勝負"
         reason = "混戦模様のため少額推奨または見送り推奨。"

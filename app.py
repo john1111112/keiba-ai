@@ -279,16 +279,20 @@ with tab1:
             top3_horse = pred_race.iloc[2] if len(pred_race) > 2 else None
             
             hit_tansho = (top1_horse["finish_order"] == 1)
-            hit_fukusho = (1 <= top1_horse["finish_order"] <= 3)
-            
-            top3_finish_nums = set(pred_race[(pred_race["finish_order"] >= 1) & (pred_race["finish_order"] <= 3)]["horse_number"])
-            hit_wide = (top1_horse["horse_number"] in top3_finish_nums) and any(
-                p["horse_number"] in top3_finish_nums for p in [top2_horse, top3_horse] if p is not None
+            hit_umaren = (
+                top2_horse is not None
+                and int(top1_horse["finish_order"]) in (1, 2)
+                and int(top2_horse["finish_order"]) in (1, 2)
             )
             
-            is_hit_overall = hit_tansho or hit_wide or hit_fukusho
+            # 推奨メイン買い目（本命◎の単勝）が1着的中した時のみ【的中】と判定（2着・3着は単勝不的中）
+            is_hit_overall = hit_tansho
             status_color = "#16A34A" if is_hit_overall else "#DC2626"
-            hit_badge = "🎉 【的中！】 AI予想が的中しました！" if is_hit_overall else "❌ 【不的中】 今回は悔しい結果となりました"
+            hit_badge = (
+                f"🎉 【単勝的中！】 本命(◎) {top1_horse['horse_name']} が1着 ({top1_horse['odds']}倍) で的中しました！"
+                if is_hit_overall
+                else f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {int(top1_horse['finish_order'])}着 のため単勝不的中となりました"
+            )
             
             act_1st_str = f"{act_1st.iloc[0]['horse_number']}番 {act_1st.iloc[0]['horse_name']} ({act_1st.iloc[0]['odds']}倍)" if len(act_1st) > 0 else "-"
             act_2nd_str = f"{act_2nd.iloc[0]['horse_number']}番 {act_2nd.iloc[0]['horse_name']} ({act_2nd.iloc[0]['odds']}倍)" if len(act_2nd) > 0 else "-"
@@ -306,8 +310,8 @@ with tab1:
                     <div><b>🥉 3着:</b> {act_3rd_str}</div>
                 </div>
                 <div style="margin-top: 0.6rem; font-size: 0.95rem; color: #374151;">
-                    ・本命 (◎) {top1_horse['horse_name']}: <b>確定 {top1_horse['finish_order']}着</b> {'(単勝的中！🎯)' if hit_tansho else ('(複勝的中！🎯)' if hit_fukusho else '(着外)')}<br>
-                    ・ワイド結果: <b>{'的中！🎯' if hit_wide else '不的中'}</b>
+                    ・本命 (◎) {top1_horse['horse_name']} 単勝結果: <b>確定 {int(top1_horse['finish_order'])}着 {'(単勝的中！🎯)' if hit_tansho else '(単勝不的中 ❌)'}</b><br>
+                    ・馬連 (◎-○) 本線結果: <b>{'的中！🎯' if hit_umaren else '不的中 ❌'}</b>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -446,10 +450,9 @@ with tab2:
     
     @st.cache_data(show_spinner=False)
     def get_cached_backtest_data(_mtime: float = 0.0):
-        split_idx = int(len(df_feat_bt) * 0.7)
-        test_df = df_feat_bt.iloc[split_idx:].copy()
+        confirmed_df = df_feat_bt[df_feat_bt["finish_order"] >= 1].copy()
         m = KeibaAIModel()
-        p = m.predict_race(test_df)
+        p = m.predict_race(confirmed_df)
         b = run_backtest(p)
         r = analyze_rank_performance(p)
         return b, r
