@@ -72,10 +72,17 @@ def load_features_v4(cache_key: str = ""):
     """Parquetから特徴量データを超高速ロード（cache_keyにより更新時確実に再読込）"""
     if FEATURES_CACHE_PATH.exists():
         df_feat = pd.read_parquet(FEATURES_CACHE_PATH)
-        cat_cols = ["race_course", "surface", "condition", "sex", "sire_type", "running_style"]
-        for c in cat_cols:
+        cat_defs = {
+            "sire_type": ["A.P.Indy系", "キンカメ系", "サンデー系", "ミスプロ系", "ロベルト系"],
+            "running_style": ["先行", "差し", "追込", "逃げ"],
+            "race_course": ["中京", "中山", "京都", "函館", "小倉", "新潟", "札幌", "東京", "福島", "阪神"],
+            "surface": ["ダート", "芝"],
+            "condition": ["不良", "稍重", "良", "重"],
+            "sex": ["セン", "牝", "牡"],
+        }
+        for c, cats in cat_defs.items():
             if c in df_feat.columns:
-                df_feat[c] = df_feat[c].astype("category")
+                df_feat[c] = pd.Categorical(df_feat[c], categories=cats)
         fcols = [
             "bracket_number", "horse_number", "age", "weight_carry", "distance",
             "horse_weight", "horse_weight_diff", "weight_ratio", "jockey_win_rate",
@@ -310,10 +317,12 @@ with tab1:
                     hit_badge = f"🎉 【推奨プラン的中！】 穴本命(◎) {top1_horse['horse_name']} が{fo1}着に入り、推奨『複勝（想定{fuku_est}倍）{extra_hit}』が的中しました！"
                 else:
                     hit_badge = f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {fo1}着 のため不的中となりました"
-                detail_lines_html = f"""
-                    ・推奨メイン <b>[複勝 (3着以内狙い)]</b> {top1_horse['horse_name']}: <b>確定 {fo1}着 {'(🎯 複勝的中！ 想定' + str(fuku_est) + '倍)' if hit_fukusho else '(不的中 ❌)'}</b><br>
-                    ・推奨本線 <b>[ワイド ◎➜○▲]</b>: <b>{'🎯 ワイド的中！' if hit_wide else '不的中 ❌'}</b> ／ <b>[3連複 ◎➜○▲]</b>: <b>{'🎯 3連複的中！' if hit_sanrenpuku else '不的中 ❌'}</b>
-                """
+                detail_lines_html = (
+                    f"・推奨メイン <b>[複勝 (3着以内狙い)]</b> {top1_horse['horse_name']}: "
+                    f"<b>確定 {fo1}着 {'(🎯 複勝的中！ 想定' + str(fuku_est) + '倍)' if hit_fukusho else '(不的中 ❌)'}</b><br>"
+                    f"・推奨本線 <b>[ワイド ◎➜○▲]</b>: <b>{'🎯 ワイド的中！' if hit_wide else '不的中 ❌'}</b> ／ "
+                    f"<b>[3連複 ◎➜○▲]</b>: <b>{'🎯 3連複的中！' if hit_sanrenpuku else '不的中 ❌'}</b>"
+                )
             else:
                 # 単勝8.0倍未満の堅実本命レース: 推奨メイン買い目が「単勝（1着メイン）＋馬連」のため1着または馬連成立で的中
                 is_hit_overall = hit_tansho or hit_umaren
@@ -324,31 +333,32 @@ with tab1:
                     hit_badge = f"🎉 【馬連本線的中！】 本命(◎)-対抗(○) が1・2着に入り推奨馬連が的中しました！"
                 else:
                     hit_badge = f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {fo1}着 のため推奨の単勝・馬連は不的中となりました"
-                detail_lines_html = f"""
-                    ・推奨メイン <b>[単勝 (1着狙い)]</b> {top1_horse['horse_name']}: <b>確定 {fo1}着 {'(🎯 単勝的中！ ' + str(top1_horse['odds']) + '倍)' if hit_tansho else '(単勝不的中 ❌)'}</b><br>
-                    ・推奨本線 <b>[馬連 ◎➜○]</b>: <b>{'🎯 馬連的中！' if hit_umaren else '不的中 ❌'}</b>
-                """
+                detail_lines_html = (
+                    f"・推奨メイン <b>[単勝 (1着狙い)]</b> {top1_horse['horse_name']}: "
+                    f"<b>確定 {fo1}着 {'(🎯 単勝的中！ ' + str(top1_horse['odds']) + '倍)' if hit_tansho else '(単勝不的中 ❌)'}</b><br>"
+                    f"・推奨本線 <b>[馬連 ◎➜○]</b>: <b>{'🎯 馬連的中！' if hit_umaren else '不的中 ❌'}</b>"
+                )
             
             act_1st_str = f"{act_1st.iloc[0]['horse_number']}番 {act_1st.iloc[0]['horse_name']} ({act_1st.iloc[0]['odds']}倍)" if len(act_1st) > 0 else "-"
             act_2nd_str = f"{act_2nd.iloc[0]['horse_number']}番 {act_2nd.iloc[0]['horse_name']} ({act_2nd.iloc[0]['odds']}倍)" if len(act_2nd) > 0 else "-"
             act_3rd_str = f"{act_3rd.iloc[0]['horse_number']}番 {act_3rd.iloc[0]['horse_name']} ({act_3rd.iloc[0]['odds']}倍)" if len(act_3rd) > 0 else "-"
             
-            st.markdown(f"""
-            <div style="background: {'#F0FDF4' if is_hit_overall else '#FEF2F2'}; border: 2px solid {status_color}; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="font-size: 1.25rem; font-weight: bold; color: {status_color};">{hit_badge}</div>
-                    <div style="font-size: 0.9rem; background:{status_color}; color:white; padding:3px 10px; border-radius:20px; font-weight:bold;">レース確定</div>
-                </div>
-                <div style="margin-top: 0.8rem; display: flex; gap: 2rem; flex-wrap: wrap;">
-                    <div><b>🥇 1着:</b> {act_1st_str}</div>
-                    <div><b>🥈 2着:</b> {act_2nd_str}</div>
-                    <div><b>🥉 3着:</b> {act_3rd_str}</div>
-                </div>
-                <div style="margin-top: 0.6rem; font-size: 0.95rem; color: #374151;">
-                    {detail_lines_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            bg_col = "#F0FDF4" if is_hit_overall else "#FEF2F2"
+            st.markdown(
+                f'<div style="background: {bg_col}; border: 2px solid {status_color}; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.5rem;">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                f'<div style="font-size: 1.25rem; font-weight: bold; color: {status_color};">{hit_badge}</div>'
+                f'<div style="font-size: 0.9rem; background:{status_color}; color:white; padding:3px 10px; border-radius:20px; font-weight:bold;">レース確定</div>'
+                f'</div>'
+                f'<div style="margin-top: 0.8rem; display: flex; gap: 2rem; flex-wrap: wrap;">'
+                f'<div><b>🥇 1着:</b> {act_1st_str}</div>'
+                f'<div><b>🥈 2着:</b> {act_2nd_str}</div>'
+                f'<div><b>🥉 3着:</b> {act_3rd_str}</div>'
+                f'</div>'
+                f'<div style="margin-top: 0.6rem; font-size: 0.95rem; color: #374151;">{detail_lines_html}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
         else:
             st.markdown("""
             <div style="background: #F8FAFC; border: 1px dashed #94A3B8; border-radius: 8px; padding: 0.8rem; margin-bottom: 1.2rem;">
