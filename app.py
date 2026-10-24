@@ -272,7 +272,12 @@ with tab1:
         **条件**: {sel_race_row['surface']}{sel_race_row['distance']}m / 馬場: {sel_race_row['condition']}
         """)
         
-        # 過去レース（2026-10-23以前）の場合は「確定着順 ＆ AI的中判定」を表示
+        # 勝負度判定と最適買い方プランの算出
+        val_eval = evaluate_race_value(pred_race)
+        is_fukusho_style = (val_eval.get("bet_style") == "fukusho_wide")
+        fuku_est = val_eval.get("fukusho_est_odds", 2.5)
+        
+        # 過去レース（2026-10-23以前）の場合は「確定着順 ＆ 推奨買い方プランに対する的中判定」を表示
         is_past_race = str(sel_race_row["date"])[:10] <= "2026-10-23"
         
         if is_past_race and "finish_order" in pred_race.columns:
@@ -284,21 +289,45 @@ with tab1:
             top2_horse = pred_race.iloc[1] if len(pred_race) > 1 else None
             top3_horse = pred_race.iloc[2] if len(pred_race) > 2 else None
             
-            hit_tansho = (top1_horse["finish_order"] == 1)
-            hit_umaren = (
-                top2_horse is not None
-                and int(top1_horse["finish_order"]) in (1, 2)
-                and int(top2_horse["finish_order"]) in (1, 2)
-            )
+            fo1 = int(top1_horse["finish_order"])
+            fo2 = int(top2_horse["finish_order"]) if top2_horse is not None else 99
+            fo3 = int(top3_horse["finish_order"]) if top3_horse is not None else 99
             
-            # 推奨メイン買い目（本命◎の単勝）が1着的中した時のみ【的中】と判定（2着・3着は単勝不的中）
-            is_hit_overall = hit_tansho
-            status_color = "#16A34A" if is_hit_overall else "#DC2626"
-            hit_badge = (
-                f"🎉 【単勝的中！】 本命(◎) {top1_horse['horse_name']} が1着 ({top1_horse['odds']}倍) で的中しました！"
-                if is_hit_overall
-                else f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {int(top1_horse['finish_order'])}着 のため単勝不的中となりました"
-            )
+            hit_tansho = (fo1 == 1)
+            hit_fukusho = (1 <= fo1 <= 3)
+            hit_umaren = (1 <= fo1 <= 2) and (1 <= fo2 <= 2)
+            hit_wide = hit_fukusho and ((1 <= fo2 <= 3) or (1 <= fo3 <= 3))
+            hit_sanrenpuku = hit_fukusho and (1 <= fo2 <= 3) and (1 <= fo3 <= 3)
+            
+            if is_fukusho_style:
+                # 単勝8.0倍以上の穴本命レース: 推奨メイン買い目が「複勝（3着以内メイン）＋ワイド・3連複」のため3着以内で的中
+                is_hit_overall = hit_fukusho
+                status_color = "#16A34A" if is_hit_overall else "#DC2626"
+                if hit_tansho:
+                    hit_badge = f"🎉 【単勝＆複勝W的中！】 穴本命(◎) {top1_horse['horse_name']} が1着 ({top1_horse['odds']}倍) で特大的中しました！"
+                elif hit_fukusho:
+                    extra_hit = "＆ワイド・3連複" if hit_sanrenpuku else ("＆ワイド" if hit_wide else "")
+                    hit_badge = f"🎉 【推奨プラン的中！】 穴本命(◎) {top1_horse['horse_name']} が{fo1}着に入り、推奨『複勝（想定{fuku_est}倍）{extra_hit}』が的中しました！"
+                else:
+                    hit_badge = f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {fo1}着 のため不的中となりました"
+                detail_lines_html = f"""
+                    ・推奨メイン <b>[複勝 (3着以内狙い)]</b> {top1_horse['horse_name']}: <b>確定 {fo1}着 {'(🎯 複勝的中！ 想定' + str(fuku_est) + '倍)' if hit_fukusho else '(不的中 ❌)'}</b><br>
+                    ・推奨本線 <b>[ワイド ◎➜○▲]</b>: <b>{'🎯 ワイド的中！' if hit_wide else '不的中 ❌'}</b> ／ <b>[3連複 ◎➜○▲]</b>: <b>{'🎯 3連複的中！' if hit_sanrenpuku else '不的中 ❌'}</b>
+                """
+            else:
+                # 単勝8.0倍未満の堅実本命レース: 推奨メイン買い目が「単勝（1着メイン）＋馬連」のため1着または馬連成立で的中
+                is_hit_overall = hit_tansho or hit_umaren
+                status_color = "#16A34A" if is_hit_overall else "#DC2626"
+                if hit_tansho:
+                    hit_badge = f"🎉 【単勝的中！】 本命(◎) {top1_horse['horse_name']} が1着 ({top1_horse['odds']}倍) で的中しました！"
+                elif hit_umaren:
+                    hit_badge = f"🎉 【馬連本線的中！】 本命(◎)-対抗(○) が1・2着に入り推奨馬連が的中しました！"
+                else:
+                    hit_badge = f"❌ 【不的中】 本命(◎) {top1_horse['horse_name']} は確定 {fo1}着 のため推奨の単勝・馬連は不的中となりました"
+                detail_lines_html = f"""
+                    ・推奨メイン <b>[単勝 (1着狙い)]</b> {top1_horse['horse_name']}: <b>確定 {fo1}着 {'(🎯 単勝的中！ ' + str(top1_horse['odds']) + '倍)' if hit_tansho else '(単勝不的中 ❌)'}</b><br>
+                    ・推奨本線 <b>[馬連 ◎➜○]</b>: <b>{'🎯 馬連的中！' if hit_umaren else '不的中 ❌'}</b>
+                """
             
             act_1st_str = f"{act_1st.iloc[0]['horse_number']}番 {act_1st.iloc[0]['horse_name']} ({act_1st.iloc[0]['odds']}倍)" if len(act_1st) > 0 else "-"
             act_2nd_str = f"{act_2nd.iloc[0]['horse_number']}番 {act_2nd.iloc[0]['horse_name']} ({act_2nd.iloc[0]['odds']}倍)" if len(act_2nd) > 0 else "-"
@@ -316,8 +345,7 @@ with tab1:
                     <div><b>🥉 3着:</b> {act_3rd_str}</div>
                 </div>
                 <div style="margin-top: 0.6rem; font-size: 0.95rem; color: #374151;">
-                    ・本命 (◎) {top1_horse['horse_name']} 単勝結果: <b>確定 {int(top1_horse['finish_order'])}着 {'(単勝的中！🎯)' if hit_tansho else '(単勝不的中 ❌)'}</b><br>
-                    ・馬連 (◎-○) 本線結果: <b>{'的中！🎯' if hit_umaren else '不的中 ❌'}</b>
+                    {detail_lines_html}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -328,8 +356,6 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
         
-        # 勝負度判定とケリー基準資金配分
-        val_eval = evaluate_race_value(pred_race)
         if "SSランク" in val_eval["rank"]:
             rank_color = "#9333EA"  # Purple (SSランク)
         elif "Sランク" in val_eval["rank"]:
@@ -339,7 +365,6 @@ with tab1:
         else:
             rank_color = "#4B5563"
         
-        # 画面でのレース選択時に遅延通知するのではなく、AI予想算出時点で一括自動通知済みであることを表示
         auto_notif_status = ""
         if "Sランク" in val_eval.get("rank", "") and not is_past_race:
             auto_notif_status = "✅ 【AI予想算出時に自動プッシュ通知済み】この勝負レースはAIがSS/Sランクと判定した時点でDiscordへ自動通知済みです。"
@@ -353,7 +378,12 @@ with tab1:
         """, unsafe_allow_html=True)
         
         if val_eval["should_bet"]:
-            st.write("**💰 最適資金配分プラン（資金1万円想定・ケリー基準）**")
+            style_title = (
+                f"💰 最適資金配分プラン（🎯【穴軸・複勝＆ワイド高配当プラン】本命◎が単勝{val_eval['honmei']['odds']}倍のため3着以内複勝メイン推奨！）"
+                if is_fukusho_style
+                else f"💰 最適資金配分プラン（👑【本命アタマ・単勝＆馬連勝負プラン】本命◎が単勝{val_eval['honmei']['odds']}倍のため単勝メイン推奨！）"
+            )
+            st.write(f"**{style_title}**")
             b_cols = st.columns(len(val_eval["recommendations"]))
             for idx, r_item in enumerate(val_eval["recommendations"]):
                 with b_cols[idx]:

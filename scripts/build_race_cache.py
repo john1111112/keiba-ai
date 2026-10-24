@@ -92,11 +92,16 @@ def main():
         date_str = str(row["date"])[:10]
         if date_str > "2026-10-23" or row["fo1"] == 0:
             return "【発走前⏳】"
-        # 本命(◎)が1着で単勝的中した場合のみ【的中🎯】とする（2着・3着は単勝不的中）
-        if row["fo1"] == 1:
-            return "【的中🎯】"
+        # 推奨買い方プランに応じた厳格な的中判定:
+        # ・単勝8.0倍以上の穴本命レースは「複勝（3着以内メイン）＋ワイドプラン」を推奨するため、3着以内で【的中🎯】
+        # ・単勝8.0倍未満の人気本命レースは「単勝（1着メイン）＋馬連プラン」を推奨するため、1着（単勝）または馬連成立時のみ【的中🎯】
+        if float(row["o1"]) >= 8.0:
+            is_hit = (1 <= int(row["fo1"]) <= 3)
         else:
-            return "【不的中❌】"
+            hit_tan = (int(row["fo1"]) == 1)
+            hit_uma = (1 <= int(row["fo1"]) <= 2) and (pd.notna(row["fo2"]) and 1 <= int(row["fo2"]) <= 2)
+            is_hit = hit_tan or hit_uma
+        return "【的中🎯】" if is_hit else "【不的中❌】"
 
     m["hit_tag"] = m.apply(check_hit, axis=1)
     m["rank_order"] = m["rank_tag"].map({
