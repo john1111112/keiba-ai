@@ -41,6 +41,25 @@ class Phase8Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_prediction_rows(self.features, FakeWinModel(), **args)
 
+    def test_post_race_finish_rejected(self):
+        with self.assertRaises(ValueError):
+            build_prediction_rows(self.features.assign(finish_order=[1, 2]),
+                                  FakeWinModel(), **self.args)
+
+    def test_post_race_time_rejected(self):
+        with self.assertRaises(ValueError):
+            build_prediction_rows(self.features.assign(time_str=['1:34.2', '']),
+                                  FakeWinModel(), **self.args)
+
+    def test_unconfirmed_placeholders_are_injected(self):
+        class CheckModel:
+            def predict_win_race(self, frame, normalize_to_one=True):
+                assert frame['finish_order'].eq(0).all()
+                assert frame['time_str'].eq('').all()
+                return frame.assign(pred_win_prob=0.5)
+        rows = build_prediction_rows(self.features, CheckModel(), **self.args)
+        self.assertEqual(len(rows), 2)
+
     def test_invalid_win_probability_rejected(self):
         class BadModel:
             def predict_win_race(self, frame, normalize_to_one=True):
