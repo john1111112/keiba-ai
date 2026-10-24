@@ -129,31 +129,16 @@ def analyze_winning_conditions(df_pred: pd.DataFrame) -> Dict[str, Any]:
             "roi": round((p_rain_dirt["return_win"].sum() / (len(p_rain_dirt) * 100)) * 100, 1)
         })
 
-    # パターンB: AI予測3着内率52%以上（Sランク基準）
+    # パターンB: AI予測3着内率52%以上（旧Sランク参考基準）
     p_iron = df_h[df_h["pred_score"] >= 0.52]
     if len(p_iron) >= 20:
         golden_patterns.append({
-            "pattern_name": "🎯 AI予測複勝率52%以上（Sランク基準）",
+            "pattern_name": "🎯 AI予測3着内率52%以上（旧Sランク参考基準）",
             "description": "LightGBMの3着以内予測確率が52%以上の本命馬(◎)の実績",
             "races": len(p_iron),
             "win_rate": round(p_iron["is_win"].mean() * 100, 1),
             "place_rate": round(p_iron["is_place"].mean() * 100, 1),
             "roi": round((p_iron["return_win"].sum() / (len(p_iron) * 100)) * 100, 1)
-        })
-
-    # パターンC: 期待値1.5以上の中穴馬 (単勝8〜25倍)
-    ana_all = df[(df["expected_value"] >= 1.5) & (df["odds"] >= 8.0) & (df["odds"] <= 25.0)].copy()
-    if len(ana_all) >= 20:
-        ana_win = (ana_all["finish_order"] == 1).astype(int)
-        ana_place = (ana_all["finish_order"].between(1, 3)).astype(int)
-        ana_ret = ana_win * ana_all["odds"] * 100
-        golden_patterns.append({
-            "pattern_name": "💎 期待値1.5以上の中穴馬 (単勝8〜25倍)",
-            "description": "AIの3着内予測確率×単勝オッズが1.5以上の中穴馬の単勝実績",
-            "races": len(ana_all),
-            "win_rate": round(ana_win.mean() * 100, 1),
-            "place_rate": round(ana_place.mean() * 100, 1),
-            "roi": round((ana_ret.sum() / (len(ana_all) * 100)) * 100, 1)
         })
 
     # パターンD: 芝マイル(1600m)戦

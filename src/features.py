@@ -5,7 +5,8 @@ from pathlib import Path
 
 CATEGORICAL_COLS = ["race_course", "surface", "condition", "sex", "sire_type", "running_style"]
 
-FEATURE_COLS = [
+# 既存31特徴量（v1_31cols：後方互換維持用）
+FEATURE_COLS_V1_31 = [
     "bracket_number", "horse_number", "age", "weight_carry",
     "distance", "horse_weight", "horse_weight_diff", "weight_ratio",
     "jockey_win_rate", "jockey_place_rate",
@@ -17,39 +18,62 @@ FEATURE_COLS = [
     "race_course", "surface", "condition", "sex"
 ]
 
+# 新28特徴量（v2_28cols_no_pedigree：不正確な血統3特徴量を除外したクリーン版）
+PEDIGREE_COLS = ["sire_place_rate", "sire_surface_rate", "sire_type"]
+FEATURE_COLS_V2_28 = [c for c in FEATURE_COLS_V1_31 if c not in PEDIGREE_COLS]
 
-def _is_valid_finished_order(fo) -> bool:
+# デフォルトの FEATURE_COLS は既存31特徴量モデルとの互換性のため保持
+FEATURE_COLS = FEATURE_COLS_V1_31
+
+
+def get_feature_cols_by_version(feature_version: str = "v1_31cols") -> List[str]:
+    if feature_version in ("v2_28cols", "v2_28cols_no_pedigree", "28"):
+        return list(FEATURE_COLS_V2_28)
+    return list(FEATURE_COLS_V1_31)
+
+
+def _is_valid_finished_row(fo, time_str: Optional[str] = None) -> bool:
     """
     完走確定着順（1〜28着）かどうかを判定する。
-    未確定(0)や取消・除外・競走中止(>=29 または <=0, NaN)は過去成績の着順集計・騎手勝敗集計から除外する。
+    未確定(0)や、スクレイピング時に取消・除外・競走中止で time_str が '' または '-' となっている行を除外する。
     """
     if pd.isna(fo):
         return False
     try:
         val = int(fo)
-        return 1 <= val <= 28
+        if not (1 <= val <= 28):
+            return False
+        if time_str is not None:
+            ts = str(time_str).strip()
+            if ts in ("", "-", "None", "nan"):
+                return False
+        return True
     except Exception:
         return False
 
 
-def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+def build_features(df: pd.DataFrame, feature_version: str = "v1_31cols") -> Tuple[pd.DataFrame, List[str]]:
     """
     【同日・同一レース内リーク完全排除版（開催日単位バッチ更新）】
     1. 当日の結果情報（当日の通過順位・当日の上がり3F・当日の着順）は一切特徴量に使用しない。
     2. 同じ開催日（date）の他レース結果（例: 1R〜10Rの結果を同日11Rで使用すること）も一切使用しない。
     3. 騎手累積成績（jockey_stats）・血統累積成績（sire_stats）・馬の過去走履歴（horse_hist）はすべて
        「開催日（date）単位」で、その日の全レースの特徴量算出が完了した後にのみ一括更新する。
-       これにより、対象レースの推論時点では「前日（date < 当日）までに確定した過去レース」のみが100%参照される。
+    4. feature_version='v2_28cols' 指定時は血統3特徴量（sire_place_rate, sire_surface_rate, sire_type）を返却特徴量リストから除外する。
     """
+    target_fcols = get_feature_cols_by_version(feature_version)
     if df is None or len(df) == 0:
-        return pd.DataFrame(), list(FEATURE_COLS)
+        return pd.DataFrame(), target_fcols
 
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["date", "race_id", "horse_number"]).reset_index(drop=True)
 
-    # 目的変数（1〜3着 = 1, 4着以降・未発走(0) = 0）
-    df["target"] = ((df["finish_order"] >= 1) & (df["finish_order"] <= 3)).astype(int)
+    t_series = df["time_str"].fillna("").astype(str).str.strip() if "time_str" in df.columns else pd.Series(["1:35.0"] * len(df))
+    valid_fin_mask = (df["finish_order"] >= 1) & (df["finish_order"] <= 28) & (~t_series.isin(["", "-"]))
+
+    # 目的変数（完走確定 1〜3着 = 1, 4着以降・未発走(0) = 0）
+    df["target"] = (valid_fin_mask & (df["finish_order"] <= 3)).astype(int)
 
     # 当該レースの実測脚質（過去履歴への蓄積用に退避し、当日の特徴量には絶対に使わない）
     observed_styles = df["running_style"].fillna("先行").tolist() if "running_style" in df.columns else ["先行"] * len(df)
@@ -79,9 +103,6 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     sire_stats = {}
     horse_hist = {}
 
-    # 開催日（date）単位でグループ化して処理：
-    # Step A: 前日までに蓄積された統計のみを使って、その日の全出走馬の特徴量を計算
-    # Step B: その日の全レースの特徴量計算が終わった後に、確定完走レース（1<=finish_order<=28）の結果を統計へ反映
     for cur_date, day_grp in df.groupby("date", sort=False):
         day_indices = day_grp.index.tolist()
 
@@ -160,11 +181,12 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
                 else:
                     is_toushi_list[idx] = 0
 
-        # --- Step B: 当日の全レース特徴量算出完了後、完走確定結果(1<=finish_order<=28)のみを累積統計へ反映 ---
+        # --- Step B: 当日の全レース特徴量算出完了後、完走確定結果のみを累積統計へ反映 ---
         for idx in day_indices:
             row = df.loc[idx]
             fo = row["finish_order"]
-            if not _is_valid_finished_order(fo):
+            ts = t_series.iloc[idx]
+            if not _is_valid_finished_row(fo, ts):
                 continue
             fo_int = int(fo)
 
@@ -254,33 +276,31 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         else:
             df[col] = df[col].astype("category")
 
-    return df, list(FEATURE_COLS)
+    return df, target_fcols
 
 
-def build_features_for_race_with_history(race_id: str, db_path: Optional[Path] = None) -> Tuple[pd.DataFrame, List[str]]:
+def build_features_for_race_with_history(
+    race_id: str,
+    db_path: Optional[Path] = None,
+    feature_version: str = "v1_31cols"
+) -> Tuple[pd.DataFrame, List[str]]:
     """
-    【単一レース推論時の過去走参照バグ修正用】
-    特徴量キャッシュ（features.parquet）に対象レースが存在しない場合でも、
-    単一レースの行だけで build_features() を呼ぶのではなく、
-    対象レースの開催日以前（date <= target_date）の全履歴（または当該馬・当該騎手・当該血統の全過去走）を
-    SQLite から取得して学習時と100%同一のロジックで特徴量を生成し、対象レースの行のみを抽出して返す。
-    これにより、
-    1. 未来のレース結果（date > target_date）や同日の他レース結果を一切参照しない。
-    2. 過去走が存在する馬が初出走扱いになるバグを完全に防ぐ。
-    3. 学習時と推論時の特徴量生成ロジックを完全に統一する。
+    【単一レース推論時の過去走参照（学習時と完全統一）】
+    対象レースの開催日より前の全過去走（WHERE r.date < ? OR r.race_id = ?）を取得して build_features() を実行し、
+    対象レースの行のみを抽出して返す。
     """
     from .database import get_connection
 
+    target_fcols = get_feature_cols_by_version(feature_version)
     conn = get_connection(db_path)
     cur = conn.cursor()
     row_date = cur.execute("SELECT date FROM races WHERE race_id = ?", (str(race_id),)).fetchone()
     if not row_date:
         conn.close()
-        return pd.DataFrame(), list(FEATURE_COLS)
+        return pd.DataFrame(), target_fcols
 
     target_date_str = str(row_date[0])[:10]
 
-    # 対象レースより前の全確定レース + 対象レース自身の行のみを取得（同日の他レースや未来のレースは一切取得しない）
     query = """
     SELECT 
         r.race_id, r.race_name, r.date, r.race_course, r.race_number,
@@ -300,8 +320,8 @@ def build_features_for_race_with_history(race_id: str, db_path: Optional[Path] =
     conn.close()
 
     if len(df_hist_and_target) == 0:
-        return pd.DataFrame(), list(FEATURE_COLS)
+        return pd.DataFrame(), target_fcols
 
-    feat_all, fcols = build_features(df_hist_and_target)
+    feat_all, fcols = build_features(df_hist_and_target, feature_version=feature_version)
     race_feat = feat_all[feat_all["race_id"].astype(str) == str(race_id)].copy().reset_index(drop=True)
     return race_feat, fcols

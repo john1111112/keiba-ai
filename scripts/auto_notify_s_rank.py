@@ -1,4 +1,4 @@
-﻿"""
+"""
 S-Rank 勝負レース自動監視・Discord通知スクリプト
 バックグラウンドで動作し、未送信のSランク勝負レースを自動検知して即座にDiscordへプッシュ送信します。
 """
@@ -33,10 +33,10 @@ def scan_and_notify_s_rank():
         if c in df_feat.columns:
             df_feat[c] = df_feat[c].astype("category")
 
-    # 発走前または直近のレース（最新レース）
-    future_races = df_feat[df_feat["date"] >= "2026-10-24"].copy()
+    # 発走前（未確定: finish_order == 0）のレースを対象（固定日付を撤去）
+    future_races = df_feat[df_feat["finish_order"] == 0].copy()
     if len(future_races) == 0:
-        future_races = df_feat.tail(200).copy()
+        return 0
 
     model = KeibaAIModel()
     model.load()

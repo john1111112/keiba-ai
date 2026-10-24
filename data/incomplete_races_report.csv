@@ -1,0 +1,121 @@
+﻿race_id,date,race_course,race_number,race_name,entry_count,max_horse_number,valid_finishers,scratched_or_aborted,max_valid_finish_order,reason,usable_for_training_eval,usable_for_horse_history
+202510010111,2025-01-25,小倉,11,小倉牝馬ステークス (G3),18,18,18,0,18,MISSING_TOP3_FINISHERS(missing=[2]),False,True
+202510010309,2025-02-01,小倉,9,平尾台特別,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202505020107,2025-04-26,東京,7,4歳上,14,14,14,0,14,MISSING_TOP3_FINISHERS(missing=[2]),False,True
+202501010805,2025-08-17,札幌,5,新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
+202509040303,2025-09-13,阪神,3,未勝利,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
+202508030310,2025-10-11,京都,10,宇治川,13,13,13,0,13,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202505040711,2025-10-19,東京,11,ブラジ,12,12,12,0,12,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202505041108,2025-11-02,東京,8,百日草,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
+202505050408,2025-11-16,東京,8,3歳上,13,13,13,0,13,MISSING_TOP3_FINISHERS(missing=[2]),False,True
+202508040508,2025-11-22,京都,8,3歳上,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202503030610,2025-11-24,福島,10,五色沼,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202506050812,2025-12-28,中山,12,ファイ,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202610010311,2026-01-31,小倉,11,巌流島,7,18,7,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=16,missing_ranks=9)",False,True
+202605010812,2026-02-22,東京,12,大島特,6,15,6,0,11,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202609010610,2026-03-08,阪神,10,岸和田,14,14,14,0,14,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202606030210,2026-03-29,中山,10,船橋S,6,12,6,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202609020407,2026-04-05,阪神,7,4歳上,6,15,6,0,14,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202609020410,2026-04-05,阪神,10,心斎橋,6,18,6,0,16,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202603010109,2026-04-11,福島,9,浄土平,7,16,7,0,12,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=12,missing_ranks=5)",False,True
+202609020506,2026-04-11,阪神,6,3歳,7,13,7,0,12,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=12,missing_ranks=5)",False,True
+202609020707,2026-04-18,阪神,7,4歳上,6,12,6,0,12,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=12,missing_ranks=6)",False,True
+202608030109,2026-04-25,京都,9,4歳上,6,15,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202608030206,2026-04-26,京都,6,3歳,6,11,6,0,9,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=9,missing_ranks=3)",False,True
+202604010112,2026-05-02,新潟,12,4歳上,7,16,7,0,16,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=16,missing_ranks=9)",False,True
+202605020305,2026-05-02,東京,5,3歳,7,17,7,0,17,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=17,missing_ranks=10)",False,True
+202605020309,2026-05-02,東京,9,是政S,6,16,6,0,13,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202605020409,2026-05-03,東京,9,府中S,6,18,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202605020410,2026-05-03,東京,10,ブリリ,6,15,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604010307,2026-05-09,新潟,7,4歳上,6,14,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604010311,2026-05-09,新潟,11,駿風S,7,16,7,0,13,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=13,missing_ranks=6)",False,True
+202608030511,2026-05-09,京都,11,京都新,6,13,6,0,13,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202604010408,2026-05-10,新潟,8,4歳上,6,14,6,0,11,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604010509,2026-05-16,新潟,9,石打特,10,15,10,0,14,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=10,max_finish_order=14,missing_ranks=4)",False,True
+202604010607,2026-05-17,新潟,7,4歳上,6,13,6,0,13,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202604010609,2026-05-17,新潟,9,飛竜特,6,16,6,0,12,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=12,missing_ranks=6)",False,True
+202605020810,2026-05-17,東京,10,青梅特,6,15,6,0,12,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=12,missing_ranks=6)",False,True
+202608030806,2026-05-17,京都,6,3歳,6,12,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202604010708,2026-05-23,新潟,8,4歳上,6,14,6,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202604010712,2026-05-23,新潟,12,4歳上,7,15,7,0,15,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=15,missing_ranks=8)",False,True
+202605020911,2026-05-23,東京,11,欅S,6,16,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604010811,2026-05-24,新潟,11,韋駄天,7,16,7,0,12,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=12,missing_ranks=5)",False,True
+202605021007,2026-05-24,東京,7,4歳上,6,12,6,0,17,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=17,missing_ranks=11)",False,True
+202605021012,2026-05-24,東京,12,丹沢S,8,14,8,0,15,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=15,missing_ranks=7)",False,True
+202608031007,2026-05-24,京都,7,4歳上,7,18,7,0,14,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=14,missing_ranks=7)",False,True
+202605021211,2026-05-31,東京,11,東京優,8,18,8,0,17,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=17,missing_ranks=9)",False,True
+202605030207,2026-06-07,東京,7,3歳上,6,15,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202605030208,2026-06-07,東京,8,3歳上,6,11,6,0,14,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202605030211,2026-06-07,東京,11,安田記,17,17,17,0,17,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202605030212,2026-06-07,東京,12,小金井,6,16,6,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202609030308,2026-06-13,阪神,8,3歳上,6,12,6,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202609030311,2026-06-13,阪神,11,三宮S,7,16,7,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=14,missing_ranks=7)",False,True
+202609030406,2026-06-14,阪神,6,3歳上,7,15,7,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=16,missing_ranks=9)",False,True
+202609030407,2026-06-14,阪神,7,3歳上,8,11,8,0,10,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=10,missing_ranks=2)",False,True
+202605030508,2026-06-20,東京,8,3歳上,6,14,6,0,14,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202605030510,2026-06-20,東京,10,相模湖,6,13,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202605030511,2026-06-20,東京,11,スレイ,7,14,7,0,12,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=12,missing_ranks=5)",False,True
+202609030512,2026-06-20,阪神,12,3歳上,8,18,8,0,18,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=18,missing_ranks=10)",False,True
+202605030608,2026-06-21,東京,8,3歳上,6,12,6,0,15,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202609030611,2026-06-21,阪神,11,しらさ,6,18,6,0,17,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=17,missing_ranks=11)",False,True
+202603020105,2026-06-27,福島,5,新馬,6,11,6,0,9,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=9,missing_ranks=3)",False,True
+202602010705,2026-07-04,函館,5,新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
+202603020306,2026-07-04,福島,6,新馬,6,15,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202610020305,2026-07-04,小倉,5,新馬,6,13,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202610020312,2026-07-04,小倉,12,3歳上,6,12,6,0,10,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=10,missing_ranks=4)",False,True
+202610020612,2026-07-12,小倉,12,3歳上,6,13,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202602011112,2026-07-18,函館,12,3歳上,12,12,12,0,12,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202603020711,2026-07-18,福島,11,阿武隈,6,10,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202610020711,2026-07-18,小倉,11,テレQ,6,10,6,0,10,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=10,missing_ranks=4)",False,True
+202602011212,2026-07-19,函館,12,3歳上,6,12,6,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202610020808,2026-07-19,小倉,8,3歳上,6,14,6,0,11,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604020102,2026-07-25,新潟,2,新馬,8,11,8,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=14,missing_ranks=6)",False,True
+202604020105,2026-07-25,新潟,5,3歳上,6,9,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604020108,2026-07-25,新潟,8,清津峡,6,13,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202604020112,2026-07-25,新潟,12,3歳上,8,17,8,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=16,missing_ranks=8)",False,True
+202607020101,2026-07-25,中京,1,未勝利,6,9,6,0,9,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=9,missing_ranks=3)",False,True
+202607020109,2026-07-25,中京,9,3歳上,7,13,7,0,14,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=14,missing_ranks=7)",False,True
+202604020208,2026-07-26,新潟,8,麒麟山,6,15,6,0,15,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202604020211,2026-07-26,新潟,11,3歳上,7,15,7,0,15,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=15,missing_ranks=8)",False,True
+202607020209,2026-07-26,中京,9,3歳上,9,14,9,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=9,max_finish_order=14,missing_ranks=5)",False,True
+202607020211,2026-07-26,中京,11,3歳上,6,16,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202604020306,2026-08-01,新潟,6,月岡温,7,11,7,0,11,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=11,missing_ranks=4)",False,True
+202604020312,2026-08-01,新潟,12,3歳上,6,16,6,0,17,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=17,missing_ranks=11)",False,True
+202604020401,2026-08-02,新潟,1,未勝利,6,10,6,0,7,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=7,missing_ranks=1)",False,True
+202604020407,2026-08-02,新潟,7,アイビ,7,15,7,0,17,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=17,missing_ranks=10)",False,True
+202604020408,2026-08-02,新潟,8,五頭連,6,13,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202604020409,2026-08-02,新潟,9,3歳上,6,15,6,0,15,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
+202604020509,2026-08-08,新潟,9,3歳上,8,15,8,0,15,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=15,missing_ranks=7)",False,True
+202604020511,2026-08-08,新潟,11,3歳上,11,15,11,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=11,max_finish_order=16,missing_ranks=5)",False,True
+202604020605,2026-08-09,新潟,5,3歳上,8,14,8,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=15,missing_ranks=7)",False,True
+202604020608,2026-08-09,新潟,8,驀進特,10,17,10,0,16,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=10,max_finish_order=16,missing_ranks=6)",False,True
+202604020609,2026-08-09,新潟,9,3歳上,6,12,6,0,12,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=12,missing_ranks=6)",False,True
+202607020611,2026-08-09,中京,11,3歳上,7,18,7,0,15,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=15,missing_ranks=8)",False,True
+202607020701,2026-08-15,中京,1,未勝利,6,13,6,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=16,missing_ranks=10)",False,True
+202601010803,2026-08-16,札幌,3,3歳上,6,14,6,0,14,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202604020806,2026-08-16,新潟,6,稲妻S,7,13,7,0,11,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=11,missing_ranks=4)",False,True
+202607020811,2026-08-16,中京,11,3歳上,8,14,8,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=13,missing_ranks=5)",False,True
+202607030106,2026-08-22,中京,6,大府特,7,12,7,0,13,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=13,missing_ranks=6)",False,True
+202604030211,2026-08-23,新潟,11,3歳上,8,17,8,0,14,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=14,missing_ranks=6)",False,True
+202607030205,2026-08-23,中京,5,3歳上,7,11,7,0,11,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=11,missing_ranks=4)",False,True
+202607030208,2026-08-23,中京,8,豊川特,7,16,7,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=15,missing_ranks=8)",False,True
+202607030211,2026-08-23,中京,11,3歳上,9,17,9,0,15,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=9,max_finish_order=15,missing_ranks=6)",False,True
+202604030310,2026-08-29,新潟,10,3歳上,8,16,8,0,17,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=17,missing_ranks=9)",False,True
+202607030307,2026-08-29,中京,7,長篠S,6,14,6,0,14,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=14,missing_ranks=8)",False,True
+202604030406,2026-08-30,新潟,6,両津湾,8,13,8,0,13,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=13,missing_ranks=5)",False,True
+202604030409,2026-08-30,新潟,9,閃光特,7,18,7,0,12,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=12,missing_ranks=5)",False,True
+202607030412,2026-08-30,中京,12,3歳上,6,13,6,0,10,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=10,missing_ranks=4)",False,True
+202606040411,2026-09-13,中山,11,セント,8,14,8,0,15,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=15,missing_ranks=7)",False,True
+202606040504,2026-09-19,中山,4,新馬,6,16,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202609040511,2026-09-19,阪神,11,大スポ,6,16,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202606040607,2026-09-20,中山,7,3歳上,9,18,9,0,15,"PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=9,max_finish_order=15,missing_ranks=6)",False,True
+202609040707,2026-09-21,阪神,7,3歳上,8,18,8,0,17,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=17,missing_ranks=9)",False,True
+202609040711,2026-09-21,阪神,11,神戸新,6,11,6,0,11,"MISSING_TOP3_FINISHERS(missing=[2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
+202606040802,2026-09-26,中山,2,未勝利,6,10,6,0,12,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=12,missing_ranks=6)",False,True
+202606040808,2026-09-26,中山,8,3歳上,6,13,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
+202609040811,2026-09-26,阪神,11,シリウ,7,15,7,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=13,missing_ranks=6)",False,True
+202606040907,2026-09-27,中山,7,3歳上,8,16,8,0,16,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=16,missing_ranks=8)",False,True
+202609040907,2026-09-27,阪神,7,3歳上,7,16,7,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=13,missing_ranks=6)",False,True
+202609040912,2026-09-27,阪神,12,3歳上,8,12,8,0,11,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=11,missing_ranks=3)",False,True
+202608040612,2026-10-17,京都,12,3歳上1勝クラス,18,18,18,0,18,MISSING_TOP3_FINISHERS(missing=[3]),False,True
+202608040705,2026-10-18,京都,5,2歳新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True

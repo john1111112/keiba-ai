@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Any
@@ -56,7 +56,7 @@ def update_tracking_history(pred_df: pd.DataFrame):
         records.append((
             str(top["race_id"]),
             str(top.get("race_name", "レース")),
-            str(top.get("date", "2026-10-25")),
+            str(top.get("date", "")),
             str(top.get("race_course", "東京")),
             int(top["horse_number"]),
             str(top["horse_name"]),

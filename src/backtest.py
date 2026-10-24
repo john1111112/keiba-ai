@@ -5,9 +5,8 @@ from src.betting_strategy import evaluate_race_value
 
 def _filter_complete_past_races(df_evaluated: pd.DataFrame) -> pd.DataFrame:
     """
-    確定着順(1着馬)が存在する完全な実在JRAレースのみを検証対象として抽出。
-    また、is_warmup_block カラムが存在する場合は初期学習専用期間（is_warmup_block == True）および
-    pred_score が NaN の行を評価対象から除外する。
+    1〜3着馬がすべて存在し、出走頭数6頭以上かつ完走着順が連続している完全な実在JRA確定レースのみを検証対象として抽出。
+    また、is_warmup_block == True（初期学習専用期間）および pred_score が NaN の行を評価対象から除外する。
     """
     valid_df = df_evaluated[(df_evaluated["finish_order"] >= 1) & (df_evaluated["finish_order"] <= 28)].copy()
     if "is_warmup_block" in valid_df.columns:
@@ -16,11 +15,29 @@ def _filter_complete_past_races(df_evaluated: pd.DataFrame) -> pd.DataFrame:
         valid_df = valid_df[valid_df["pred_score"].notna()].copy()
     if len(valid_df) == 0:
         return valid_df
-    grp_stats = valid_df.groupby("race_id").agg(
-        cnt=("horse_number", "count"),
-        has_win=("finish_order", lambda s: (s == 1).any())
+
+    if "time_str" in valid_df.columns:
+        t_series = valid_df["time_str"].fillna("").astype(str).str.strip()
+        fin_df = valid_df[~t_series.isin(["", "-"])]
+    else:
+        fin_df = valid_df
+
+    grp_stats = fin_df.groupby("race_id").agg(
+        n_valid=("horse_number", "count"),
+        max_fo=("finish_order", "max"),
+        w1=("finish_order", lambda s: (s == 1).any()),
+        w2=("finish_order", lambda s: (s == 2).any()),
+        w3=("finish_order", lambda s: (s == 3).any()),
     )
-    complete_rids = grp_stats[(grp_stats["cnt"] >= 6) & (grp_stats["has_win"])].index
+    entry_counts = valid_df.groupby("race_id")["horse_number"].count()
+    grp_stats["entry_count"] = entry_counts
+    complete_rids = grp_stats[
+        (grp_stats["entry_count"] >= 6)
+        & grp_stats["w1"]
+        & grp_stats["w2"]
+        & grp_stats["w3"]
+        & (grp_stats["max_fo"] <= grp_stats["n_valid"])
+    ].index
     return valid_df[valid_df["race_id"].isin(complete_rids)].copy()
 
 def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:

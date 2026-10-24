@@ -94,8 +94,7 @@ def load_features_v4(cache_key: str = ""):
         return df_feat, fcols
     else:
         df_raw = load_all_race_data()
-        df_clean = df_raw[df_raw["date"] <= "2026-10-25"].copy()
-        df_feat, fcols = build_features(df_clean)
+        df_feat, fcols = build_features(df_raw)
         df_feat.to_parquet(FEATURES_CACHE_PATH, index=False)
         return df_feat, fcols
 
@@ -208,7 +207,7 @@ with tab1:
             races_df["label"] = races_df["dropdown_label"].fillna(races_df.apply(_build_label, axis=1))
         else:
             races_df["rank_tag"] = "【-】"
-            races_df["hit_tag"] = races_df["date"].apply(lambda d: "【発走前⏳】" if str(d)[:10] > "2026-10-23" else "")
+            races_df["hit_tag"] = races_df["is_confirmed"].apply(lambda c: "【確定】" if c == 1 else "【発走前⏳】")
             races_df["rank_order"] = 4
             def _build_label(r):
                 d_str = str(r["date"])[:10]
@@ -227,7 +226,7 @@ with tab1:
                 index=0
             )
         with col_info:
-            st.caption("💡 **ランク基準 (LightGBM実予測確率)**: **🔥【SS】**=3着内率30%超×15〜30倍 / **⚡【S】**=3着内率52%超 / **⭐【A】**=3着内率42%超 / **⏳【オッズ未確定】**=JRA発売前")
+            st.caption("💡 **旧ルール参考ランク (3着内予測確率)**: **🔥【SS】**=3着内率30%超×15〜30倍 / **⚡【S】**=3着内率52%超 / **⭐【A】**=3着内率42%超（※期待値算出・購入推奨は一時停止中）")
 
         if "SS・Sランク優先" in sort_mode:
             races_df = races_df.sort_values(["date", "rank_order", "race_course", "race_number"], ascending=[False, True, True, True]).reset_index(drop=True)
@@ -269,13 +268,15 @@ with tab1:
         **条件**: {sel_race_row['surface']}{sel_race_row['distance']}m / 馬場: {sel_race_row['condition']}
         """)
         
-        # 勝負度判定と最適買い方プランの算出
+        # 勝負度判定（旧ルール参考評価）
         val_eval = evaluate_race_value(pred_race)
         is_fukusho_style = (val_eval.get("bet_style") == "fukusho_wide")
-        fuku_est = val_eval.get("fukusho_est_odds", 2.5)
-        
-        # 過去レース（2026-10-23以前）の場合は「確定着順 ＆ 推奨買い方プランに対する的中判定」を表示
-        is_past_race = str(sel_race_row["date"])[:10] <= "2026-10-23"
+        fuku_est = val_eval.get("fukusho_est_odds")
+
+        # 固定日付による判定を撤去し、レースの確定状態（finish_order >= 1 の有無）に基づいて判定
+        is_past_race = bool(int(sel_race_row.get("is_confirmed", 0)) == 1)
+        if not is_past_race and "finish_order" in pred_race.columns:
+            is_past_race = bool((pred_race["finish_order"] >= 1).any())
         
         if is_past_race and "finish_order" in pred_race.columns:
             act_1st = pred_race[pred_race["finish_order"] == 1]
@@ -377,60 +378,57 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
         
-        if val_eval["should_bet"]:
-            style_title = (
-                f"💰 最適資金配分プラン（🎯【穴軸・複勝＆ワイド高配当プラン】本命◎が単勝{val_eval['honmei']['odds']}倍のため3着以内複勝メイン推奨！）"
-                if is_fukusho_style
-                else f"💰 最適資金配分プラン（👑【本命アタマ・単勝＆馬連勝負プラン】本命◎が単勝{val_eval['honmei']['odds']}倍のため単勝メイン推奨！）"
-            )
-            st.write(f"**{style_title}**")
+        if val_eval["should_bet"] and len(val_eval.get("recommendations", [])) > 0:
             b_cols = st.columns(len(val_eval["recommendations"]))
             for idx, r_item in enumerate(val_eval["recommendations"]):
                 with b_cols[idx]:
-                    st.metric(f"{r_item['ticket_type']}", f"{r_item['amount']} 円", f"{r_item['combination']} (期待値{r_item['expected_value']})")
+                    st.metric(f"{r_item['ticket_type']}", f"{r_item['amount']} 円", f"{r_item['combination']}")
         else:
-            st.info("💡 期待値・自信度が基準未満のため、このレースは【見送り（購入せずパス）】が長期回収率を最大化するベストな選択です。")
-            
+            st.info(
+                "ℹ️ **期待値計算および購入推奨の一時停止中**: "
+                "現在のAIスコアは「3着以内予測確率」であり、単勝勝率ではありません。"
+                "単勝期待値は「1着確率モデル」完成まで、複勝期待値は「実複勝オッズ」取得まで算出不可としているため、"
+                "期待値を根拠とした穴馬判定・買い目推奨は一時停止しています（SS/S/Aランク表記は旧ルールによる参考評価です）。"
+            )
+
         top1 = pred_race.iloc[0]
         top2 = pred_race.iloc[1] if len(pred_race) > 1 else None
         top3 = pred_race.iloc[2] if len(pred_race) > 2 else None
-        
+
         c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("本命 ◎ 単勝", f"{top1['horse_number']}番 {top1['horse_name']}", f"予測3着内率: {top1['pred_score']*100:.1f}%")
-        with c2: st.metric("対抗 ○", f"{top2['horse_number']}番 {top2['horse_name']}" if top2 is not None else "-", f"予測3着内率: {top2['pred_score']*100:.1f}%" if top2 is not None else "-")
-        with c3: st.metric("単穴 ▲", f"{top3['horse_number']}番 {top3['horse_name']}" if top3 is not None else "-", f"予測3着内率: {top3['pred_score']*100:.1f}%" if top3 is not None else "-")
+        with c1: st.metric("本命 ◎ (3着内率1位)", f"{top1['horse_number']}番 {top1['horse_name']}", f"予測3着内率: {top1['pred_score']*100:.1f}%")
+        with c2: st.metric("対抗 ○ (3着内率2位)", f"{top2['horse_number']}番 {top2['horse_name']}" if top2 is not None else "-", f"予測3着内率: {top2['pred_score']*100:.1f}%" if top2 is not None else "-")
+        with c3: st.metric("単穴 ▲ (3着内率3位)", f"{top3['horse_number']}番 {top3['horse_name']}" if top3 is not None else "-", f"予測3着内率: {top3['pred_score']*100:.1f}%" if top3 is not None else "-")
         with c4:
-            ana_horses = pred_race[pred_race["is_ana"]]
-            ana_text = f"{ana_horses.iloc[0]['horse_number']}番 {ana_horses.iloc[0]['horse_name']}" if len(ana_horses) > 0 else "該当なし"
-            st.metric("推奨 穴馬 ☆", ana_text, f"{ana_horses.iloc[0]['odds']}倍" if len(ana_horses) > 0 else "-")
-            
+            st.metric("単勝・複勝期待値", "算出不可", "1着確率/実複勝オッズ未取得")
+
         st.divider()
-        st.subheader("🎯 出走各馬のAIスコア & 予想詳細")
-        
+        st.subheader("🎯 出走各馬のAIスコア (3着以内予測確率) & 出馬表詳細")
+
         display_cols = [
             "mark", "finish_order", "bracket_number", "horse_number", "horse_name",
             "sire", "running_style", "pred_score", "expected_value",
             "odds", "popularity", "jockey_name", "weight_carry",
             "prev_rank", "course_place_rate", "rest_weeks"
         ]
-        
+
         table_df = pred_race[display_cols].copy()
         table_df.columns = [
             "印", "確定着順", "枠", "馬番", "馬名",
-            "血統(父)", "過去脚質", "予測3着内率", "期待値",
+            "血統(父)", "過去脚質", "予測3着内率", "単勝/複勝期待値",
             "単勝オッズ", "人気", "騎手", "斤量",
             "前走着順", "コース適性", "前走間隔"
         ]
-        
+
         if is_past_race:
             table_df["確定着順"] = table_df["確定着順"].apply(
                 lambda x: f"🥇 1着" if x == 1 else (f"🥈 2着" if x == 2 else (f"🥉 3着" if x == 3 else f"{int(x)}着"))
             )
         else:
             table_df["確定着順"] = "発走前"
-        
+
         table_df["予測3着内率"] = table_df["予測3着内率"].apply(lambda x: f"{x*100:.1f}%")
-        table_df["期待値"] = table_df["期待値"].apply(lambda x: f"{x:.2f}" if x > 0 else "未確定")
+        table_df["単勝/複勝期待値"] = "算出不可"
         table_df["単勝オッズ"] = table_df["単勝オッズ"].apply(lambda x: f"{x:.1f}倍" if x > 0 else "未発表")
         table_df["人気"] = table_df["人気"].apply(lambda x: f"{int(x)}人気" if x > 0 else "-")
         table_df["前走着順"] = table_df["前走着順"].apply(lambda x: f"{int(x)}着" if x > 0 else "-")
@@ -481,8 +479,8 @@ with tab2:
     })
     
     # ランク別フィルタリング
-    st.markdown("#### 🔍 判定ランク別の的中率・単勝回収率フィルター（時系列ウォークフォワード実測値）")
-    st.info("💡 **厳密な検証ルール**: 当日の通過順位リークや推定配当式を完全排除し、**過去データのみで学習した時系列ウォークフォワード予測確率**と、**JRA公式の確定単勝配当（1着時の単勝オッズ×賭け金）のみ**で計算した実測値です。")
+    st.markdown("#### 🔍 旧ルール参考ランク別の的中率・単勝回収率フィルター（時系列ウォークフォワード実測値）")
+    st.info("💡 **検証ルールと参考評価の明示**: 現在のSS・S・Aランクは「3着以内予測確率と単勝オッズ帯」による**旧ルールの参考評価**です。単勝期待値は1着確率モデル完成まで、複勝期待値は実複勝オッズ取得まで算出不可とし、期待値を根拠とした購入推奨は一時停止しています（下記はJRA確定単勝配当ベースの実測参考値です）。")
     
     rank_keys = [
         "🔥 SSランクのみ (S基準×15倍以上)",

@@ -81,18 +81,19 @@ def send_race_alert(race_info: Dict[str, Any], val_eval: Dict[str, Any], webhook
     else:
         color = 3447003   # Blue
     
+    ev_disp = f"{honmei['expected_value']}倍" if honmei.get("expected_value") is not None else "算出不可(1着確率モデル未構築)"
     fields = [
         {
             "name": "👑 本命馬 (◎)",
-            "value": f"**{honmei['horse_number']}番 {honmei['horse_name']}**\nAI好走率: **{honmei['pred_score']}%** | 単勝オッズ: **{honmei['odds']}倍** | 期待値: **{honmei['expected_value']}倍**",
+            "value": f"**{honmei['horse_number']}番 {honmei['horse_name']}**\n3着内予測確率: **{honmei['pred_score']}%** | 単勝オッズ: **{honmei['odds']}倍** | 単勝期待値: **{ev_disp}**",
             "inline": False
         }
     ]
     
-    if top_ana:
+    if top_ana and top_ana.get("expected_value") is not None:
         fields.append({
             "name": "💎 推奨 穴馬 (☆)",
-            "value": f"**{top_ana['horse_number']}番 {top_ana['horse_name']}**\n単勝オッズ: **{top_ana['odds']}倍** | 期待値: **{top_ana['expected_value']}倍**",
+            "value": f"**{top_ana['horse_number']}番 {top_ana['horse_name']}**\n単勝オッズ: **{top_ana['odds']}倍**",
             "inline": False
         })
         
@@ -183,8 +184,8 @@ def notify_all_predicted_ss_s_races(df_feat: pd.DataFrame, model=None, webhook_u
         return {"success": False, "notified_count": 0, "message": "Webhook URL未設定"}
 
     notified_set = set(get_notified_races())
-    # 発走前レース（finish_order == 0 または date >= '2026-10-24'）を対象
-    upcoming_df = df_feat[(df_feat["date"].astype(str) >= "2026-10-24") | (df_feat["finish_order"] == 0)].copy()
+    # 発走前（未確定: finish_order == 0）レースのみを対象（日付固定を撤去し確定状態で判定）
+    upcoming_df = df_feat[df_feat["finish_order"] == 0].copy()
     if len(upcoming_df) == 0:
         return {"success": True, "notified_count": 0, "message": "対象の発走前レースなし"}
 
