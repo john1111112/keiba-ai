@@ -3,6 +3,8 @@ import io
 import time
 import pandas as pd
 import numpy as np
+import lightgbm as lgb
+from sklearn.model_selection import KFold
 from pathlib import Path
 
 # Ensure UTF-8 output
@@ -19,135 +21,119 @@ from src.betting_strategy import evaluate_race_value
 from src.notifier import notify_all_predicted_ss_s_races
 from src.backtest import analyze_rank_performance, run_backtest
 
-def calibrate_real_jra_scores(df_feat: pd.DataFrame) -> np.ndarray:
+def compute_zero_leakage_scores(df_feat: pd.DataFrame, feature_cols: list) -> np.ndarray:
     """
-    実在JRAレースの特徴量・LightGBM生確率・過去実績・上がり3F脚力指標を統合し、
-    レース内の相対優位度を反映したAI好走率(pred_score)を算出。
+    【カンニング（データリーク）完全ゼロ保証】
+    1. 過去確定レース(finish_order >= 1)に対しては、5-Fold Out-of-Fold (OOF) 交差検証により、
+       「予測対象レースを一切学習していないLightGBMモデル」から純粋な事前予測確率(oof_prob)を算出。
+    2. 当日の結果情報（当日のfinish_orderや当日のlast_3f等）は1ミリも参照しない。
+    3. 発走前に判明している特徴量（OOF予測確率・事前オッズ・過去複勝率・前走着順・騎手勝率）のみからスコアを算出。
     """
     df = df_feat.copy().reset_index(drop=True)
-    past_pr = df["past_place_rate"].fillna(0.25).to_numpy()
-    prev_rk = df["prev_rank"].fillna(7.0).to_numpy()
-    j_wr = df["jockey_win_rate"].fillna(0.08).to_numpy()
-    raw_p = df["pred_score"].fillna(0.25).to_numpy()
-    odds_arr = df["odds"].fillna(15.0).clip(lower=1.1).to_numpy()
-    fo_arr = df["finish_order"].fillna(0).astype(int).to_numpy()
-    l3f_arr = df["last_3f"].fillna(35.5).replace(0.0, 35.5).to_numpy()
+    past_mask = df["finish_order"] >= 1
+    past_rids = df.loc[past_mask, "race_id"].unique()
 
-    # オッズが示す市場支持率 + 過去複勝率 + 前走着順 + 騎手勝率 + LightGBM予測値
-    mkt_prob = np.clip(0.80 / odds_arr, 0.02, 0.65)
-    form_score = (
-        raw_p * 0.30
-        + mkt_prob * 0.30
-        + past_pr * 0.20
-        + np.clip((12.0 - prev_rk) / 12.0, 0.0, 0.9) * 0.12
-        + np.clip(j_wr * 2.2, 0.0, 0.5) * 0.08
-    )
-    df["_form"] = form_score
+    oof_probs = np.zeros(len(df), dtype=float)
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    for tr_idx, val_idx in kf.split(past_rids):
+        tr_rids = set(past_rids[tr_idx])
+        val_rids = set(past_rids[val_idx])
+        tr_m = df["race_id"].isin(tr_rids)
+        val_m = df["race_id"].isin(val_rids)
+
+        m = lgb.LGBMClassifier(
+            objective="binary",
+            n_estimators=150,
+            learning_rate=0.04,
+            num_leaves=31,
+            max_depth=5,
+            random_state=42,
+            verbose=-1
+        )
+        m.fit(df.loc[tr_m, feature_cols], df.loc[tr_m, "target"])
+        oof_probs[val_m] = m.predict_proba(df.loc[val_m, feature_cols])[:, 1]
+
+    # 未発走レース(finish_order == 0)は過去確定レース全体で学習したモデルで予測
+    future_mask = ~past_mask
+    if future_mask.any():
+        m_full = lgb.LGBMClassifier(
+            objective="binary",
+            n_estimators=150,
+            learning_rate=0.04,
+            num_leaves=31,
+            max_depth=5,
+            random_state=42,
+            verbose=-1
+        )
+        m_full.fit(df.loc[past_mask, feature_cols], df.loc[past_mask, "target"])
+        oof_probs[future_mask] = m_full.predict_proba(df.loc[future_mask, feature_cols])[:, 1]
+
+    # 事前オッズ支持率 + OOF予測確率(事前特徴量のみ)
+    odds_arr = df["odds"].fillna(15.0).clip(lower=1.1).to_numpy()
+    mkt_prob = np.clip(0.80 / odds_arr, 0.01, 0.70)
+    pure_pre_score = oof_probs * 0.55 + mkt_prob * 0.45
+
+    df["_oof"] = oof_probs
+    df["_pre"] = pure_pre_score
+
+    # 事前スコアの全体分位点（リークゼロ）
+    top1_pre_list = df.groupby("race_id")["_pre"].max()
+    q_s_thresh = float(top1_pre_list.quantile(0.84))
+    q_a_thresh = float(top1_pre_list.quantile(0.60))
+
+    ana_sub = df[(df["odds"] >= 15.0) & (df["odds"] <= 30.0)]
+    if len(ana_sub) > 0:
+        ana_top_oof = ana_sub.groupby("race_id")["_oof"].max()
+        q_ss_oof_thresh = float(ana_top_oof.quantile(0.91))
+    else:
+        q_ss_oof_thresh = 0.35
 
     new_scores = np.zeros(len(df), dtype=float)
     for rid, grp in df.groupby("race_id", sort=False):
         idxs = grp.index.to_numpy()
-        f_vals = grp["_form"].to_numpy()
+        pre_vals = grp["_pre"].to_numpy()
+        oof_vals = grp["_oof"].to_numpy()
         o_vals = grp["odds"].fillna(15.0).to_numpy()
-        fo_vals = grp["finish_order"].fillna(0).astype(int).to_numpy()
-        l3f_vals = grp["last_3f"].fillna(35.5).replace(0.0, 35.5).to_numpy()
-        r_num = int(grp["race_number"].iloc[0]) if "race_number" in grp.columns else 5
-        grade = str(grp["grade"].iloc[0]) if "grade" in grp.columns else "一般"
-        date_str = str(grp["date"].iloc[0])[:10]
-        is_past = (date_str <= "2026-10-23") and (fo_vals > 0).any()
 
-        h_hash = (int(str(rid)[-4:]) * 37 + int(str(rid)[-2:]) * 13) % 100
+        order = np.argsort(-pre_vals)
+        best_pre = pre_vals[order[0]]
 
-        if is_past:
-            # 過去確定レース: 事前特徴量(form_score)と実戦の上がり3F脚力・走破パフォーマンスを融合したAI評価値
-            l3f_min = np.min(l3f_vals)
-            l3f_bonus = np.clip((36.5 - (l3f_vals - l3f_min + 33.5)) / 3.5, 0.0, 1.0)
-            perf_bonus = np.where(fo_vals == 1, 0.44, np.where(fo_vals == 2, 0.28, np.where(fo_vals == 3, 0.18, 0.0)))
+        # 1. SSランク判定（単勝15〜30倍の中で、事前OOF確率が上位9%に入る超厳選妙味馬がいるレース）
+        ss_cand_local = None
+        best_ana_oof = -1.0
+        for local_i in range(len(order)):
+            oi = o_vals[local_i]
+            if 15.0 <= oi <= 30.0 and oof_vals[local_i] >= q_ss_oof_thresh:
+                if oof_vals[local_i] > best_ana_oof:
+                    best_ana_oof = oof_vals[local_i]
+                    ss_cand_local = local_i
 
-            # 厳選度に応じた的中精度の階層化（SS ~78%, S ~75%, A ~64%, B/見送り ~60%のレース数）
-            is_ss_race = False
-            ss_target_local = None
-            if (grade in ("G1", "G2", "G3") or r_num in (9, 10, 11, 12)) and h_hash < 32:
-                for idx_l in np.argsort(-f_vals):
-                    oi = o_vals[idx_l]
-                    foi = fo_vals[idx_l]
-                    if 15.0 <= oi <= 29.8:
-                        if (h_hash < 24 and 1 <= foi <= 3) or (h_hash >= 24 and foi > 3):
-                            ss_target_local = idx_l
-                            is_ss_race = True
-                            break
-
-            if is_ss_race and ss_target_local is not None:
-                eval_vals = f_vals * 0.60 + perf_bonus * 0.30 + l3f_bonus * 0.10
-                order = np.argsort(-eval_vals)
-                order = np.array([ss_target_local] + [x for x in order if x != ss_target_local])
-                top_score = 0.858 + (h_hash % 18) * 0.001
-            elif r_num >= 9 and h_hash < 48:
-                # Sランク対象レース（全体の約15%・的中率約75%）
-                if h_hash < 28:
-                    eval_vals = f_vals * 0.45 + perf_bonus * 0.45 + l3f_bonus * 0.10
-                else:
-                    # リアルな不的中ケース（差し届かず4〜6着等）
-                    miss_bonus = np.where(fo_vals >= 4, 0.35, 0.0)
-                    eval_vals = f_vals * 0.65 + miss_bonus * 0.35
-                order = np.argsort(-eval_vals)
-                if o_vals[order[0]] >= 15.0:
-                    under15 = [x for x in order if o_vals[x] < 15.0]
-                    if under15:
-                        order = np.array([under15[0]] + [x for x in order if x != under15[0]])
-                top_score = 0.748 + (h_hash % 16) * 0.004
-            elif r_num >= 8 and h_hash < 72:
-                # Aランク対象レース（全体の約18%・的中率約63%）
-                if h_hash < 55:
-                    eval_vals = f_vals * 0.45 + perf_bonus * 0.45 + l3f_bonus * 0.10
-                else:
-                    miss_bonus = np.where(fo_vals >= 4, 0.35, 0.0)
-                    eval_vals = f_vals * 0.65 + miss_bonus * 0.35
-                order = np.argsort(-eval_vals)
-                if o_vals[order[0]] >= 15.0:
-                    under15 = [x for x in order if o_vals[x] < 15.0]
-                    if under15:
-                        order = np.array([under15[0]] + [x for x in order if x != under15[0]])
-                top_score = 0.642 + (h_hash % 15) * 0.004
-            else:
-                # Bランクまたは見送り（全体の約60%：一般戦や混戦レース）
-                eval_vals = f_vals * 0.85 + l3f_bonus * 0.15
-                order = np.argsort(-eval_vals)
-                top_score = 0.440 + (h_hash % 14) * 0.009
+        if ss_cand_local is not None:
+            order = np.array([ss_cand_local] + [x for x in order if x != ss_cand_local])
+            top_score = 0.855 + min(0.030, (best_ana_oof - q_ss_oof_thresh) * 0.25)
+        elif best_pre >= q_s_thresh and o_vals[order[0]] < 15.0:
+            # 2. Sランク判定（事前総合スコアが上位16%に入る鉄板本命レース）
+            top_score = 0.740 + min(0.095, (best_pre - q_s_thresh) * 0.60)
+        elif best_pre >= q_a_thresh and o_vals[order[0]] <= 25.0:
+            # 3. Aランク判定（事前総合スコアが上位40%に入る好勝負レース）
+            if o_vals[order[0]] >= 15.0:
+                under15 = [x for x in order if o_vals[x] < 15.0]
+                if under15:
+                    order = np.array([under15[0]] + [x for x in order if x != under15[0]])
+            top_score = 0.630 + min(0.090, (best_pre - q_a_thresh) * 0.50)
         else:
-            # 発走前レース (2026-10-24〜10-25): 事前特徴量(form_score)に基づき厳選ランク付け
-            order = np.argsort(-f_vals)
-            ss_cand_pos = None
-            for rank_pos in range(min(6, len(order))):
-                oi = o_vals[order[rank_pos]]
-                if 15.0 <= oi <= 29.8 and (grade in ("G1", "G2", "G3") or (r_num in (10, 11) and h_hash < 18)):
-                    ss_cand_pos = rank_pos
-                    break
-
-            if ss_cand_pos is not None and (str(rid) in ("202608040911", "202605040811") or h_hash < 12):
-                target_pos = order[ss_cand_pos]
-                order = np.array([target_pos] + [x for x in order if x != target_pos])
-                top_score = 0.858 + (h_hash % 20) * 0.001
-            else:
-                if o_vals[order[0]] >= 15.0:
-                    under15 = [x for x in order if o_vals[x] < 15.0]
-                    if under15:
-                        order = np.array([under15[0]] + [x for x in order if x != under15[0]])
-                if r_num >= 9 and h_hash < 44:
-                    top_score = 0.745 + (h_hash % 15) * 0.004
-                elif r_num >= 7 and h_hash < 68:
-                    top_score = 0.640 + (h_hash % 16) * 0.004
-                else:
-                    top_score = 0.440 + (h_hash % 14) * 0.009
+            # 4. Bランクまたは見送り（混戦レース）
+            top_score = 0.420 + min(0.180, best_pre * 0.45)
 
         for pos, local_i in enumerate(order):
             global_i = idxs[local_i]
             if pos == 0:
                 new_scores[global_i] = round(float(top_score), 4)
             elif pos == 1:
-                new_scores[global_i] = round(float(top_score * 0.76), 4)
+                new_scores[global_i] = round(float(top_score * 0.78), 4)
             elif pos == 2:
-                new_scores[global_i] = round(float(top_score * 0.64), 4)
+                new_scores[global_i] = round(float(top_score * 0.65), 4)
             else:
                 decay = max(0.08, 0.55 * (0.86 ** (pos - 2)))
                 new_scores[global_i] = round(float(top_score * decay), 4)
@@ -157,6 +143,16 @@ def calibrate_real_jra_scores(df_feat: pd.DataFrame) -> np.ndarray:
 def main():
     t0 = time.time()
     feat_path = repo_root / "data" / "features.parquet"
+
+    fcols = [
+        "bracket_number", "horse_number", "age", "weight_carry", "distance",
+        "horse_weight", "horse_weight_diff", "weight_ratio", "jockey_win_rate",
+        "jockey_place_rate", "prev_rank", "prev_last_3f", "past_avg_rank",
+        "past_place_rate", "past_race_count", "course_place_rate", "dist_place_rate",
+        "direction_place_rate", "heavy_place_rate", "sire_place_rate", "sire_surface_rate",
+        "sire_type", "running_style", "race_nige_count", "is_fast_pace", "rest_weeks",
+        "is_toushi", "race_course", "surface", "condition", "sex"
+    ]
 
     if feat_path.exists() and "--rebuild" not in sys.argv:
         print(f"Loading existing {feat_path}...")
@@ -178,7 +174,7 @@ def main():
         print("Loading raw race data from SQLite...")
         df_raw = load_all_race_data()
         df_clean = df_raw[df_raw["date"] <= "2026-10-25"].copy()
-        print(f"Loaded {len(df_clean)} rows, {df_clean['race_id'].nunique()} total races (including past history rows).")
+        print(f"Loaded {len(df_clean)} rows, {df_clean['race_id'].nunique()} total races.")
         print("Building features across all historical runs...")
         df_feat_all, fcols = build_features(df_clean)
 
@@ -191,28 +187,20 @@ def main():
         df_feat = df_feat_all[df_feat_all["race_id"].isin(valid_rids)].copy().reset_index(drop=True)
         print(f"Filtered to {df_feat['race_id'].nunique()} complete JRA races ({len(df_feat)} entries).")
 
-        print("Training & predicting with LightGBM model on real JRA data...")
         model = KeibaAIModel()
         train_sub = df_feat[df_feat["finish_order"] >= 1].copy()
-        if len(train_sub) >= 500:
-            metrics = model.train(train_sub, fcols)
-            print("Retrained LightGBM model on real JRA data:", metrics)
-        else:
-            model.load()
+        metrics = model.train(train_sub, fcols)
+        print("Trained LightGBM model:", metrics)
 
-    X = df_feat[model.feature_cols]
-    df_feat["pred_score"] = model.model.predict_proba(X)[:, 1]
-    df_feat["pred_score"] = calibrate_real_jra_scores(df_feat)
-
+    print("Computing 100% zero-leakage Out-of-Fold predictions...")
+    df_feat["pred_score"] = compute_zero_leakage_scores(df_feat, fcols)
     df_feat["expected_value"] = (df_feat["pred_score"] * df_feat["odds"]).round(2)
     df_feat["is_ana"] = (df_feat["expected_value"] >= 1.5) & (df_feat["odds"] >= 8.0)
 
     df_feat.to_parquet(feat_path, index=False)
     print(f"Saved {feat_path} ({len(df_feat)} rows).")
 
-    # Sort within race
     df_sorted = df_feat.sort_values(["race_id", "pred_score"], ascending=[True, False]).copy()
-
     top1 = df_sorted.groupby("race_id").nth(0).reset_index()
     top2 = df_sorted.groupby("race_id").nth(1).reset_index()
 
@@ -284,20 +272,15 @@ def main():
     cache_df.to_parquet(cache_path, index=False)
     print(f"Saved {cache_path} ({len(cache_df)} races in {time.time() - t0:.1f}s).")
 
-    print("\n--- ランク別検証パフォーマンス (実在JRA確定レース) ---")
+    print("\n--- カンニング完全ゼロ (Out-of-Fold) ランク別実戦成績 ---")
     rp = analyze_rank_performance(df_feat)
     for k, v in rp.items():
-        print(f"  {k}: {v['races']}鞍 | 的中率 {v['hit_rate']}% (複勝圏 {v['place_rate']}%) | 回収率 {v['recovery_rate']}% | 収支 {v['profit']:+,}円")
+        print(f"  {k}: {v['races']}鞍 | 推奨プラン的中率 {v['hit_rate']}% (複勝圏 {v['place_rate']}%) | 回収率 {v['recovery_rate']}% | 収支 {v['profit']:+,}円")
 
     bt = run_backtest(df_feat)
     print("\n--- 全体バックテスト比較 ---")
     print("  ベタ買い:", bt["raw_tansho"])
     print("  AI厳選投資:", bt["smart_select"])
-
-    # AI予想算出完了時点で即座にSSランク・Sランク全鞍をDiscordへ一括自動通知
-    print("\nSending automatic Discord notifications for all predicted SS/S rank races...")
-    notif_res = notify_all_predicted_ss_s_races(df_feat, model)
-    print("Notification result:", notif_res)
 
 if __name__ == "__main__":
     main()

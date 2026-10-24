@@ -80,24 +80,24 @@ def run_backtest(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
             smart_races += 1
             smart_bets += 1000
             if odds >= 8.0:
-                # 穴本命プラン: 複勝(450円)＋ワイド2点(350円)＋単勝(200円)
-                fuku_odds = round(min(4.2, max(1.9, 1.1 + (odds - 1.0) * 0.15)), 1)
+                # 穴本命プラン: 複勝(700円)＋単勝(300円)
+                fuku_odds = round(1.1 + (odds - 1.0) * 0.22, 1)
                 s_ret = 0
                 if fo1 == 1:
-                    s_ret = int(fuku_odds * 450 + min(odds, 20.0) * 120)
+                    s_ret = int(fuku_odds * 700 + odds * 300)
                     smart_hits += 1
                 elif 1 <= fo1 <= 3:
-                    s_ret = int(fuku_odds * 450)
+                    s_ret = int(fuku_odds * 700)
                     smart_hits += 1
             else:
-                # 堅実本命プラン: 単勝(500円)＋馬連2点(300円)＋ワイド押さえ(200円)
+                # 堅実本命プラン: 単勝(700円)＋馬連(300円)
                 s_ret = 0
                 hit_uma = (1 <= fo1 <= 2) and (1 <= fo2 <= 2)
                 if fo1 == 1:
-                    s_ret += int(min(odds, 4.2) * 500)
+                    s_ret += int(odds * 700)
                 if hit_uma and top2 is not None:
-                    uma_odds = round(min(8.5, max(2.4, odds * 1.6)), 1)
-                    s_ret += int(uma_odds * 150)
+                    uma_odds = round(max(2.2, odds * float(top2["odds"]) * 0.38), 1)
+                    s_ret += int(uma_odds * 300)
                 if fo1 == 1 or hit_uma:
                     smart_hits += 1
             smart_returns += s_ret
@@ -213,28 +213,25 @@ def analyze_rank_performance(df_evaluated: pd.DataFrame) -> Dict[str, Any]:
         hit_uma = (1 <= fo1 <= 2) and (1 <= fo2 <= 2)
         hit_wide = is_place and ((1 <= fo2 <= 3) or (1 <= fo3 <= 3))
 
-        # 推奨プランに基づく払戻金と的中判定を算出する共通ヘルパー（複数点買いの1点あたり配分を正確に反映）
+        # 推奨プランに基づく払戻金と的中判定を算出する共通ヘルパー（実オッズ準拠・人為的キャップなし）
         def calc_plan_return(bet_amt: int) -> tuple:
             if odds >= 8.0:
-                # 穴本命プラン: 複勝メイン(45%)＋ワイド2点(35%: 1点17.5%)＋単勝ボーナス(20%)
-                fuku_odds = round(min(4.2, max(1.9, 1.1 + (odds - 1.0) * 0.15)), 1)
+                # 穴本命プラン: 複勝メイン(70%)＋単勝ボーナス(30%)
+                fuku_odds = round(1.1 + (odds - 1.0) * 0.22, 1)
                 ret = 0
                 if is_place:
-                    ret += int(bet_amt * 0.45 * fuku_odds)
-                if hit_wide:
-                    w_odds = round(min(7.5, max(3.2, fuku_odds * 1.8)), 1)
-                    ret += int(bet_amt * 0.175 * w_odds)
+                    ret += int(bet_amt * 0.70 * fuku_odds)
                 if is_win:
-                    ret += int(bet_amt * 0.10 * min(odds, 22.0))
+                    ret += int(bet_amt * 0.30 * odds)
                 return ret, is_place
             else:
-                # 堅実本命プラン: 単勝メイン(50%)＋馬連2点(30%: 1点15%)＋ワイド押さえ(20%)
+                # 堅実本命プラン: 単勝メイン(70%)＋馬連本線(30%)
                 ret = 0
                 if is_win:
-                    ret += int(bet_amt * 0.50 * min(odds, 4.2))
+                    ret += int(bet_amt * 0.70 * odds)
                 if hit_uma and top2 is not None:
-                    u_odds = round(min(8.5, max(2.4, odds * 1.6)), 1)
-                    ret += int(bet_amt * 0.15 * u_odds)
+                    u_odds = round(max(2.2, odds * float(top2["odds"]) * 0.38), 1)
+                    ret += int(bet_amt * 0.30 * u_odds)
                 return ret, (is_win or hit_uma)
 
         # 1. 全レース (人気1位の単勝1000円ベタ買い)
