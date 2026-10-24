@@ -34,10 +34,17 @@ def _parse_iso_utc(value: Optional[str]) -> Optional[str]:
 
 def validate_pre_race_record(
     record: Dict[str, Any],
-    now_utc: Optional[datetime.datetime] = None
+    now_utc: Optional[datetime.datetime] = None,
+    require_start_time: bool = False
 ) -> Tuple[str, int, float, Optional[str], str, str, str]:
     """
     発走前オッズレコードの単体バリデーション。
+    【Phase 6 厳格要件】
+    - require_start_time=True の場合、race_start_at が必須（不明なデータは例外拒絶）。
+    - race_start_at が指定されていないレコードは 'isolated_missing_start_time' として隔離保存し、
+      正式な予測・回収率検証には使用しない。
+    - 発表時刻 (observed_at) が未確認の場合は 'pre_race_unverified_time' として記録し、
+      検証済み発走前オッズ（pre_race_flash / pre_race）とは区別する。
     戻り値: (race_id, horse_number, odds_value, observed_at, fetched_at, source, data_status)
     """
     now = now_utc or datetime.datetime.now(datetime.timezone.utc)
@@ -71,6 +78,23 @@ def validate_pre_race_record(
     if fetched_dt > now + datetime.timedelta(seconds=60):
         raise ValueError("fetched_at is in the future")
 
+    # 発走時刻 (race_start_at / start_at)
+    start_raw = record.get("race_start_at") or record.get("start_at")
+    if require_start_time and not start_raw:
+        raise ValueError("race_start_at is strictly required for verified pre-race prediction inputs")
+
+    has_verified_start_time = False
+    if start_raw:
+        start_iso = _parse_iso_utc(start_raw)
+        if start_iso:
+            start_dt = datetime.datetime.fromisoformat(start_iso)
+            if fetched_dt >= start_dt:
+                raise ValueError("Cannot ingest post-race observation as pre-race odds (fetched_at >= race_start_at)")
+            has_verified_start_time = True
+        else:
+            if require_start_time:
+                raise ValueError("Invalid race_start_at timestamp")
+
     # 発表時刻 (observed_at): 不明な場合は推測補完せず None
     observed_raw = record.get("observed_at")
     observed_iso = _parse_iso_utc(observed_raw)
@@ -79,25 +103,24 @@ def validate_pre_race_record(
         observed_dt = datetime.datetime.fromisoformat(observed_iso)
         if observed_dt > fetched_dt:
             raise ValueError("observed_at cannot be later than fetched_at")
-        data_status = "pre_race_flash"
-    else:
-        # 発表時刻未確認（推測補完禁止）
-        data_status = "pre_race_unverified_time"
+        if has_verified_start_time and observed_dt >= datetime.datetime.fromisoformat(start_iso):
+            raise ValueError("Observed time is post-race (observed_at >= race_start_at)")
 
-    # 発走時刻 (race_start_at): 指定されている場合は発走後混入を厳格遮断
-    start_raw = record.get("race_start_at") or record.get("start_at")
-    if start_raw:
-        start_iso = _parse_iso_utc(start_raw)
-        if start_iso:
-            start_dt = datetime.datetime.fromisoformat(start_iso)
-            if fetched_dt >= start_dt:
-                raise ValueError("Cannot ingest post-race observation as pre-race odds (fetched_at >= race_start_at)")
-            if observed_iso and datetime.datetime.fromisoformat(observed_iso) >= start_dt:
-                raise ValueError("Observed time is post-race (observed_at >= race_start_at)")
+        # 発走時刻も発表時刻も検証済みの場合のみ正式な 'pre_race_flash'
+        if has_verified_start_time:
+            data_status = "pre_race_flash"
+        else:
+            # 発走時刻が不明なため隔離
+            data_status = "isolated_missing_start_time"
+    else:
+        # 発表時刻未確認（推測補完禁止、検証済みとしては扱わない）
+        data_status = "pre_race_unverified_time"
 
     source = str(record.get("source", "unknown")).strip()
     if not source:
         raise ValueError("source is required")
+
+    return (race_id, h_num, odds_val, observed_iso, fetched_iso, source, data_status)
 
     return (race_id, h_num, odds_val, observed_iso, fetched_iso, source, data_status)
 
@@ -162,3 +185,54 @@ def ingest_pre_race_odds(
         con.close()
 
     return inserted
+
+
+def get_verified_pre_race_odds(
+    race_id: str,
+    as_of_time: str,
+    db_path: Optional[Path] = None,
+    odds_type: str = "win"
+) -> List[Dict[str, Any]]:
+    """
+    【検証済み発走前オッズの厳格抽出】
+    - 発表時刻 (observed_at) が確認済み (IS NOT NULL)
+    - 発走時刻以前であることが確認済み (data_status IN ('pre_race_flash', 'pre_race'))
+    - 発表時刻・取得時刻ともに as_of_time 以前 (未来オッズ遮断)
+    - 発表時刻未確認 (pre_race_unverified_time) や 発走時刻不明 (isolated_missing_start_time) は厳格除外
+    """
+    target_db = Path(db_path or ODDS_HISTORY_DB_PATH)
+    if not target_db.exists():
+        return []
+
+    cutoff = _parse_iso_utc(as_of_time)
+    if not cutoff:
+        raise ValueError(f"Invalid as_of_time: {as_of_time!r}")
+
+    con = sqlite3.connect(target_db)
+    con.row_factory = sqlite3.Row
+    try:
+        query = """
+        SELECT horse_number, odds_value, popularity, observed_at, fetched_at, source, data_status
+        FROM (
+            SELECT t.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY horse_number
+                       ORDER BY julianday(observed_at) DESC,
+                                julianday(fetched_at) DESC, id DESC
+                   ) AS row_rank
+            FROM odds_timeline t
+            WHERE race_id = ?
+              AND odds_type = ?
+              AND observed_at IS NOT NULL
+              AND data_status IN ('pre_race_flash', 'pre_race')
+              AND julianday(observed_at) <= julianday(?)
+              AND julianday(fetched_at) <= julianday(?)
+        ) ranked
+        WHERE row_rank = 1
+        ORDER BY horse_number ASC
+        """
+        rows = [dict(r) for r in con.execute(query, (race_id, odds_type, cutoff, cutoff)).fetchall()]
+    finally:
+        con.close()
+
+    return rows

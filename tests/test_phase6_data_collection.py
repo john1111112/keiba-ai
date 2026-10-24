@@ -14,8 +14,9 @@ from src.database import get_payouts, get_verified_payouts, DB_PATH
 from src.pre_race_odds_service import (
     validate_pre_race_record,
     ingest_pre_race_odds,
+    get_verified_pre_race_odds,
 )
-from src.paper_trading import connect, capture, report
+from src.paper_trading import connect, capture, report, settle
 from scripts.record_official_settlement import record_single_official_settlement
 
 
@@ -171,6 +172,84 @@ class TestPhase6DataCollection(unittest.TestCase):
             self.assertEqual(rep["returns_yen"], 250)
             self.assertEqual(rep["profit_yen"], 50)
             self.assertAlmostEqual(rep["roi"], 1.25)
+
+    def test_6_require_start_time_for_prediction_inputs(self):
+        """指示1: 発走時刻 (race_start_at) が不明なオッズは正式な予測入力から隔離・拒絶"""
+        now = datetime.datetime.fromisoformat("2026-10-25T06:30:00+00:00")
+        rec_no_start = {
+            "race_id": "202610250101",
+            "horse_number": 1,
+            "odds_value": 3.0,
+            "observed_at": "2026-10-25T06:20:00+00:00",
+            "fetched_at": "2026-10-25T06:20:05+00:00",
+            "source": "sample"
+            # race_start_at なし
+        }
+        # 1. 予測入力バリデーション (require_start_time=True) では即時拒絶
+        with self.assertRaises(ValueError):
+            validate_pre_race_record(rec_no_start, now_utc=now, require_start_time=True)
+
+        # 2. 一般取り込み時も 'isolated_missing_start_time' として隔離保存
+        val = validate_pre_race_record(rec_no_start, now_utc=now, require_start_time=False)
+        self.assertEqual(val[6], "isolated_missing_start_time")
+
+    def test_7_unverified_observed_time_excluded_from_verified_odds(self):
+        """指示3: 発表時刻が未確認のオッズは保存できても、検証済み発走前オッズとして扱わない"""
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "odds_history.db"
+            now = datetime.datetime.fromisoformat("2026-10-25T06:30:00+00:00")
+
+            # 発表時刻未確認オッズ (observed_at=None)
+            r_unverified = {
+                "race_id": "202610250101", "horse_number": 1, "odds_value": 3.5,
+                "observed_at": None, "fetched_at": "2026-10-25T06:20:00+00:00",
+                "race_start_at": "2026-10-25T06:40:00+00:00", "source": "sample"
+            }
+            # 発表時刻確認済みオッズ (observed_atあり)
+            r_verified = {
+                "race_id": "202610250101", "horse_number": 2, "odds_value": 5.0,
+                "observed_at": "2026-10-25T06:20:00+00:00", "fetched_at": "2026-10-25T06:20:00+00:00",
+                "race_start_at": "2026-10-25T06:40:00+00:00", "source": "sample"
+            }
+            ingest_pre_race_odds([r_unverified, r_verified], db_path=db_path, now_utc=now)
+
+            # 検証済みオッズの抽出
+            verified_odds = get_verified_pre_race_odds(
+                "202610250101", as_of_time="2026-10-25T06:25:00+00:00", db_path=db_path
+            )
+            h_nums = [r["horse_number"] for r in verified_odds]
+            self.assertIn(2, h_nums, "Verified odds must include horse 2")
+            self.assertNotIn(1, h_nums, "Unverified-time odds must be strictly excluded from verified odds")
+
+    def test_8_enhanced_verified_payouts_provenance_check(self):
+        """指示2: get_verified_payouts() は来歴・確認者・確認日時のない未確認データを除外"""
+        with tempfile.TemporaryDirectory() as td:
+            ledger_path = Path(td) / "paper_trading.db"
+            connect(ledger_path)
+
+            pred_at = "2026-10-25T06:20:00+00:00"
+            cutoff_at = "2026-10-25T06:40:00+00:00"
+
+            capture(ledger_path, [
+                {"race_id": "202610250101", "horse_number": 1, "odds": 2.5, "win_probability": 0.40,
+                 "model_id": "model_v2", "prediction_at": pred_at, "cutoff_at": cutoff_at,
+                 "odds_observed_at": pred_at, "odds_fetched_at": pred_at, "source": "sample"}
+            ])
+            # 公式確認済み払戻を登録
+            record_single_official_settlement(
+                ledger_path=ledger_path, race_id="202610250101", horse_number=1,
+                won=1, official_payout_yen=250, source_url="https://www.jra.go.jp/sample", verified_by="auditor_test"
+            )
+
+            # 1. 真正性が証明された台帳からの取得 -> 正常に取得できること
+            v_payouts = get_verified_payouts("202610250101", ledger_path=ledger_path)
+            self.assertEqual(len(v_payouts), 1)
+            self.assertEqual(v_payouts[0]["payout"], 250)
+            self.assertEqual(v_payouts[0]["status"], "verified")
+
+            # 2. 来歴情報のない未確認データ (未精算のレース 202610250102) -> 空リスト返却
+            unverified = get_verified_payouts("202610250102", ledger_path=ledger_path)
+            self.assertEqual(unverified, [], "Unverified race without provenance must return empty list")
 
     def test_5_production_db_immutability(self):
         """作業4: 本番データベースの不変検証 (CI上コミットハッシュ または ローカル実運用ハッシュ と一致)"""
