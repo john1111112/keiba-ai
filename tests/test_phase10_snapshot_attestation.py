@@ -14,7 +14,7 @@ class Phase10SnapshotTests(unittest.TestCase):
         self.source.write_text('race_id,horse_number\\n123,1\\n')
         self.kw=dict(race_id='202610250101',race_start_at='2026-10-25T15:00:00+09:00',
                      source_name='licensed-local-import',
-                     observed_at=dt.datetime(2026,10,25,5,0,tzinfo=dt.timezone.utc))
+                     observed_at=dt.datetime(2026,10,24,5,0,tzinfo=dt.timezone.utc))
     def test_capture_and_verify(self):
         receipt=capture_snapshot(self.source,self.root,**self.kw)
         path=next(self.root.glob('*.receipt.json'))
