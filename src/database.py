@@ -150,7 +150,7 @@ def load_all_race_data(db_path: Optional[Path] = None) -> pd.DataFrame:
 def get_races_metadata(db_path: Optional[Path] = None) -> pd.DataFrame:
     """レース基本情報のみを軽量取得（メモリ消費を99%削減）"""
     conn = get_connection(db_path)
-    df = pd.read_sql_query("SELECT race_id, race_name, date, race_course, race_number, surface, distance, condition FROM races WHERE date <= '2026-10-25' ORDER BY date DESC, race_course ASC, race_number ASC", conn)
+    df = pd.read_sql_query("SELECT race_id, race_name, date, race_course, race_number, surface, distance, condition FROM races WHERE date >= '2026-10-17' AND date <= '2026-10-25' AND race_id NOT LIKE '2027%' ORDER BY date DESC, race_course ASC, race_number ASC", conn)
     conn.close()
     return df
 

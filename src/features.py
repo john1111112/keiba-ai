@@ -217,9 +217,20 @@ def build_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     df["weight_carry"] = df["weight_carry"].fillna(55.0)
     df["weight_ratio"] = df["weight_carry"] / df["horse_weight"]
     
-    # カテゴリ変数の変換
+    # カテゴリ変数の変換（LightGBMモデルのpandas_categorical順序と完全一致させる）
+    cat_defs = {
+        "sire_type": ["A.P.Indy系", "キンカメ系", "サンデー系", "ミスプロ系", "ロベルト系"],
+        "running_style": ["先行", "差し", "追込", "逃げ"],
+        "race_course": ["中京", "中山", "京都", "函館", "小倉", "新潟", "札幌", "東京", "福島", "阪神"],
+        "surface": ["ダート", "芝"],
+        "condition": ["不良", "稍重", "良", "重"],
+        "sex": ["セン", "牝", "牡"],
+    }
     for col in CATEGORICAL_COLS:
-        df[col] = df[col].astype("category")
+        if col in cat_defs:
+            df[col] = pd.Categorical(df[col], categories=cat_defs[col])
+        else:
+            df[col] = df[col].astype("category")
         
     feature_cols = [
         # 基本情報・枠番

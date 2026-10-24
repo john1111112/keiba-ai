@@ -228,8 +228,8 @@ with tab1:
             default_idx = 0
         else:
             races_df = races_df.sort_values(["date", "race_course", "race_number"], ascending=[False, True, True]).reset_index(drop=True)
-            # 初期表示は注目の菊花賞 (20261025_京都_11) があれば選択、なければ先頭
-            kikka_matches = races_df.index[races_df["race_id"] == "20261025_京都_11"].tolist()
+            # 初期表示は注目の菊花賞 (202608040911) があれば選択、なければ先頭
+            kikka_matches = races_df.index[races_df["race_id"].isin(["202608040911", "20261025_京都_11"])].tolist()
             default_idx = kikka_matches[0] if kikka_matches else 0
 
         selected_label = st.selectbox("予想対象レースを選択", races_df["label"].tolist(), index=default_idx)
