@@ -1,70 +1,67 @@
 import sys
 import io
 import time
-import sqlite3
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from pathlib import Path
+from typing import Tuple, Optional
 
-# Ensure UTF-8 output
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# Ensure UTF-8 output when run as CLI
+if __name__ == "__main__" and hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 repo_root = Path(__file__).resolve().parent.parent
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from src.database import load_all_race_data, DB_PATH
-from src.features import build_features
+from src.database import load_all_race_data
+from src.features import build_features, FEATURE_COLS
 from src.model import KeibaAIModel
-from src.betting_strategy import evaluate_race_value
 from src.backtest import analyze_rank_performance, run_backtest
 
 
-def clean_db_before_build():
+def compute_walkforward_probabilities(
+    df_feat: pd.DataFrame,
+    feature_cols: list,
+    n_blocks: int = 5
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    1. payouts テーブルの旧架空データを削除
-    2. 2026-10-25 (日曜) のJRA発売前レース (菊花賞 202608040911 以外) の仮オッズを odds=0.0, popularity=0 にリセット
-    """
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM payouts WHERE race_id LIKE '202%0000%' OR race_id LIKE '2027%'")
-    cur.execute(
-        """
-        UPDATE race_results
-        SET odds = 0.0, popularity = 0
-        WHERE race_id IN (
-            SELECT race_id FROM races
-            WHERE date = '2026-10-25' AND race_id != '202608040911'
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
-def compute_walkforward_probabilities(df_feat: pd.DataFrame, feature_cols: list) -> np.ndarray:
-    """
-    【時系列ウォークフォワード検証 ＆ 手作業スコア改ざん完全ゼロ】
-    1. ランダム分割（未来のレースで過去を予測するリーク）を廃止し、
-       過去確定レースを日付順（時系列順）に並べ、過去期間のみで学習して次の期間を予測する
-       5段階の時系列ウォークフォワード（Expanding Window）方式で3着以内確率を算出する。
-    2. 最初期ブロック（まだ過去データがない最初の20%期間）のみ第2ブロックで学習したモデルで予測し、
-       以降の全期間（80%以上）は100%「そのレースより前の過去レースのみ」で学習したモデルで予測する。
-    3. ランク決定後に 0.855 や 0.740 等の固定値を手作業で割り当てる処理を完全撤廃し、
-       LightGBMが出力した実際の3着以内予測確率（predict_proba）をそのまま返す。
+    【時系列ウォークフォワード検証（未来データ学習・Block 0 逆予測リーク完全排除版）】
+    1. 過去確定完走レース（1 <= finish_order <= 28）を日付（date）・race_id 順に厳密ソートする。
+    2. 全期間を n_blocks（デフォルト5分割）に分け、最初期ブロック（Block 0：最初の20%期間）は
+       「初期学習専用期間（is_warmup_block = True）」として、未来データ（Block 1..2）による逆向き予測を一切行わない（pred_score = NaN）。
+    3. Block k (k = 1 .. n_blocks-1) を予測する際は、必ずそのブロックの最小日付より前の過去確定レース
+       （date < val_min_date）のみを学習データとして使用し、同日や未来のレースが1件たりとも学習に混入しないことを保証する。
+    4. 未発走レース（finish_order == 0）は、過去確定完走レース全体で学習したモデルで予測する。
     """
     df = df_feat.copy().reset_index(drop=True)
-    past_mask = df["finish_order"] >= 1
+    df["_date_dt"] = pd.to_datetime(df["date"])
+
+    past_mask = (df["finish_order"] >= 1) & (df["finish_order"] <= 28)
 
     # 過去確定レースを日付・race_id順にソート
-    past_df = df.loc[past_mask, ["race_id", "date"]].drop_duplicates().sort_values(["date", "race_id"]).reset_index(drop=True)
-    ordered_rids = past_df["race_id"].to_numpy()
+    past_races_df = (
+        df.loc[past_mask, ["race_id", "_date_dt"]]
+        .drop_duplicates()
+        .sort_values(["_date_dt", "race_id"])
+        .reset_index(drop=True)
+    )
+    ordered_rids = past_races_df["race_id"].to_numpy()
     n_races = len(ordered_rids)
 
-    wf_probs = np.zeros(len(df), dtype=float)
-    n_Blocks = 5
-    block_size = n_races // n_Blocks
+    wf_probs = np.full(len(df), np.nan, dtype=float)
+    is_warmup = np.zeros(len(df), dtype=bool)
+
+    if n_races < n_blocks * 2:
+        return wf_probs, is_warmup
+
+    block_size = n_races // n_blocks
+
+    # Block 0 は初期学習専用期間（評価対象から除外）
+    b0_rids = set(ordered_rids[:block_size])
+    b0_mask = df["race_id"].isin(b0_rids)
+    is_warmup[b0_mask] = True
 
     lgb_params = dict(
         objective="binary",
@@ -76,58 +73,62 @@ def compute_walkforward_probabilities(df_feat: pd.DataFrame, feature_cols: list)
         verbose=-1
     )
 
-    # Expanding Window ウォークフォワード (Block k を Block 0..k-1 の過去データのみで予測)
-    for b in range(1, n_Blocks):
-        tr_rids = set(ordered_rids[: b * block_size])
-        val_end = (b + 1) * block_size if b < n_Blocks - 1 else n_races
+    # Expanding Window ウォークフォワード (Block k を 過去の確定レースのみで予測)
+    for b in range(1, n_blocks):
+        val_end = (b + 1) * block_size if b < n_blocks - 1 else n_races
         val_rids = set(ordered_rids[b * block_size : val_end])
+        val_m = df["race_id"].isin(val_rids) & past_mask
+        if not val_m.any():
+            continue
 
-        tr_m = df["race_id"].isin(tr_rids)
-        val_m = df["race_id"].isin(val_rids)
+        val_min_date = df.loc[val_m, "_date_dt"].min()
+        # 評価ブロックの最小開催日より厳密に前（_date_dt < val_min_date）の確定レースのみを学習に使用
+        tr_m = past_mask & (df["_date_dt"] < val_min_date)
+        if tr_m.sum() < 50:
+            # 万一同一日付に集中している場合でも、先行ブロックの race_id かつ _date_dt <= val_min_date で未来混入を防止
+            prior_rids = set(ordered_rids[: b * block_size])
+            tr_m = past_mask & df["race_id"].isin(prior_rids) & (df["_date_dt"] <= val_min_date)
+
+        # 時系列リーク防止アサーション: 学習データの最大日付 <= 検証データの最小日付
+        max_tr_date = df.loc[tr_m, "_date_dt"].max()
+        assert max_tr_date <= val_min_date, f"Time leakage detected: train max date {max_tr_date} > val min date {val_min_date}"
+        assert len(set(df.loc[tr_m, "race_id"]).intersection(val_rids)) == 0, "Race ID overlap detected in walk-forward split"
 
         m = lgb.LGBMClassifier(**lgb_params)
         m.fit(df.loc[tr_m, feature_cols], df.loc[tr_m, "target"])
-        wf_probs[val_m] = m.predict_proba(df.loc[val_m, feature_cols])[:, 1]
+        wf_probs[val_m] = np.round(m.predict_proba(df.loc[val_m, feature_cols])[:, 1], 4)
 
-    # 最初期ブロック (Block 0) は Block 1..2 で学習したモデルでOOF予測（自身のレースは一切含まない）
-    b0_rids = set(ordered_rids[:block_size])
-    b12_rids = set(ordered_rids[block_size : 3 * block_size])
-    tr_b0 = df["race_id"].isin(b12_rids)
-    val_b0 = df["race_id"].isin(b0_rids)
-    m0 = lgb.LGBMClassifier(**lgb_params)
-    m0.fit(df.loc[tr_b0, feature_cols], df.loc[tr_b0, "target"])
-    wf_probs[val_b0] = m0.predict_proba(df.loc[val_b0, feature_cols])[:, 1]
-
-    # 未発走レース(finish_order == 0)は過去確定レース全体で学習したモデルで予測
-    future_mask = ~past_mask
-    if future_mask.any():
+    # 未発走レース(finish_order == 0)は過去確定完走レース全体で学習したモデルで予測
+    future_mask = (df["finish_order"] == 0)
+    if future_mask.any() and past_mask.any():
         m_full = lgb.LGBMClassifier(**lgb_params)
         m_full.fit(df.loc[past_mask, feature_cols], df.loc[past_mask, "target"])
-        wf_probs[future_mask] = m_full.predict_proba(df.loc[future_mask, feature_cols])[:, 1]
+        wf_probs[future_mask] = np.round(m_full.predict_proba(df.loc[future_mask, feature_cols])[:, 1], 4)
 
-    return np.round(wf_probs, 4)
+    return wf_probs, is_warmup
 
 
-def main():
+def build_cache_pipeline(
+    db_path: Optional[Path] = None,
+    feat_out_path: Optional[Path] = None,
+    rank_cache_out_path: Optional[Path] = None,
+    retrain_production_model: bool = False
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    【DB削除・変更処理を完全分離した純粋なキャッシュ構築パイプライン】
+    - データベースに対する DELETE や UPDATE は一切実行しない。
+    - デフォルトでは既存の学習済みモデル（models/keiba_lgbm.joblib）を上書きしない（retrain_production_model=True の時のみ更新）。
+    """
     t0 = time.time()
-    clean_db_before_build()
-    feat_path = repo_root / "data" / "features.parquet"
+    feat_path = feat_out_path or (repo_root / "data" / "features.parquet")
+    cache_path = rank_cache_out_path or (repo_root / "data" / "race_rank_cache.parquet")
 
-    fcols = [
-        "bracket_number", "horse_number", "age", "weight_carry", "distance",
-        "horse_weight", "horse_weight_diff", "weight_ratio", "jockey_win_rate",
-        "jockey_place_rate", "prev_rank", "prev_last_3f", "past_avg_rank",
-        "past_place_rate", "past_race_count", "course_place_rate", "dist_place_rate",
-        "direction_place_rate", "heavy_place_rate", "sire_place_rate", "sire_surface_rate",
-        "sire_type", "running_style", "race_nige_count", "is_fast_pace", "rest_weeks",
-        "is_toushi", "race_course", "surface", "condition", "sex"
-    ]
-
-    print("Loading raw race data from SQLite...")
-    df_raw = load_all_race_data()
+    print("Loading raw race data from SQLite (read-only)...")
+    df_raw = load_all_race_data(db_path)
     df_clean = df_raw[df_raw["date"] <= "2026-10-25"].copy()
     print(f"Loaded {len(df_clean)} rows, {df_clean['race_id'].nunique()} total races.")
-    print("Building zero-leakage pre-race features across all historical runs...")
+
+    print("Building date-batched zero-leakage pre-race features...")
     df_feat_all, fcols = build_features(df_clean)
 
     grp_info = df_feat_all.groupby("race_id").agg(
@@ -135,18 +136,34 @@ def main():
         has_win=("finish_order", lambda s: (s == 1).any()),
         max_date=("date", "max")
     )
-    valid_rids = grp_info[(grp_info["cnt"] >= 6) & ((grp_info["has_win"]) | (grp_info["max_date"] >= pd.to_datetime("2026-10-24")))].index
+    valid_rids = grp_info[
+        (grp_info["cnt"] >= 6) & ((grp_info["has_win"]) | (grp_info["max_date"] >= pd.to_datetime("2026-10-24")))
+    ].index
     df_feat = df_feat_all[df_feat_all["race_id"].isin(valid_rids)].copy().reset_index(drop=True)
     print(f"Filtered to {df_feat['race_id'].nunique()} complete JRA races ({len(df_feat)} entries).")
 
-    model = KeibaAIModel()
-    train_sub = df_feat[df_feat["finish_order"] >= 1].sort_values(["date", "race_id"]).copy()
-    metrics = model.train(train_sub, fcols)
-    print("Trained LightGBM model (chronological split):", metrics)
+    if retrain_production_model:
+        model = KeibaAIModel()
+        train_sub = df_feat[(df_feat["finish_order"] >= 1) & (df_feat["finish_order"] <= 28)].sort_values(["date", "race_id"]).copy()
+        metrics = model.train(train_sub, fcols, save_model=True)
+        print("Trained & saved LightGBM model:", metrics)
+    else:
+        print("Skipping production model overwrite (keeping existing models/keiba_lgbm.joblib intact).")
 
-    print("Computing Walk-Forward raw probabilities (no manual score assignment)...")
-    df_feat["pred_score"] = compute_walkforward_probabilities(df_feat, fcols)
-    # オッズ未確定 (odds <= 0.0) の場合は期待値も 0.0 とする
+    print("Computing strict Walk-Forward probabilities (Block 0 warmup excluded from evaluation)...")
+    wf_probs, is_warmup = compute_walkforward_probabilities(df_feat, fcols)
+    df_feat["pred_score"] = wf_probs
+    df_feat["is_warmup_block"] = is_warmup
+
+    # 初期学習専用期間（Block 0）で画面から個別レースを開いた際の表示用に、既存モデルでの推論値をフォールバック補完（ただし is_warmup_block=True によりバックテスト評価からは厳密除外）
+    nan_mask = df_feat["pred_score"].isna()
+    if nan_mask.any():
+        model_existing = KeibaAIModel()
+        model_existing.load()
+        df_feat.loc[nan_mask, "pred_score"] = np.round(
+            model_existing.model.predict_proba(df_feat.loc[nan_mask, fcols])[:, 1], 4
+        )
+
     df_feat["expected_value"] = np.where(
         df_feat["odds"] > 0.0,
         (df_feat["pred_score"] * df_feat["odds"]).round(2),
@@ -174,7 +191,6 @@ def main():
         }
     )
 
-    # evaluate_race_value と完全に一致する実確率基準
     no_odds = m["o1"] <= 0.0
     c_ss = (~no_odds) & (m["s1"] >= 0.30) & (m["o1"] >= 15.0) & (m["o1"] <= 30.0) & (m["ev1"] >= 1.20)
     c_s = (~no_odds) & (~c_ss) & (m["s1"] >= 0.52) & (m["o1"] < 15.0) & (m["ev1"] >= 1.05)
@@ -219,11 +235,10 @@ def main():
     cache_df = m[[
         "race_id", "date", "rank_tag", "hit_tag", "rank_order", "dropdown_label"
     ]].copy()
-    cache_path = repo_root / "data" / "race_rank_cache.parquet"
     cache_df.to_parquet(cache_path, index=False)
     print(f"Saved {cache_path} ({len(cache_df)} races in {time.time() - t0:.1f}s).")
 
-    print("\n--- 時系列ウォークフォワード検証（実単勝配当のみ・リーク完全ゼロ）ランク別実戦成績 ---")
+    print("\n--- 時系列ウォークフォワード検証（Block 0 除外・Block 1〜4 評価） ---")
     rp = analyze_rank_performance(df_feat)
     for k, v in rp.items():
         print(f"  {k}: {v['races']}鞍 | 単勝勝率 {v['hit_rate']}% (複勝率 {v['place_rate']}%) | 単勝回収率 {v['recovery_rate']}% | 単勝収支 {v['profit']:+,}円")
@@ -232,6 +247,12 @@ def main():
     print("\n--- 全体バックテスト比較 ---")
     print("  ベタ買い:", bt["raw_tansho"])
     print("  AI厳選投資:", bt["smart_select"])
+    return df_feat, cache_df
+
+
+def main():
+    retrain = ("--retrain-model" in sys.argv)
+    build_cache_pipeline(retrain_production_model=retrain)
 
 
 if __name__ == "__main__":

@@ -148,9 +148,34 @@ def load_all_race_data(db_path: Optional[Path] = None) -> pd.DataFrame:
     return df
 
 def get_races_metadata(db_path: Optional[Path] = None) -> pd.DataFrame:
-    """レース基本情報のみを軽量取得（メモリ消費を99%削減）"""
+    """
+    レース基本情報と出馬表の完全性フラグ（entry_count, is_complete_card）を軽量取得（SELECT専用）。
+    """
     conn = get_connection(db_path)
-    df = pd.read_sql_query("SELECT race_id, race_name, date, race_course, race_number, surface, distance, condition FROM races WHERE date >= '2026-10-03' AND date <= '2026-10-25' AND race_id NOT LIKE '2027%' ORDER BY date DESC, race_course ASC, race_number ASC", conn)
+    query = """
+    SELECT
+        r.race_id, r.race_name, r.date, r.race_course, r.race_number,
+        r.surface, r.distance, r.condition,
+        COUNT(res.horse_number) AS entry_count,
+        CASE
+            WHEN COUNT(res.horse_number) >= 6 AND (
+                r.date >= '2026-10-24'
+                OR SUM(CASE WHEN res.finish_order = 0 THEN 1 ELSE 0 END) > 0
+                OR (
+                    SUM(CASE WHEN res.finish_order = 1 THEN 1 ELSE 0 END) >= 1
+                    AND SUM(CASE WHEN res.finish_order = 2 THEN 1 ELSE 0 END) >= 1
+                    AND SUM(CASE WHEN res.finish_order = 3 THEN 1 ELSE 0 END) >= 1
+                )
+            ) THEN 1
+            ELSE 0
+        END AS is_complete_card
+    FROM races r
+    LEFT JOIN race_results res ON r.race_id = res.race_id
+    WHERE r.date >= '2026-10-03' AND r.date <= '2026-10-25'
+    GROUP BY r.race_id
+    ORDER BY r.date DESC, r.race_course ASC, r.race_number ASC
+    """
+    df = pd.read_sql_query(query, conn)
     conn.close()
     return df
 
@@ -163,11 +188,11 @@ def get_payouts(race_id: str, db_path: Optional[Path] = None) -> List[Dict[str, 
     return rows
 
 def get_db_stats(db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    データベース統計取得関数（SELECT専用・副作用ゼロ）。
+    """
     conn = get_connection(db_path)
     cur = conn.cursor()
-    cur.execute("DELETE FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'")
-    cur.execute("DELETE FROM races WHERE race_id LIKE '2027%'")
-    conn.commit()
     cur.execute("SELECT COUNT(*) FROM races")
     race_count = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM race_results")
@@ -182,7 +207,66 @@ def get_db_stats(db_path: Optional[Path] = None) -> Dict[str, Any]:
         "max_date": dates[1] if dates else None
     }
 
+def preview_cleanup_targets(db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    削除候補レコード（不整合ID・孤立払戻データ・不完全出馬表レース等）の件数を事前確認する管理用関数（SELECT専用・実削除は一切行わない）。
+    """
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    synthetic_races = cur.execute("SELECT COUNT(*) FROM races WHERE race_id LIKE '2027%' OR LENGTH(race_id) != 12").fetchone()[0]
+    synthetic_results = cur.execute("SELECT COUNT(*) FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'").fetchone()[0]
+    orphan_payouts = cur.execute("SELECT COUNT(*) FROM payouts WHERE race_id NOT IN (SELECT race_id FROM races)").fetchone()[0]
+    partial_races = cur.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT r.race_id
+            FROM races r
+            LEFT JOIN race_results res ON r.race_id = res.race_id
+            WHERE r.date < '2026-10-24'
+            GROUP BY r.race_id
+            HAVING COUNT(res.horse_number) < 6
+                OR SUM(CASE WHEN res.finish_order = 1 THEN 1 ELSE 0 END) = 0
+                OR SUM(CASE WHEN res.finish_order = 2 THEN 1 ELSE 0 END) = 0
+                OR SUM(CASE WHEN res.finish_order = 3 THEN 1 ELSE 0 END) = 0
+        )
+    """).fetchone()[0]
+    conn.close()
+    return {
+        "synthetic_races": synthetic_races,
+        "synthetic_results": synthetic_results,
+        "orphan_payouts": orphan_payouts,
+        "partial_past_races": partial_races,
+    }
+
+def execute_confirmed_cleanup(
+    db_path: Optional[Path] = None,
+    delete_orphan_payouts: bool = False,
+    delete_synthetic: bool = False,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    事前確認後に明示的な confirm=True が指定された場合のみ削除を実行する管理専用関数。
+    """
+    preview = preview_cleanup_targets(db_path)
+    if not confirm:
+        return {"executed": False, "preview": preview, "message": "confirm=False のため削除は実行されませんでした（ドライラン）。"}
+
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    deleted_counts = {"synthetic_results": 0, "synthetic_races": 0, "orphan_payouts": 0}
+    try:
+        if delete_synthetic:
+            cur.execute("DELETE FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'")
+            deleted_counts["synthetic_results"] = cur.rowcount
+            cur.execute("DELETE FROM races WHERE race_id LIKE '2027%' OR LENGTH(race_id) != 12")
+            deleted_counts["synthetic_races"] = cur.rowcount
+        if delete_orphan_payouts:
+            cur.execute("DELETE FROM payouts WHERE race_id NOT IN (SELECT race_id FROM races)")
+            deleted_counts["orphan_payouts"] = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return {"executed": True, "deleted": deleted_counts, "preview_before": preview}
+
 if __name__ == "__main__":
     init_db()
     print("Database initialized.")
-

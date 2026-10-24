@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 from src.database import init_db, load_all_race_data, get_db_stats, get_connection, get_races_metadata
-from src.features import build_features
+from src.features import build_features, build_features_for_race_with_history
 from src.model import KeibaAIModel, MODEL_PATH
 
 import src.backtest as bt_mod
@@ -141,19 +141,13 @@ with st.sidebar:
                 st.error(res_test["message"])
     st.divider()
     
-    # 実在JRAデータ同期・クリーンアップ
+    # 実在JRAデータ同期・キャッシュ再読込（SELECT専用・DELETE処理完全撤去）
     st.subheader("🌐 JRA公式実在データ管理")
-    st.caption("※架空データ生成機能は完全廃止し、JRA公式・Netkeiba実在データのみを保持します。")
-    if st.button("🔄 実在データ検証＆キャッシュ最新化", use_container_width=True):
-        with st.spinner("JRA実在データを確認・最新化中..."):
-            conn_c = get_connection()
-            cur_c = conn_c.cursor()
-            cur_c.execute("DELETE FROM race_results WHERE race_id LIKE '2027%' OR horse_id LIKE 'h_%'")
-            cur_c.execute("DELETE FROM races WHERE race_id LIKE '2027%'")
-            conn_c.commit()
-            conn_c.close()
+    st.caption("※データベース保護のため、画面からのデータ削除処理は無効化されています。")
+    if st.button("🔄 キャッシュ再読込・最新化", use_container_width=True):
+        with st.spinner("特徴量・予測キャッシュを再読込中..."):
             st.cache_data.clear()
-            st.success("架空データを完全排除し、実在JRAデータのみに最新化しました！")
+            st.success("データベースを変更せず、キャッシュを最新化しました！")
             st.rerun()
 
 # --- メインコンテンツ ---
@@ -196,9 +190,15 @@ with tab1:
                 on="race_id",
                 how="left"
             )
-            races_df["rank_tag"] = races_df["rank_tag"].fillna("【B】")
-            races_df["hit_tag"] = races_df["hit_tag"].fillna("【発走前⏳】")
-            races_df["rank_order"] = races_df["rank_order"].fillna(4).astype(int)
+            races_df["rank_tag"] = races_df["rank_tag"].fillna(
+                races_df["is_complete_card"].apply(lambda c: "【B】" if c == 1 else "⚠️【出馬表一部欠損】")
+            )
+            races_df["hit_tag"] = races_df["hit_tag"].fillna(
+                races_df["is_complete_card"].apply(lambda c: "【発走前⏳】" if c == 1 else "【参考表示】")
+            )
+            races_df["rank_order"] = races_df["rank_order"].fillna(
+                races_df["is_complete_card"].apply(lambda c: 4 if c == 1 else 7)
+            ).astype(int)
             def _build_label(r):
                 d_str = str(r["date"])[:10]
                 r_name = str(r["race_name"])
@@ -243,35 +243,26 @@ with tab1:
         sel_race_id = sel_race_row["race_id"]
         
         race_feat = df_feat[df_feat["race_id"].astype(str) == str(sel_race_id)].copy()
-        
+        is_fallback_history = False
         if len(race_feat) == 0:
-            conn_single = get_connection()
-            query_single = """
-            SELECT 
-                r.race_id, r.race_name, r.date, r.race_course, r.race_number,
-                r.surface, r.distance, r.direction, r.weather, r.condition, r.grade,
-                res.finish_order, res.bracket_number, res.horse_number,
-                res.horse_id, res.horse_name, res.sex, res.age, res.weight_carry,
-                res.jockey_id, res.jockey_name, res.time_str, res.time_sec,
-                res.margin_str, res.last_3f, res.odds, res.popularity,
-                res.horse_weight, res.horse_weight_diff, res.trainer_id, res.trainer_name,
-                res.sire, res.sire_type, res.running_style, res.corner_4_pos, res.rest_weeks
-            FROM races r
-            JOIN race_results res ON r.race_id = res.race_id
-            WHERE r.race_id = ?
-            ORDER BY res.horse_number ASC
-            """
-            raw_target = pd.read_sql_query(query_single, conn_single, params=(str(sel_race_id),))
-            conn_single.close()
-            if len(raw_target) > 0:
-                feat_target, _ = build_features(raw_target)
-                race_feat = feat_target[feat_target["race_id"].astype(str) == str(sel_race_id)].copy()
-                
+            is_fallback_history = True
+            race_feat, _ = build_features_for_race_with_history(str(sel_race_id))
+
         pred_race = model.predict_race(race_feat)
-        
+
         if len(pred_race) == 0:
             st.warning("出走馬データが見つかりません。")
             st.stop()
+
+        if int(sel_race_row.get("is_complete_card", 1)) == 0:
+            st.warning(
+                f"⚠️ **不完全な出馬表データ（収録頭数: {len(pred_race)}頭）**: "
+                "この過去レースは出走馬の一部のみが保存されているため、通常の予測可能レース（完全な出馬表）とは区別して参考表示しています。"
+            )
+        if "past_race_count" in pred_race.columns:
+            no_hist_cnt = int((pred_race["past_race_count"] == 0).sum())
+            if no_hist_cnt > 0:
+                st.caption(f"ℹ️ 出走 {len(pred_race)}頭中 {no_hist_cnt}頭は当データベース内に過去走履歴がないため（初出走または過去走未収録）、初期基準値で評価しています。")
             
         st.markdown(f"""
         ### 📋 {sel_race_row['date']} {sel_race_row['race_course']} {sel_race_row['race_number']}R: **{sel_race_row['race_name']}**

@@ -6,10 +6,16 @@ from src.betting_strategy import evaluate_race_value
 def _filter_complete_past_races(df_evaluated: pd.DataFrame) -> pd.DataFrame:
     """
     確定着順(1着馬)が存在する完全な実在JRAレースのみを検証対象として抽出。
+    また、is_warmup_block カラムが存在する場合は初期学習専用期間（is_warmup_block == True）および
+    pred_score が NaN の行を評価対象から除外する。
     """
-    valid_df = df_evaluated[df_evaluated["finish_order"] >= 1].copy()
+    valid_df = df_evaluated[(df_evaluated["finish_order"] >= 1) & (df_evaluated["finish_order"] <= 28)].copy()
+    if "is_warmup_block" in valid_df.columns:
+        valid_df = valid_df[~valid_df["is_warmup_block"].fillna(False)].copy()
+    if "pred_score" in valid_df.columns:
+        valid_df = valid_df[valid_df["pred_score"].notna()].copy()
     if len(valid_df) == 0:
-        return df_evaluated
+        return valid_df
     grp_stats = valid_df.groupby("race_id").agg(
         cnt=("horse_number", "count"),
         has_win=("finish_order", lambda s: (s == 1).any())

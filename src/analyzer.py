@@ -8,8 +8,12 @@ def analyze_winning_conditions(df_pred: pd.DataFrame) -> Dict[str, Any]:
     蓄積された確定レース（finish_order >= 1）のウォークフォワード予測結果と実着順を突き合わせ、
     条件別の勝率・複勝率・単勝回収率（JRA確定単勝配当ベース）を算出する。
     """
-    # 未発走レース(finish_order == 0)を除外し、確定レースのみで検証
-    df = df_pred[df_pred["finish_order"] >= 1].copy()
+    # 未発走レース(finish_order == 0)およびウォークフォワード初期学習専用期間(is_warmup_block == True)を除外し、確定評価レースのみで検証
+    df = df_pred[(df_pred["finish_order"] >= 1) & (df_pred["finish_order"] <= 28)].copy()
+    if "is_warmup_block" in df.columns:
+        df = df[~df["is_warmup_block"].fillna(False)].copy()
+    if "pred_score" in df.columns:
+        df = df[df["pred_score"].notna()].copy()
     if len(df) == 0:
         return {
             "overall": {"total_races": 0, "win_rate": 0.0, "place_rate": 0.0, "roi": 0.0},

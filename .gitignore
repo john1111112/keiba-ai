@@ -1,7 +1,12 @@
-﻿__pycache__/
+__pycache__/
 *.py[cod]
 *$py.class
 .venv/
 venv/
 ENV/
 .streamlit/secrets.toml
+backups/
+data/discord_config.json
+data/notified_races.json
+models/*.bak
+*.zip
