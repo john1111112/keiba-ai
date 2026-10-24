@@ -60,6 +60,26 @@ class Phase8Tests(unittest.TestCase):
         rows = build_prediction_rows(self.features, CheckModel(), **self.args)
         self.assertEqual(len(rows), 2)
 
+    def test_missing_required_feature_rejected(self):
+        model = FakeWinModel()
+        model.feature_cols = ['age', 'weight_carry']
+        with self.assertRaises(ValueError):
+            build_prediction_rows(self.features, model, **self.args)
+
+    def test_changed_horse_identifier_rejected(self):
+        class ChangedModel:
+            def predict_win_race(self, frame, normalize_to_one=True):
+                return frame.assign(horse_number=[1, 3], pred_win_prob=[0.6, 0.4])
+        with self.assertRaises(ValueError):
+            build_prediction_rows(self.features, ChangedModel(), **self.args)
+
+    def test_probability_sum_rejected(self):
+        class BadSumModel:
+            def predict_win_race(self, frame, normalize_to_one=True):
+                return frame.assign(pred_win_prob=[0.3, 0.3])
+        with self.assertRaises(ValueError):
+            build_prediction_rows(self.features, BadSumModel(), **self.args)
+
     def test_invalid_win_probability_rejected(self):
         class BadModel:
             def predict_win_race(self, frame, normalize_to_one=True):
