@@ -2,11 +2,8 @@
 202510010111,2025-01-25,小倉,11,小倉牝馬ステークス (G3),18,18,18,0,18,MISSING_TOP3_FINISHERS(missing=[2]),False,True
 202510010309,2025-02-01,小倉,9,平尾台特別,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
 202505020107,2025-04-26,東京,7,4歳上,14,14,14,0,14,MISSING_TOP3_FINISHERS(missing=[2]),False,True
-202501010805,2025-08-17,札幌,5,新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
-202509040303,2025-09-13,阪神,3,未勝利,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
 202508030310,2025-10-11,京都,10,宇治川,13,13,13,0,13,MISSING_TOP3_FINISHERS(missing=[3]),False,True
 202505040711,2025-10-19,東京,11,ブラジ,12,12,12,0,12,MISSING_TOP3_FINISHERS(missing=[3]),False,True
-202505041108,2025-11-02,東京,8,百日草,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
 202505050408,2025-11-16,東京,8,3歳上,13,13,13,0,13,MISSING_TOP3_FINISHERS(missing=[2]),False,True
 202508040508,2025-11-22,京都,8,3歳上,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
 202503030610,2025-11-24,福島,10,五色沼,16,16,16,0,16,MISSING_TOP3_FINISHERS(missing=[3]),False,True
@@ -59,7 +56,6 @@
 202605030608,2026-06-21,東京,8,3歳上,6,12,6,0,15,"MISSING_TOP3_FINISHERS(missing=[3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=15,missing_ranks=9)",False,True
 202609030611,2026-06-21,阪神,11,しらさ,6,18,6,0,17,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=17,missing_ranks=11)",False,True
 202603020105,2026-06-27,福島,5,新馬,6,11,6,0,9,"MISSING_TOP3_FINISHERS(missing=[2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=9,missing_ranks=3)",False,True
-202602010705,2026-07-04,函館,5,新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True
 202603020306,2026-07-04,福島,6,新馬,6,15,6,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=13,missing_ranks=7)",False,True
 202610020305,2026-07-04,小倉,5,新馬,6,13,6,0,11,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=11,missing_ranks=5)",False,True
 202610020312,2026-07-04,小倉,12,3歳上,6,12,6,0,10,"MISSING_TOP3_FINISHERS(missing=[1, 2]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=6,max_finish_order=10,missing_ranks=4)",False,True
@@ -118,4 +114,3 @@
 202609040907,2026-09-27,阪神,7,3歳上,7,16,7,0,13,"MISSING_TOP3_FINISHERS(missing=[1, 2, 3]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=7,max_finish_order=13,missing_ranks=6)",False,True
 202609040912,2026-09-27,阪神,12,3歳上,8,12,8,0,11,"MISSING_TOP3_FINISHERS(missing=[1]); PARTIAL_CARD_MISSING_FINISH_ORDERS(valid_finishers=8,max_finish_order=11,missing_ranks=3)",False,True
 202608040612,2026-10-17,京都,12,3歳上1勝クラス,18,18,18,0,18,MISSING_TOP3_FINISHERS(missing=[3]),False,True
-202608040705,2026-10-18,京都,5,2歳新馬,5,5,5,0,5,UNDER_6_ENTRIES(entry_count=5),False,True

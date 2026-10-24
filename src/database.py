@@ -161,7 +161,7 @@ def evaluate_race_completeness_and_export_csv(
     """
     【Phase 3A: 不完全レース判定ロジックとCSV出力】
     - 1〜3着馬の存在を確認する。
-    - 出走頭数（entry_count）6頭以上を基本条件とする。
+    - 出走頭数（entry_count）5頭以上を基本条件とする（JRA施行規程上の最小出走頭数は5頭）。
     - 最大馬番と収録頭数が一致しないだけで不完全と断定しない（出走取消や除外による馬番欠番を考慮する）。
     - スクレイピング時に取消・除外・競走中止（time_str が空文字または '-' で finish_order=15 等が入っている行）を非完走馬として識別し、
       完走馬（n_valid_finishers）の中で最大着順 max_valid_fo <= n_valid_finishers（1〜n_valid_finishers着が連続しているか）を照合する。
@@ -241,8 +241,8 @@ def evaluate_race_completeness_and_export_csv(
         max_valid_fo = max(valid_fos) if valid_fos else 0
 
         reasons = []
-        if entry_count < 6:
-            reasons.append(f"UNDER_6_ENTRIES(entry_count={entry_count})")
+        if entry_count < 5:
+            reasons.append(f"UNDER_5_ENTRIES(entry_count={entry_count})")
         if not {1, 2, 3}.issubset(valid_fos):
             missing_top3 = sorted(list({1, 2, 3} - valid_fos))
             reasons.append(f"MISSING_TOP3_FINISHERS(missing={missing_top3})")
@@ -317,7 +317,7 @@ def get_races_metadata(db_path: Optional[Path] = None, recent_days_window: int =
             ELSE 0
         END AS is_confirmed,
         CASE
-            WHEN COUNT(res.horse_number) >= 6 AND (
+            WHEN COUNT(res.horse_number) >= 5 AND (
                 SUM(CASE WHEN res.finish_order = 0 THEN 1 ELSE 0 END) = COUNT(res.horse_number)
                 OR (
                     SUM(CASE WHEN res.finish_order = 1 AND res.time_str NOT IN ('', '-') THEN 1 ELSE 0 END) >= 1
@@ -389,7 +389,7 @@ def preview_cleanup_targets(db_path: Optional[Path] = None) -> Dict[str, Any]:
             GROUP BY r.race_id
             HAVING SUM(CASE WHEN res.finish_order = 0 THEN 1 ELSE 0 END) = 0
                AND (
-                   COUNT(res.horse_number) < 6
+                   COUNT(res.horse_number) < 5
                    OR SUM(CASE WHEN res.finish_order = 1 AND res.time_str NOT IN ('', '-') THEN 1 ELSE 0 END) = 0
                    OR SUM(CASE WHEN res.finish_order = 2 AND res.time_str NOT IN ('', '-') THEN 1 ELSE 0 END) = 0
                    OR SUM(CASE WHEN res.finish_order = 3 AND res.time_str NOT IN ('', '-') THEN 1 ELSE 0 END) = 0

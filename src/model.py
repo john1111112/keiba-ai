@@ -14,6 +14,8 @@ from .features import FEATURE_COLS, FEATURE_COLS_V1_31, FEATURE_COLS_V2_28, get_
 MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm.joblib"
 # 新しい28特徴量モデルパス（血統3特徴量を除外したv2モデル用・ファイルを明確に分離）
 MODEL_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm_v2_28cols.joblib"
+# Phase 3B: 単勝1着確率予測モデルパス（ファイルを明確に分離・既存モデル上書き禁止）
+MODEL_WIN_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm_win_v2_28cols.joblib"
 BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
 
 # 既知の信頼済み本番モデル SHA-256（Phase 1 バックアップで確定済み）
@@ -26,6 +28,7 @@ MAX_VALID_FINISH_ORDER = 28
 class KeibaAIModel:
     def __init__(self, model_path: Optional[Path] = None, feature_version: str = "v1_31cols"):
         self.feature_version = feature_version
+        self.target_type = "place"
         if model_path is not None:
             self.model_path = Path(model_path)
         else:
@@ -35,12 +38,15 @@ class KeibaAIModel:
         self.restored_from_sha256: Optional[str] = None
 
     @staticmethod
-    def validate_and_filter_training_data(df_features: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    def validate_and_filter_training_data(df_features: pd.DataFrame, target_type: str = "place") -> Tuple[pd.DataFrame, Dict[str, int]]:
         """
         【学習データの安全性検証・フィルタリング】
         1. 未確定レース（finish_order == 0）を学習対象から完全に除外する。
         2. 取消・除外・競走中止（finish_order > 28 または finish_order < 0 または NaN、または time_str が '' / '-'）を明確に分離・除外する。
-        3. 除外された件数の内訳を検証レポートとして返す。
+        3. target_type に応じて目的変数を設定:
+           - 'place': 1〜3着 = 1, 4着以下 = 0 (3着以内好走確率)
+           - 'win': 1着 = 1, 2着以下 = 0 (単勝1着確率)
+        4. 除外された件数の内訳を検証レポートとして返す。
         """
         if df_features is None or len(df_features) == 0:
             raise ValueError("学習データが空です。")
@@ -67,7 +73,10 @@ class KeibaAIModel:
         else:
             clean_df = clean_df.reset_index(drop=True)
 
-        clean_df["target"] = ((clean_df["finish_order"] >= 1) & (clean_df["finish_order"] <= 3)).astype(int)
+        if target_type == "win":
+            clean_df["target"] = (clean_df["finish_order"] == 1).astype(int)
+        else:
+            clean_df["target"] = ((clean_df["finish_order"] >= 1) & (clean_df["finish_order"] <= 3)).astype(int)
 
         stats = {
             "input_rows": int(total_rows),
@@ -99,7 +108,7 @@ class KeibaAIModel:
         else:
             self.feature_cols = get_feature_cols_by_version(self.feature_version)
 
-        clean_df, validation_stats = self.validate_and_filter_training_data(df_features)
+        clean_df, validation_stats = self.validate_and_filter_training_data(df_features, target_type=self.target_type)
 
         # 開催日単位で時系列分割（同一開催日が学習と評価にまたがらないようにする）
         if "date" in clean_df.columns:
@@ -224,6 +233,7 @@ class KeibaAIModel:
             "model": self.model,
             "feature_cols": list(self.feature_cols),
             "feature_version": self.feature_version,
+            "target_type": getattr(self, "target_type", "place"),
             "n_features": len(self.feature_cols),
         }
         joblib.dump(payload, self.model_path)
@@ -368,3 +378,85 @@ class KeibaAIModel:
 
 class SecurityError(RuntimeError):
     pass
+
+
+class KeibaAIWinModel(KeibaAIModel):
+    """
+    【Phase 3B: 単勝1着確率予測モデル】
+    - 目的変数: 1着 = 1, 2着以下 = 0
+    - 特徴量: 28特徴量版 (FEATURE_COLS_V2_28)
+    - 確率整合性: P(Win) <= P(Top3) 制約、レース内完走馬間合計1.0正規化
+    - 単勝期待値: 期待回収倍率 (p_win * odds) および 期待利益率 (p_win * odds - 1) の算出
+    """
+    def __init__(self, model_path: Optional[Path] = None, feature_version: str = "v2_28cols_win_model"):
+        p = model_path or MODEL_WIN_V2_28_PATH
+        super().__init__(model_path=p, feature_version="v2_28cols_no_pedigree")
+        self.target_type = "win"
+        self.feature_version = feature_version
+
+    def predict_win_race(
+        self,
+        race_df: pd.DataFrame,
+        place_model: Optional[KeibaAIModel] = None,
+        calibrator = None,
+        normalize_to_one: bool = True
+    ) -> pd.DataFrame:
+        """
+        レース単位で各馬の1着確率・3着内確率との整合性制約・正規化・単勝期待値を算出する。
+        """
+        if self.model is None:
+            self.load()
+
+        res_df = race_df.copy()
+        for c in self.feature_cols:
+            if c not in res_df.columns:
+                res_df[c] = 0.0
+
+        X = res_df[self.feature_cols]
+        raw_win_probs = self.model.predict_proba(X)[:, 1]
+
+        # 確率校正 (Calibrator が与えられている場合)
+        if calibrator is not None and hasattr(calibrator, "predict_proba"):
+            cal_win_probs = calibrator.predict_proba(raw_win_probs)
+        else:
+            cal_win_probs = raw_win_probs.copy()
+
+        res_df["pred_win_prob_raw"] = raw_win_probs
+        res_df["pred_win_prob"] = cal_win_probs
+
+        # 3着以内確率との整合性 (P(Win) <= P(Top3))
+        if "pred_score" in res_df.columns:
+            p_top3 = res_df["pred_score"].clip(0.0, 1.0)
+            res_df["pred_win_prob"] = np.minimum(res_df["pred_win_prob"], p_top3)
+        elif place_model is not None:
+            pred_place_df = place_model.predict_race(race_df)
+            p_top3 = pred_place_df["pred_score"].clip(0.0, 1.0)
+            res_df["pred_place_prob"] = p_top3
+            res_df["pred_win_prob"] = np.minimum(res_df["pred_win_prob"], p_top3)
+
+        # 取消・除外馬の除外と確率0化
+        if "time_str" in res_df.columns:
+            valid_mask = (res_df["finish_order"].fillna(0) >= 0) & (~res_df["time_str"].fillna("").astype(str).str.strip().isin(["", "-"]))
+        else:
+            valid_mask = (res_df["finish_order"].fillna(0) >= 0)
+        unconfirmed = (res_df["finish_order"].fillna(0) == 0)
+        effective_runners = valid_mask | unconfirmed
+        res_df.loc[~effective_runners, "pred_win_prob"] = 0.0
+
+        # レース内合計1.0の正規化
+        if normalize_to_one:
+            runner_sum = res_df.loc[effective_runners, "pred_win_prob"].sum()
+            if runner_sum > 0:
+                res_df.loc[effective_runners, "pred_win_prob"] = res_df.loc[effective_runners, "pred_win_prob"] / runner_sum
+
+        # 単勝期待値の計算
+        # 単勝期待回収倍率 = 予測1着確率 × 単勝オッズ
+        # 単勝期待利益率 = 単勝期待回収倍率 - 1.0
+        odds_col = pd.to_numeric(res_df.get("odds", np.nan), errors="coerce").fillna(0.0)
+        res_df["win_expected_value"] = res_df["pred_win_prob"] * odds_col
+        res_df["expected_profit_margin"] = res_df["win_expected_value"] - 1.0
+        res_df["expected_value"] = res_df["win_expected_value"]
+
+        # 単勝確率降順にソート
+        res_df = res_df.sort_values("pred_win_prob", ascending=False).reset_index(drop=True)
+        return res_df

@@ -70,7 +70,8 @@ class TestPhase3A(unittest.TestCase):
         )
         self.assertTrue(INCOMPLETE_RACES_CSV_PATH.exists())
         self.assertEqual(len(summary_df), 3174)
-        self.assertEqual(len(incomplete_df), 120)
+        # 5頭基準 (JRA施行規程上の最小頭数) により、正常な5頭立て新馬・特別戦5件を除外せず115件の抜粋レースのみを不完全と判定
+        self.assertEqual(len(incomplete_df), 115)
         # Ensure the 2 obstacle races with scratched/aborted non-finishers ('202510010105', '202607030109') are NOT falsely marked incomplete
         comp_rids = set(summary_df.loc[summary_df["is_complete_for_eval"], "race_id"])
         self.assertIn("202510010105", comp_rids)
