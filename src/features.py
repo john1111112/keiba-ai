@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Set
 from pathlib import Path
 
 CATEGORICAL_COLS = ["race_course", "surface", "condition", "sex", "sire_type", "running_style"]
@@ -52,7 +52,11 @@ def _is_valid_finished_row(fo, time_str: Optional[str] = None) -> bool:
         return False
 
 
-def build_features(df: pd.DataFrame, feature_version: str = "v1_31cols") -> Tuple[pd.DataFrame, List[str]]:
+def build_features(
+    df: pd.DataFrame,
+    feature_version: str = "v1_31cols",
+    complete_race_ids: Optional[Set[str]] = None
+) -> Tuple[pd.DataFrame, List[str]]:
     """
     【同日・同一レース内リーク完全排除版（開催日単位バッチ更新）】
     1. 当日の結果情報（当日の通過順位・当日の上がり3F・当日の着順）は一切特徴量に使用しない。
@@ -190,33 +194,35 @@ def build_features(df: pd.DataFrame, feature_version: str = "v1_31cols") -> Tupl
                 continue
             fo_int = int(fo)
 
-            # 1. 騎手統計の更新
-            jid = row["jockey_id"]
-            j_st = jockey_stats.get(jid, {"rides": 0, "wins": 0, "places": 0})
-            j_st["rides"] += 1
-            if fo_int == 1:
-                j_st["wins"] += 1
-            if fo_int <= 3:
-                j_st["places"] += 1
-            jockey_stats[jid] = j_st
-
-            # 2. 血統統計の更新
-            sire = str(row["sire"])
-            surf = row["surface"]
-            if sire not in ("不明", "キズナ", ""):
-                s_st = sire_stats.get(sire, {"total": 0, "places": 0, "turf_runs": 0, "turf_places": 0, "dirt_runs": 0, "dirt_places": 0})
-                s_st["total"] += 1
+            # 1. 騎手・血統統計の更新（完全レースのみから集計し、抜粋不完全レースによる集計バイアスを排除）
+            is_comp = (complete_race_ids is None) or (str(row["race_id"]) in complete_race_ids)
+            if is_comp:
+                jid = row["jockey_id"]
+                j_st = jockey_stats.get(jid, {"rides": 0, "wins": 0, "places": 0})
+                j_st["rides"] += 1
+                if fo_int == 1:
+                    j_st["wins"] += 1
                 if fo_int <= 3:
-                    s_st["places"] += 1
-                if surf == "芝":
-                    s_st["turf_runs"] += 1
+                    j_st["places"] += 1
+                jockey_stats[jid] = j_st
+
+                # 2. 血統統計の更新
+                sire = str(row["sire"])
+                surf = row["surface"]
+                if sire not in ("不明", "キズナ", ""):
+                    s_st = sire_stats.get(sire, {"total": 0, "places": 0, "turf_runs": 0, "turf_places": 0, "dirt_runs": 0, "dirt_places": 0})
+                    s_st["total"] += 1
                     if fo_int <= 3:
-                        s_st["turf_places"] += 1
-                else:
-                    s_st["dirt_runs"] += 1
-                    if fo_int <= 3:
-                        s_st["dirt_places"] += 1
-                sire_stats[sire] = s_st
+                        s_st["places"] += 1
+                    if surf == "芝":
+                        s_st["turf_runs"] += 1
+                        if fo_int <= 3:
+                            s_st["turf_places"] += 1
+                    else:
+                        s_st["dirt_runs"] += 1
+                        if fo_int <= 3:
+                            s_st["dirt_places"] += 1
+                    sire_stats[sire] = s_st
 
             # 3. 馬履歴の更新
             hid = row["horse_id"]
