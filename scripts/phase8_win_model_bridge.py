@@ -49,6 +49,15 @@ def build_prediction_rows(features, model, *, prediction_at, cutoff_at,
     features = features.copy()
     features['finish_order'] = 0
     features['time_str'] = ''
+    required_features = getattr(model, 'feature_cols', None)
+    if required_features is not None:
+        missing = set(required_features) - set(features.columns)
+        if missing:
+            raise ValueError('missing model features: ' + ', '.join(sorted(missing)))
+        if features[list(required_features)].isna().any().any():
+            raise ValueError('missing feature values')
+    if 'odds' not in features.columns:
+        features['odds'] = 0.0
     results = []
     for race_id, group in features.groupby('race_id', sort=False):
         # Predict separately for each race: win normalization must not cross races.
@@ -57,6 +66,13 @@ def build_prediction_rows(features, model, *, prediction_at, cutoff_at,
             raise ValueError('win model did not return pred_win_prob')
         if len(output) != len(group):
             raise ValueError('model changed number of horses')
+        expected = set(zip(group['race_id'].astype(str), group['horse_number'].astype(int)))
+        actual = list(zip(output['race_id'].astype(str), output['horse_number'].astype(int)))
+        if len(actual) != len(set(actual)) or set(actual) != expected:
+            raise ValueError('model changed horse identifiers')
+        total = float(output['pred_win_prob'].sum())
+        if not math.isfinite(total) or not math.isclose(total, 1.0, abs_tol=1e-6):
+            raise ValueError('win probabilities must sum to one per race')
         for _, row in output.iterrows():
             probability = float(row['pred_win_prob'])
             if not math.isfinite(probability) or not 0 <= probability <= 1:
