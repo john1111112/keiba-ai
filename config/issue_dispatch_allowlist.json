@@ -1,0 +1,20 @@
+{
+  "repository": "john1111112/keiba-ai",
+  "comment": "Security allowlist for automated issue execution. Requires explicit human user approval before any code modification.",
+  "allowed_issues": {
+    "11": {
+      "approved_by_user": true,
+      "action_mode": "execute",
+      "allowed_actions": [
+        "check_activity",
+        "dry_run_plan",
+        "implement_phase13",
+        "run_tests",
+        "push_branch",
+        "create_draft_pr",
+        "report_issue"
+      ],
+      "disallow_reasons": []
+    }
+  }
+}
