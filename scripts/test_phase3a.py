@@ -110,12 +110,16 @@ class TestPhase3A(unittest.TestCase):
         m_v1 = KeibaAIModel(model_path=MODEL_PATH, feature_version="v1_31cols")
         m_v1.load()
         self.assertEqual(len(m_v1.feature_cols), 31)
-        sample_race = df_feat_v2[df_feat_v2["race_id"] == "202608040911"].copy()
+        # 完全レースから1レース抽出して予測互換性を検証
+        sample_rid = df_feat_v2["race_id"].iloc[0]
+        sample_race = df_feat_v2[df_feat_v2["race_id"] == sample_rid].copy()
+        n_runners = len(sample_race)
+        self.assertGreater(n_runners, 0)
         sample_race["pred_score"] = np.nan
         pred_v1 = m_v1.predict_race(sample_race)
         pred_v2 = m_v2.predict_race(sample_race)
-        self.assertEqual(len(pred_v1), 18)
-        self.assertEqual(len(pred_v2), 18)
+        self.assertEqual(len(pred_v1), n_runners)
+        self.assertEqual(len(pred_v2), n_runners)
 
     def test_3_expected_value_suspension_and_reference_rank(self):
         """

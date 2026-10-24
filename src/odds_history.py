@@ -46,99 +46,112 @@ def init_odds_history_db(db_path: Optional[Path] = None) -> Path:
     return target_path
 
 
+def _canonical_time(value: str) -> str:
+    """Normalize timestamps to UTC, preserving naive legacy timestamps as UTC.
+
+    Producers should supply offset-aware ISO-8601 timestamps; naive values are
+    accepted for compatibility with existing Phase 3D test fixtures.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Timestamp must be a nonempty ISO-8601 string")
+    try:
+        dt = datetime.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid ISO-8601 timestamp: {value!r}") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc).isoformat(timespec="microseconds")
+
+
 def record_odds_snapshot(
     odds_records: List[Dict[str, Any]],
     db_path: Optional[Path] = None
 ) -> int:
-    """
-    発走前オッズのスナップショットを追記保存する（過去データの上書き禁止）。
-    架空データの生成を禁止し、無効・異常値は記録しない。
+    """Append only valid odds observations, never replacing past snapshots.
+
+    Both timestamps are mandatory. A caller may not backdate fetched_at: this
+    method validates format but cannot authenticate a data provider's clock.
     """
     if not odds_records:
         return 0
-
     target_path = Path(db_path or ODDS_HISTORY_DB_PATH)
-    init_odds_history_db(target_path)
-
-    conn = sqlite3.connect(target_path)
-    cur = conn.cursor()
-
     valid_rows = []
     for r in odds_records:
-        # 最低限の必須項目バリデーション
         if not r.get("race_id") or r.get("horse_number") is None:
             continue
         try:
-            val = float(r.get("odds_value", 0.0))
-            if val < 1.0 or not np.isfinite(val):
+            number = int(r["horse_number"])
+            odds = float(r["odds_value"])
+            observed = _canonical_time(r["observed_at"])
+            fetched = _canonical_time(r["fetched_at"])
+            if number <= 0 or odds < 1.0 or not np.isfinite(odds):
                 continue
-        except (ValueError, TypeError):
+            # A future-dated observation cannot be treated as available yet.
+            if observed > fetched:
+                continue
+            status = str(r.get("data_status", "pre_race_flash"))
+            if not status or not str(r.get("source", "")).strip():
+                continue
+            valid_rows.append((
+                str(r["race_id"]), str(r.get("horse_id") or ""), number,
+                str(r.get("odds_type", "win")), odds,
+                int(r["popularity"]) if r.get("popularity") is not None else None,
+                observed, fetched, str(r["source"]), status,
+            ))
+        except (KeyError, ValueError, TypeError, OverflowError):
             continue
-
-        valid_rows.append((
-            str(r["race_id"]),
-            str(r.get("horse_id", "")),
-            int(r["horse_number"]),
-            str(r.get("odds_type", "win")),
-            float(val),
-            int(r.get("popularity", 0)) if r.get("popularity") is not None else None,
-            str(r.get("observed_at", "")),
-            str(r.get("fetched_at", datetime.datetime.now().isoformat())),
-            str(r.get("source", "unknown")),
-            str(r.get("data_status", "pre_race_flash")),
-        ))
-
-    cur.executemany("""
-    INSERT INTO odds_timeline (
-        race_id, horse_id, horse_number, odds_type, odds_value,
-        popularity, observed_at, fetched_at, source, data_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, valid_rows)
-
-    conn.commit()
-    inserted_count = len(valid_rows)
-    conn.close()
-    return inserted_count
+    if not valid_rows:
+        return 0
+    init_odds_history_db(target_path)
+    with sqlite3.connect(target_path) as conn:
+        conn.executemany("""
+        INSERT INTO odds_timeline (
+            race_id, horse_id, horse_number, odds_type, odds_value,
+            popularity, observed_at, fetched_at, source, data_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, valid_rows)
+    return len(valid_rows)
 
 
 def get_latest_odds_as_of(
     race_id: str,
     as_of_time: str,
     odds_type: str = "win",
-    db_path: Optional[Path] = None
+    db_path: Optional[Path] = None,
+    include_sample: bool = False
 ) -> pd.DataFrame:
-    """
-    【予測時点の再現】
-    指定した時刻（as_of_time）までに発表・観測された最新のオッズのみを取得する。
-    未来のオッズ（as_of_time より後の時刻）および確定オッズは厳密に遮断され参照不可。
+    """Get the last *available* pre-race quote for each horse.
+
+    Availability requires BOTH publication and receipt by as_of_time.
+    Only explicitly pre-race observations are eligible; sample rows are excluded
+    by default and can only be included with include_sample=True.
+    When timestamps tie, the most recently inserted eligible row wins.
     """
     target_path = Path(db_path or ODDS_HISTORY_DB_PATH)
     if not target_path.exists():
         return pd.DataFrame()
-
-    conn = sqlite3.connect(target_path)
-    query = """
-    SELECT 
-        t.horse_number,
-        t.horse_id,
-        t.odds_value,
-        t.popularity,
-        t.observed_at,
-        t.source,
-        t.data_status
-    FROM odds_timeline t
-    INNER JOIN (
-        SELECT horse_number, MAX(observed_at) AS max_obs
-        FROM odds_timeline
-        WHERE race_id = ?
-          AND odds_type = ?
-          AND observed_at <= ?
-        GROUP BY horse_number
-    ) latest ON t.horse_number = latest.horse_number AND t.observed_at = latest.max_obs
-    WHERE t.race_id = ?
-      AND t.odds_type = ?
-    ORDER BY t.horse_number ASC
-    """
-    df = pd.read_sql_query(query, conn, params=(race_id, odds_type, as_of_time, race_id, odds_type))
-    conn.close()
-    return df
+    cutoff = _canonical_time(as_of_time)
+    with sqlite3.connect(target_path) as conn:
+        # SQLite julianday() accepts legacy naive ISO strings as well as UTC
+        # offset timestamps; avoids string-order bugs with mixed offsets.
+        query = """
+        SELECT horse_number, horse_id, odds_value, popularity,
+               observed_at, fetched_at, source, data_status
+        FROM (
+            SELECT t.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY horse_number
+                       ORDER BY julianday(observed_at) DESC,
+                                julianday(fetched_at) DESC, id DESC
+                   ) AS row_rank
+            FROM odds_timeline t
+            WHERE race_id = ? AND odds_type = ?
+              AND julianday(observed_at) <= julianday(?)
+              AND julianday(fetched_at) <= julianday(?)
+              AND (data_status IN ('pre_race_flash', 'pre_race') OR data_status LIKE 'pre_%')
+              AND (? = 1 OR source <> 'sample')
+        ) ranked
+        WHERE row_rank = 1
+        ORDER BY horse_number ASC
+        """
+        return pd.read_sql_query(query, conn, params=(race_id, odds_type, cutoff, cutoff, int(include_sample)))

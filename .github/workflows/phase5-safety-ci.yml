@@ -1,0 +1,26 @@
+name: Phase 5 Safety Tests
+on:
+  push:
+    paths:
+      - 'src/feature_provenance.py'
+      - 'src/paper_trading.py'
+      - 'scripts/test_feature_provenance.py'
+      - 'scripts/test_paper_trading.py'
+      - '.github/workflows/phase5-safety-ci.yml'
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safety-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run safety tests without external services
+        run: |
+          python -m unittest discover -s scripts -p 'test_feature_provenance.py' -v
+          python -m unittest discover -s scripts -p 'test_paper_trading.py' -v
