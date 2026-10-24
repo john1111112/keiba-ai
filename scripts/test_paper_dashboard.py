@@ -18,7 +18,11 @@ class DashboardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/"paper.db"
             capture(p,[dict(race_id="R1",horse_number=1,prediction_at=T,cutoff_at="2026-10-24T02:00:00Z",win_probability=.2,odds=5,odds_observed_at="2026-10-24T00:30:00Z",odds_fetched_at="2026-10-24T00:40:00Z",model_id="M",source="test")])
-            settle(p,[dict(race_id="R1",horse_number=1,prediction_at=T,won=1,official_payout_yen=500,settled_at="2026-10-24T03:00:00Z")])
+            settle(p,[dict(
+                race_id="R1",horse_number=1,prediction_at=T,
+                won=1,official_payout_yen=500,settled_at="2026-10-24T03:00:00Z",
+                source_url="https://www.jra.go.jp/official",verified_by="auditor",verification_status="verified"
+            )])
             before=p.read_bytes()
             x=load_dashboard(p)
             self.assertEqual(x["overall"]["roi"],5.0)
