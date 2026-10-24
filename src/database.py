@@ -342,13 +342,35 @@ def get_races_metadata(db_path: Optional[Path] = None, recent_days_window: int =
     return df
 
 
-def get_payouts(race_id: str, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+def get_payouts(race_id: str, db_path: Optional[Path] = None, allow_orphan: bool = False) -> List[Dict[str, Any]]:
+    """
+    払戻データを取得する。
+    【Phase 6 安全対策】
+    races テーブルに実在しない孤立した架空払戻データ（orphan payouts）は、
+    モデル学習・回収率計算・検証への混入を防ぐため、既定で除外（空リスト返却）する。
+    """
     conn = get_connection(db_path)
     cur = conn.cursor()
-    cur.execute("SELECT bet_type, combination, payout, popularity FROM payouts WHERE race_id = ?", (race_id,))
+    if not allow_orphan:
+        # races テーブルに実在する正規レースのみに限定
+        cur.execute("""
+            SELECT p.bet_type, p.combination, p.payout, p.popularity 
+            FROM payouts p
+            INNER JOIN races r ON p.race_id = r.race_id
+            WHERE p.race_id = ?
+        """, (race_id,))
+    else:
+        cur.execute("SELECT bet_type, combination, payout, popularity FROM payouts WHERE race_id = ?", (race_id,))
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def get_verified_payouts(race_id: str, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """
+    検証済みの正規払戻データのみを取得するセーフガード関数。
+    """
+    return get_payouts(race_id, db_path=db_path, allow_orphan=False)
 
 
 def get_db_stats(db_path: Optional[Path] = None) -> Dict[str, Any]:
