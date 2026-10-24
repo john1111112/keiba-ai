@@ -25,7 +25,11 @@ class LedgerTests(unittest.TestCase):
   with self.assertRaises(Exception): capture(self.db,[{**BASE,'horse_number':2},BASE])
   self.assertEqual(report(self.db)['predictions'],1)
  def test_settlement_and_roi(self):
-  capture(self.db,[BASE]); settle(self.db,[dict(race_id=BASE['race_id'],horse_number=1,prediction_at=BASE['prediction_at'],won=1,official_payout_yen=520,settled_at='2026-10-24T03:00:00+09:00')])
+  capture(self.db,[BASE]); settle(self.db,[dict(
+   race_id=BASE['race_id'],horse_number=1,prediction_at=BASE['prediction_at'],
+   won=1,official_payout_yen=520,settled_at='2026-10-24T03:00:00+09:00',
+   source_url='https://www.jra.go.jp/official',verified_by='auditor',verification_status='verified'
+  )])
   self.assertEqual(report(self.db)['roi'],5.2)
  def test_no_updates(self):
   capture(self.db,[BASE])

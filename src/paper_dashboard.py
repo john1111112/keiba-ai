@@ -11,13 +11,23 @@ def load_dashboard(db_path):
     with sqlite3.connect(uri, uri=True) as conn:
         conn.execute("PRAGMA query_only=ON")
         total, settled, payout_sum = conn.execute("""
-            SELECT COUNT(*), COUNT(s.won), COALESCE(SUM(s.official_payout_yen), 0)
+            SELECT COUNT(*), SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+                AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+                THEN 1 ELSE 0 END),
+            COALESCE(SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+                AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+                THEN s.official_payout_yen ELSE 0 END), 0)
             FROM predictions p LEFT JOIN settlements s
               ON p.race_id=s.race_id AND p.horse_number=s.horse_number
               AND p.prediction_at=s.prediction_at
         """).fetchone()
         by_model = conn.execute("""
-            SELECT p.model_id, COUNT(*), COUNT(s.won), COALESCE(SUM(s.official_payout_yen),0)
+            SELECT p.model_id, COUNT(*), SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+                AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+                THEN 1 ELSE 0 END),
+            COALESCE(SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+                AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+                THEN s.official_payout_yen ELSE 0 END),0)
             FROM predictions p LEFT JOIN settlements s
               ON p.race_id=s.race_id AND p.horse_number=s.horse_number
               AND p.prediction_at=s.prediction_at

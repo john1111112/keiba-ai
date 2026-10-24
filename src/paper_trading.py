@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS settlements (
  settled_at TEXT NOT NULL,
  source_url TEXT,
  verified_by TEXT,
- verification_status TEXT DEFAULT 'verified',
+ verification_status TEXT DEFAULT 'unverified',
  PRIMARY KEY(race_id,horse_number,prediction_at),
  FOREIGN KEY(race_id,horse_number,prediction_at) REFERENCES predictions(race_id,horse_number,prediction_at)
 );
@@ -54,7 +54,7 @@ def connect(path):
     if cols and 'verified_by' not in cols:
         c.execute("ALTER TABLE settlements ADD COLUMN verified_by TEXT")
     if cols and 'verification_status' not in cols:
-        c.execute("ALTER TABLE settlements ADD COLUMN verification_status TEXT DEFAULT 'verified'")
+        c.execute("ALTER TABLE settlements ADD COLUMN verification_status TEXT DEFAULT 'unverified'")
     return c
 
 def capture(path, records):
@@ -88,7 +88,14 @@ def settle(path, records):
             raise ValueError('inconsistent official payout')
         source_url = str(r.get('source_url', '')).strip() or None
         verified_by = str(r.get('verified_by', '')).strip() or None
-        status = str(r.get('verification_status', r.get('status', 'verified'))).strip() or 'verified'
+        status = str(r.get('verification_status', r.get('status', 'unverified'))).strip().lower() or 'unverified'
+        if status not in ('verified', 'unverified', 'pending', 'rejected'):
+            raise ValueError('invalid verification status')
+        if status == 'verified':
+            from urllib.parse import urlparse
+            parsed = urlparse(source_url or '')
+            if parsed.scheme != 'https' or not parsed.hostname or not verified_by or verified_by.lower() in ('unknown', 'none', 'null', 'undefined'):
+                raise ValueError('verified settlement requires valid HTTPS source and verifier')
         rows.append((
             str(r['race_id']), int(r['horse_number']), utc_time(r['prediction_at']),
             won, payout, utc_time(r['settled_at']), source_url, verified_by, status
@@ -106,7 +113,12 @@ def report(path, stake=100):
     if stake <= 0 or not isinstance(stake,int):
         raise ValueError('stake must be positive integer yen')
     with connect(path) as c:
-        total, settled, returns = c.execute('''SELECT COUNT(*), COUNT(s.won), COALESCE(SUM(s.official_payout_yen),0)
+        total, settled, returns = c.execute('''SELECT COUNT(*), SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+             AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+             THEN 1 ELSE 0 END),
+          COALESCE(SUM(CASE WHEN s.verification_status='verified' AND s.source_url LIKE 'https://%'
+             AND TRIM(COALESCE(s.verified_by,'')) NOT IN ('','unknown','none','null','undefined')
+             THEN s.official_payout_yen ELSE 0 END),0)
           FROM predictions p LEFT JOIN settlements s USING(race_id,horse_number,prediction_at)''').fetchone()
     invested = settled * stake
     paid = returns * stake / 100

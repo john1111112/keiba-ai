@@ -21,7 +21,8 @@ class OperationalIntegrationTest(unittest.TestCase):
             self.assertIsNone(before['overall']['roi'])
             settle(db,[dict(race_id='test-race',horse_number=1,
                 prediction_at='2026-10-23T20:00:00+00:00',won=1,official_payout_yen=500,
-                settled_at='2026-10-24T07:00:00+09:00')])
+                settled_at='2026-10-24T07:00:00+09:00',
+                source_url='https://www.jra.go.jp/official',verified_by='auditor',verification_status='verified')])
             after=load_dashboard(db)
             self.assertEqual(after['overall']['stake_yen'],100)
             self.assertEqual(after['overall']['returns_yen'],500)
