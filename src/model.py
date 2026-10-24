@@ -9,6 +9,7 @@ import lightgbm as lgb
 from typing import Dict, Any, Tuple, List, Optional
 from sklearn.metrics import roc_auc_score, accuracy_score
 from .features import FEATURE_COLS, FEATURE_COLS_V1_31, FEATURE_COLS_V2_28, get_feature_cols_by_version
+from .training_evidence import filter_training_evidence
 
 # 既存の31特徴量本番モデルパス（保持・上書き禁止）
 MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm.joblib"
@@ -38,7 +39,7 @@ class KeibaAIModel:
         self.restored_from_sha256: Optional[str] = None
 
     @staticmethod
-    def validate_and_filter_training_data(df_features: pd.DataFrame, target_type: str = "place") -> Tuple[pd.DataFrame, Dict[str, int]]:
+    def validate_and_filter_training_data(df_features: pd.DataFrame, target_type: str = "place", verified_evidence: Optional[pd.DataFrame] = None) -> Tuple[pd.DataFrame, Dict[str, int]]:
         """
         【学習データの安全性検証・フィルタリング】
         1. 未確定レース（finish_order == 0）を学習対象から完全に除外する。
@@ -53,6 +54,12 @@ class KeibaAIModel:
         if "finish_order" not in df_features.columns:
             raise ValueError("学習データに 'finish_order' カラムが存在しません。")
 
+        # Phase 4E: opt-in evidence guard. Never invent negative labels for
+        # no-time horses; validated official status alone is not a finish.
+        if verified_evidence is not None:
+            df_features, evidence_stats = filter_training_evidence(df_features, verified_evidence)
+        else:
+            evidence_stats = None
         total_rows = len(df_features)
         fo = pd.to_numeric(df_features["finish_order"], errors="coerce")
         if "time_str" in df_features.columns:
@@ -84,6 +91,8 @@ class KeibaAIModel:
             "excluded_unconfirmed_rows": int(unconfirmed_mask.sum()),
             "excluded_aborted_or_invalid_rows": int(aborted_or_invalid_mask.sum()),
         }
+        if evidence_stats is not None:
+            stats['phase4e_evidence'] = evidence_stats
         if len(clean_df) < 50:
             raise ValueError(f"有効な確定完走データが不足しています ({len(clean_df)} 行)。")
 
@@ -94,7 +103,8 @@ class KeibaAIModel:
         df_features: pd.DataFrame,
         feature_cols: Optional[List[str]] = None,
         test_ratio: float = 0.2,
-        save_model: bool = True
+        save_model: bool = True,
+        verified_evidence: Optional[pd.DataFrame] = None
     ) -> Dict[str, Any]:
         """
         未確定・除外データを厳密に排除した上で、開催日単位の時系列境界（学習最大日付 < 評価最小日付）で分割してLightGBMを学習する。
@@ -108,7 +118,7 @@ class KeibaAIModel:
         else:
             self.feature_cols = get_feature_cols_by_version(self.feature_version)
 
-        clean_df, validation_stats = self.validate_and_filter_training_data(df_features, target_type=self.target_type)
+        clean_df, validation_stats = self.validate_and_filter_training_data(df_features, target_type=self.target_type, verified_evidence=verified_evidence)
 
         # 開催日単位で時系列分割（同一開催日が学習と評価にまたがらないようにする）
         if "date" in clean_df.columns:

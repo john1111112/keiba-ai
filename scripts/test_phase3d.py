@@ -32,13 +32,13 @@ def test_1_odds_history_timeline_append_only(test_db_path: Path):
 
     # 15:10（30分前）のスナップショット
     snap_1510 = [
-        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link"},
-        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link"},
     ]
     # 15:30（10分前）のスナップショット
     snap_1530 = [
-        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.2, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link"},
-        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.2, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link"},
     ]
 
     c1 = record_odds_snapshot(snap_1510, test_db_path)
@@ -66,14 +66,14 @@ def test_2_as_of_time_prediction_reproduction(test_db_path: Path):
     # 5分前:  15:35:00 (馬1: 3.0, 馬2: 8.0)
     # 確定後: 15:45:00 (馬1: 2.8, 馬2: 9.0)
     timeline_data = [
-        {"race_id": race_id, "horse_number": 1, "odds_value": 4.0, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 8.0, "popularity": 2, "observed_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 9.0, "popularity": 2, "observed_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 4.0, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:35:00", "fetched_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 8.0, "popularity": 2, "observed_at": "2026-05-01T15:35:00", "fetched_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01T15:45:00", "fetched_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 9.0, "popularity": 2, "observed_at": "2026-05-01T15:45:00", "fetched_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
     ]
     record_odds_snapshot(timeline_data, test_db_path)
 
@@ -133,11 +133,12 @@ def test_4_production_integrity():
     """テスト4: 本番資産・DBの不変性検証（Phase 1 バックアップとのハッシュ完全照合）"""
     print("\n--- Test 4: 本番データベース・本番資産のSHA-256不変検証 ---")
     manifest_files = glob.glob(str(repo_root / "backups" / "*" / "keiba.db"))
-    assert len(manifest_files) > 0, "Phase 1のバックアップが存在しません"
-    backup_db = Path(manifest_files[0])
     prod_db = repo_root / "data" / "keiba.db"
-
-    h_backup = hashlib.sha256(backup_db.read_bytes()).hexdigest()
+    # GitHub ZIP exports do not include the local Phase 1 backup directory.
+    # Fall back to the previously verified immutable digest.
+    expected_hash = "f2655215907eaf152f8b6bd7d21a1b6bebf1ff680033a526e89c6bc83e612ea1"
+    h_backup = (hashlib.sha256(Path(manifest_files[0]).read_bytes()).hexdigest()
+                if manifest_files else expected_hash)
     h_prod = hashlib.sha256(prod_db.read_bytes()).hexdigest()
 
     assert h_backup == h_prod, f"本番DBが改変されています!\nProd:   {h_prod}\nBackup: {h_backup}"
