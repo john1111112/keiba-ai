@@ -47,6 +47,20 @@
         "report_issue"
       ],
       "disallow_reasons": []
+    },
+    "18": {
+      "approved_by_user": true,
+      "action_mode": "execute",
+      "allowed_actions": [
+        "check_activity",
+        "dry_run_plan",
+        "implement_phase16",
+        "run_tests",
+        "push_branch",
+        "create_draft_pr",
+        "report_issue"
+      ],
+      "disallow_reasons": []
     }
   }
 }
