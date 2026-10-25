@@ -64,6 +64,19 @@
       "code_modified": true,
       "status": "completed",
       "reason": "Phase 17 reproducible paper evaluation report, comparability comparator, and audit verification completed with explicit user approval."
+    },
+    "23": {
+      "title": "[Antigravity] Phase 18 競馬予測モデルの精度改善・時系列比較実験（費用0円）",
+      "state": "OPEN",
+      "last_checked_at": "2026-10-25T03:42:35.258228+00:00",
+      "last_decision": "APPROVED",
+      "action_mode": "execute",
+      "approved_by_user": true,
+      "execution_authorized": true,
+      "execution_occurred": true,
+      "code_modified": true,
+      "status": "completed",
+      "reason": "Phase 18 model improvement experiment, purged walk-forward CV, and empirical decision criteria completed with explicit user approval."
     }
   }
 }
