@@ -1,0 +1,553 @@
+{
+  "generated_at_utc": "2026-10-25T05:45:25.455025+00:00",
+  "database": "keiba.db",
+  "tables": {
+    "ai_tracking_history": {
+      "rows": 3100,
+      "columns": {
+        "race_id": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_name": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_date": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_course": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "honmei_horse_num": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "honmei_horse_name": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "honmei_pred_score": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "honmei_odds": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "finish_order": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "is_win": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "is_place": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "payout_win": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "payout_place": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "created_at": {
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      }
+    },
+    "payouts": {
+      "rows": 6512,
+      "columns": {
+        "id": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_id": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "bet_type": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "combination": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "payout": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "popularity": {
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      }
+    },
+    "race_results": {
+      "rows": 43358,
+      "columns": {
+        "id": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_id": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "finish_order": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "bracket_number": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "horse_number": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "horse_id": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "horse_name": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "sex": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "age": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "weight_carry": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "jockey_id": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "jockey_name": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "time_str": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "time_sec": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "margin_str": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "last_3f": {
+          "non_null": 42423,
+          "null": 935,
+          "non_null_fraction": 0.978435
+        },
+        "odds": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "popularity": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "horse_weight": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "horse_weight_diff": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "trainer_id": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "trainer_name": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "created_at": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "sire": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "sire_type": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "running_style": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "corner_4_pos": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "rest_weeks": {
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      }
+    },
+    "races": {
+      "rows": 3174,
+      "columns": {
+        "race_id": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_name": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "date": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_course": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "race_number": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "surface": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "distance": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "direction": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "weather": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "condition": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "grade": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        "created_at": {
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      }
+    }
+  },
+  "feature_groups": {
+    "horse_identity": {
+      "horse_id": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "horse_name": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "horse_number": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ]
+    },
+    "jockey_trainer": {
+      "jockey_id": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "jockey": [],
+      "trainer_id": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "trainer": []
+    },
+    "horse_body": {
+      "horse_weight": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "horse_weight_diff": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "weight_carry": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ]
+    },
+    "track_weather": {
+      "race_course": [
+        {
+          "table": "ai_tracking_history",
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        {
+          "table": "races",
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "distance": [
+        {
+          "table": "races",
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "surface": [
+        {
+          "table": "races",
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "track_condition": [],
+      "weather": [
+        {
+          "table": "races",
+          "non_null": 3174,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ]
+    },
+    "past_performance": {
+      "finish_order": [
+        {
+          "table": "ai_tracking_history",
+          "non_null": 3100,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "time_sec": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "last_3f": [
+        {
+          "table": "race_results",
+          "non_null": 42423,
+          "null": 935,
+          "non_null_fraction": 0.978435
+        }
+      ],
+      "margin_str": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ]
+    },
+    "market": {
+      "odds": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "popularity": [
+        {
+          "table": "payouts",
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        },
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "observed_at": [],
+      "snapshot_at": [],
+      "bet_type": [
+        {
+          "table": "payouts",
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ]
+    },
+    "payout": {
+      "payout": [
+        {
+          "table": "payouts",
+          "non_null": 6512,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "payout_amount": []
+    },
+    "training_pedigree": {
+      "training_time": [],
+      "sire": [
+        {
+          "table": "race_results",
+          "non_null": 43358,
+          "null": 0,
+          "non_null_fraction": 1.0
+        }
+      ],
+      "dam": []
+    }
+  },
+  "known_model_usage": {
+    "age": "phase19_realdata_validation.py:raw_score",
+    "weight_carry": "phase19_realdata_validation.py:raw_score",
+    "horse_number": "phase19_realdata_validation.py:raw_score"
+  },
+  "provenance_status": "NOT_VERIFIED",
+  "pre_race_timestamp_status": "NOT_VERIFIED",
+  "historical_odds_status": "NOT_VERIFIED",
+  "roi": null,
+  "notes": [
+    "Column existence and non-null values do not establish accuracy, license, or pre-race availability.",
+    "Historical race outcomes can only be used for predictions of subsequent races.",
+    "Phase19 raw_score uses age, weight_carry and horse_number; other columns are not thereby model inputs.",
+    "Do not treat post-race odds as decision-time odds."
+  ]
+}

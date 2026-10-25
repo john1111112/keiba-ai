@@ -11,10 +11,14 @@ class MarketGapAuditTests(unittest.TestCase):
     def test_counts_missing_values_without_mutation(self):
         with tempfile.TemporaryDirectory() as temp:
             db = Path(temp) / "example.db"
-            with sqlite3.connect(db) as con:
+            con = sqlite3.connect(db)
+            try:
                 con.execute("CREATE TABLE races (race_id TEXT, weather TEXT, distance INTEGER)")
                 con.execute("INSERT INTO races VALUES ('r1', 'rain', 1600)")
                 con.execute("INSERT INTO races VALUES ('r2', NULL, 2000)")
+                con.commit()
+            finally:
+                con.close()
             before = db.read_bytes()
             result = audit(str(db))
             self.assertEqual(result["tables"]["races"]["rows"], 2)
