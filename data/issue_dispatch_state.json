@@ -51,6 +51,19 @@
       "code_modified": true,
       "status": "completed",
       "reason": "Phase 16 paper quality gates, bootstrap robustness diagnostics, and tests completed via scheduled autonomous trigger."
+    },
+    "21": {
+      "title": "[Antigravity] Phase 17 再現可能なpaper評価レポート・比較検証（費用0円）",
+      "state": "OPEN",
+      "last_checked_at": "2026-10-25T03:35:28.419317+00:00",
+      "last_decision": "APPROVED",
+      "action_mode": "execute",
+      "approved_by_user": true,
+      "execution_authorized": true,
+      "execution_occurred": true,
+      "code_modified": true,
+      "status": "completed",
+      "reason": "Phase 17 reproducible paper evaluation report, comparability comparator, and audit verification completed with explicit user approval."
     }
   }
 }
