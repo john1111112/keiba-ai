@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 from pathlib import Path
 
@@ -90,6 +91,27 @@ def run(db: str, *, train_start: str, train_end: str,
         features=("age", "weight_carry", "horse_number"),
         weight_grid=(-0.25, -0.1, 0.0, 0.1, 0.25),
     )
+    # Untuned uniform reference over the exact same validation races.
+    # This is NOT a market odds baseline and not unbiased holdout evidence.
+    uniform_log_loss = sum(math.log(len(race)) for race in validation) / len(validation)
+    weights = result["selection"]["weights"]
+    top1_hits = 0
+    for race in validation:
+        scores = [sum(row["features"][name] * weights[name] for name in weights)
+                  for row in race]
+        predicted = max(range(len(race)), key=lambda i: scores[i])
+        top1_hits += race[predicted]["win"]
+    result["validation_comparison"] = {
+        "reference": "UNIFORM_RANDOM_PROBABILITY_NOT_MARKET",
+        "uniform_log_loss": uniform_log_loss,
+        "selected_validation_log_loss": result["selection"]["validation_log_loss"],
+        "selected_top1_accuracy": top1_hits / len(validation),
+        "same_validation_races": True,
+        "selection_bias_warning": (
+            "Weights were chosen using these validation outcomes. This is "
+            "NOT an unbiased holdout improvement estimate."
+        ),
+    }
     result["data_status"] = "LOCAL_HISTORICAL_CACHE_PROVENANCE_UNVERIFIED"
     result["asof_status"] = "NOT_CERTIFIED"
     result["holdout_status"] = "NOT_ACCESSED"
