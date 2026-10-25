@@ -4,7 +4,19 @@
     "11": {
       "title": "[Antigravity] Phase 13 無料データ候補調査とリーク防止オフライン評価",
       "state": "OPEN",
-      "last_checked_at": "2026-10-24T23:27:00.000000+00:00",
+      "last_checked_at": "2026-10-25T01:11:00.111197+00:00",
+      "last_decision": "APPROVED",
+      "action_mode": "execute",
+      "approved_by_user": true,
+      "execution_authorized": true,
+      "execution_skipped": false,
+      "status": "completed",
+      "reason": "Phase 13 pipeline implementation and tests completed with explicit user approval."
+    },
+    "14": {
+      "title": "[Antigravity] Phase 14 確率校正・リーク防止強化とペーパー運用監査（費用0円）",
+      "state": "OPEN",
+      "last_checked_at": "2026-10-25T01:14:30.000000+00:00",
       "last_decision": "APPROVED",
       "action_mode": "execute",
       "approved_by_user": true,
@@ -12,7 +24,7 @@
       "execution_occurred": true,
       "code_modified": true,
       "status": "completed",
-      "reason": "Phase 13 pipeline implementation and tests completed with explicit user approval."
+      "reason": "Phase 14 calibration and decision audit pipeline completed with explicit user approval."
     }
   }
 }
