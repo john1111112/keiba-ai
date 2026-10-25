@@ -25,6 +25,19 @@
       "code_modified": true,
       "status": "completed",
       "reason": "Phase 14 calibration and decision audit pipeline completed with explicit user approval."
+    },
+    "16": {
+      "title": "[Antigravity] Phase 15 ウォークフォワード評価・ペーパー監視・監査整合性（費用0円）",
+      "state": "OPEN",
+      "last_checked_at": "2026-10-25T01:56:00.000000+00:00",
+      "last_decision": "APPROVED",
+      "action_mode": "execute",
+      "approved_by_user": true,
+      "execution_authorized": true,
+      "execution_occurred": true,
+      "code_modified": true,
+      "status": "completed",
+      "reason": "Phase 15 walk-forward pipeline, hash-chained audit logging, and tests completed with explicit user approval."
     }
   }
 }
