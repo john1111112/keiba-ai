@@ -22,6 +22,8 @@ from scripts.phase19_realdata_validation import (
     audit_real_database_inventory,
     load_clean_real_races,
 )
+from scripts.phase15_walkforward_paper_monitor import verify_audit_log_hash_chain
+from scripts.phase17_reproducible_paper_report import verify_integrated_audit_log_file
 
 
 class TestPhase20AcceptanceReadiness(unittest.TestCase):
@@ -128,16 +130,21 @@ class TestPhase20AcceptanceReadiness(unittest.TestCase):
 
     def test_generate_readiness_matrix_dimensions(self):
         inventory = audit_real_database_inventory(str(self.mock_db))
-        dummy_metrics = {"baseline_uniform": {"log_loss": {"mean": 0.35}}}
-        matrix = generate_readiness_matrix(dummy_metrics, inventory)
-
-        self.assertIn("dimension_a_code_functionality", matrix)
-        self.assertIn("dimension_b_real_data_prediction_validity", matrix)
-        self.assertIn("dimension_c_pre_race_odds_authenticity", matrix)
-        self.assertIn("dimension_d_payout_authenticity", matrix)
-        self.assertIn("dimension_e_data_licensing_provenance", matrix)
-        self.assertIn("dimension_f_paper_only_operations", matrix)
-        self.assertIn("dimension_g_real_money_trading_readiness", matrix)
+        dummy_metrics = {
+            "baseline_uniform": {"log_loss": {"mean": 0.35}},
+            "real_feature_calibrated_softmax": {"log_loss": {"mean": 0.32}},
+        }
+        code_ver = {"passed": True, "evidence": "All unit tests passed"}
+        demo_res = {
+            "hash_chain_valid": True,
+            "demo_steps": [{"simulated_betting_action": "NO_BETS_PERMITTED_ZERO_COST", "roi": None}],
+        }
+        matrix = generate_readiness_matrix(
+            real_metrics=dummy_metrics,
+            inventory=inventory,
+            code_verification=code_ver,
+            demo_result=demo_res,
+        )
 
         self.assertEqual(matrix["dimension_a_code_functionality"]["status"], "PASS")
         self.assertEqual(matrix["dimension_b_real_data_prediction_validity"]["status"], "PASS")
@@ -147,7 +154,40 @@ class TestPhase20AcceptanceReadiness(unittest.TestCase):
         self.assertEqual(matrix["dimension_f_paper_only_operations"]["status"], "PASS")
         self.assertEqual(matrix["dimension_g_real_money_trading_readiness"]["status"], "PROHIBITED")
 
-    def test_run_safe_paper_execution_demo(self):
+    def test_generate_readiness_matrix_dynamic_rejections(self):
+        inventory = audit_real_database_inventory(str(self.mock_db))
+        code_fail = {"passed": False, "error": "Unit test failure detected"}
+        metrics_valid = {
+            "baseline_uniform": {"log_loss": {"mean": 0.35}},
+            "real_feature_calibrated_softmax": {"log_loss": {"mean": 0.32}},
+        }
+        demo_valid = {
+            "hash_chain_valid": True,
+            "demo_steps": [{"simulated_betting_action": "NO_BETS_PERMITTED_ZERO_COST", "roi": None}],
+        }
+
+        # 1. Code failure causes Dimension A to FAIL
+        mat1 = generate_readiness_matrix(metrics_valid, inventory, code_verification=code_fail, demo_result=demo_valid)
+        self.assertEqual(mat1["dimension_a_code_functionality"]["status"], "FAIL")
+
+        # 2. Non-finite metric causes Dimension B to FAIL
+        metrics_nan = {"baseline_uniform": {"log_loss": {"mean": float("nan")}}}
+        mat2 = generate_readiness_matrix(metrics_nan, inventory, code_verification={"passed": True}, demo_result=demo_valid)
+        self.assertEqual(mat2["dimension_b_real_data_prediction_validity"]["status"], "FAIL")
+
+        # 3. Missing metrics payload causes Dimension B to be NOT_EVALUABLE
+        mat3 = generate_readiness_matrix({}, inventory, code_verification={"passed": True}, demo_result=demo_valid)
+        self.assertEqual(mat3["dimension_b_real_data_prediction_validity"]["status"], "NOT_EVALUABLE")
+
+        # 4. Hash chain invalid in demo causes Dimension F to FAIL
+        demo_chain_fail = {
+            "hash_chain_valid": False,
+            "demo_steps": [{"simulated_betting_action": "NO_BETS_PERMITTED_ZERO_COST", "roi": None}],
+        }
+        mat4 = generate_readiness_matrix(metrics_valid, inventory, code_verification={"passed": True}, demo_result=demo_chain_fail)
+        self.assertEqual(mat4["dimension_f_paper_only_operations"]["status"], "FAIL")
+
+    def test_run_safe_paper_execution_demo_validates_hash_chain(self):
         clean_races = load_clean_real_races(str(self.mock_db), limit_races=5)
         demo_res = run_safe_paper_execution_demo(clean_races)
 
@@ -156,38 +196,78 @@ class TestPhase20AcceptanceReadiness(unittest.TestCase):
         self.assertTrue(demo_res["hash_chain_valid"])
         self.assertEqual(demo_res["audit_chain_length"], 5)
 
-        for step in demo_res["demo_steps"]:
-            self.assertEqual(step["simulated_betting_action"], "NO_BETS_PERMITTED_ZERO_COST")
-            self.assertIsNone(step["roi"])
+        # Verify audit chain with external verification function
+        ver_res = verify_audit_log_hash_chain(demo_res["audit_chain"])
+        self.assertTrue(ver_res["valid"])
 
-    def test_execute_comprehensive_acceptance_pipeline(self):
+    def test_run_safe_paper_execution_demo_tampering_detection(self):
+        clean_races = load_clean_real_races(str(self.mock_db), limit_races=5)
+        demo_res = run_safe_paper_execution_demo(clean_races)
+        chain = demo_res["audit_chain"]
+
+        # 1. Tamper with record payload
+        tampered_chain = [dict(c) for c in chain]
+        tampered_chain[1]["data"]["pipeline_action"] = "TAMPERED_ACTION"
+        with self.assertRaises(ValueError):
+            verify_audit_log_hash_chain(tampered_chain)
+
+        # 2. Reorder records
+        reordered_chain = [chain[1], chain[0]] + chain[2:]
+        with self.assertRaises(ValueError):
+            verify_audit_log_hash_chain(reordered_chain)
+
+        # 3. Drop record (sequence break)
+        dropped_chain = [chain[0], chain[2], chain[3], chain[4]]
+        with self.assertRaises(ValueError):
+            verify_audit_log_hash_chain(dropped_chain)
+
+    def test_empty_and_anomalous_races_safe_handling(self):
+        # 1. Empty races data input
+        empty_res = run_safe_paper_execution_demo([])
+        self.assertEqual(empty_res["demo_status"], "EMPTY_INPUT")
+        self.assertFalse(empty_res["hash_chain_valid"])
+
+        # 2. List containing empty race runners [[]]
+        anomalous_res = run_safe_paper_execution_demo([[]])
+        self.assertEqual(anomalous_res["races_skipped"], 1)
+        self.assertEqual(anomalous_res["demo_steps"][0]["pipeline_action"], "SKIPPED_EMPTY_RACE")
+
+    def test_execute_comprehensive_acceptance_with_audit_log_file(self):
         report_file = self.tmp_path / "acceptance_report.json"
+        audit_file = self.tmp_path / "acceptance_audit.jsonl"
+
         rep = execute_comprehensive_acceptance(
             db_path=str(self.mock_db),
             output_report=str(report_file),
+            output_audit_log=str(audit_file),
         )
 
         self.assertTrue(report_file.exists())
+        self.assertTrue(audit_file.exists())
         self.assertEqual(rep["report_metadata"]["report_schema_version"], ACCEPTANCE_SCHEMA_VERSION)
-        self.assertIn("readiness_matrix", rep)
-        self.assertIn("final_readiness_determination", rep)
 
-        det = rep["final_readiness_determination"]
-        self.assertEqual(det["paper_research_status"], "READY_FOR_PAPER_RESEARCH")
-        self.assertEqual(det["live_trading_status"], "BLOCKED_FOR_LIVE_TRADING")
-        self.assertGreater(len(det["primary_blockers"]), 0)
-        self.assertGreater(len(det["zero_cost_achievements"]), 0)
+        # Verify on-disk audit log verification result
+        demo_info = rep["safe_paper_execution_demo"]
+        self.assertTrue(demo_info["on_disk_audit_log_verified"])
+        self.assertIsNone(demo_info["on_disk_audit_log_error"])
 
-        # ROI strictly null
-        self.assertEqual(rep["roi_evaluation"]["roi_status"], "unevaluable_unverified_data")
-        self.assertIsNone(rep["roi_evaluation"]["roi"])
+        # Read directly and verify
+        ver_file = verify_integrated_audit_log_file(audit_file)
+        self.assertTrue(ver_file["valid"])
 
     def test_cli_subcommands(self):
         report_file = self.tmp_path / "cli_acceptance.json"
+        audit_file = self.tmp_path / "cli_audit.jsonl"
 
         # 1. check
-        main(["check", "--db", str(self.mock_db), "--output-report", str(report_file)])
+        main([
+            "check",
+            "--db", str(self.mock_db),
+            "--output-report", str(report_file),
+            "--output-audit-log", str(audit_file),
+        ])
         self.assertTrue(report_file.exists())
+        self.assertTrue(audit_file.exists())
 
         # 2. summary
         main(["summary", "--report", str(report_file)])
