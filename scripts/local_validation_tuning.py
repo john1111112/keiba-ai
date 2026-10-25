@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 
 from scripts.validation_weight_tuning import tune_weights
+from scripts.validation_baseline_comparison import compare_validation_baseline
 
 
 def load_period(connection, *, start: str, end: str, max_races: int | None = None):
@@ -90,7 +91,7 @@ def run(db: str, *, train_start: str, train_end: str,
         features=("age", "weight_carry", "horse_number"),
         weight_grid=(-0.25, -0.1, 0.0, 0.1, 0.25),
     )
-    result["data_status"] = "LOCAL_HISTORICAL_CACHE_PROVENANCE_UNVERIFIED"
+    result["validation_baseline_comparison"] = compare_validation_baseline(\n        validation, result["selection"]["weights"]\n    )\n    result["data_status"] = "LOCAL_HISTORICAL_CACHE_PROVENANCE_UNVERIFIED"
     result["asof_status"] = "NOT_CERTIFIED"
     result["holdout_status"] = "NOT_ACCESSED"
     result["roi"] = None

@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
       - name: Compile modules
         run: |
-          python -m compileall -q scripts/seal_holdout_predictions.py scripts/validation_weight_tuning.py scripts/external_holdout_grader.py scripts/market_gap_data_audit.py scripts/phase19_provenance_gate.py scripts/asof_feature_gate.py scripts/local_validation_tuning.py
+          python -m compileall -q scripts/seal_holdout_predictions.py scripts/validation_weight_tuning.py scripts/external_holdout_grader.py scripts/market_gap_data_audit.py scripts/phase19_provenance_gate.py scripts/asof_feature_gate.py scripts/local_validation_tuning.py scripts/validation_baseline_comparison.py
       - name: Run all paper-only anti-leakage tests
         run: |
           python -m unittest discover -s tests -p 'test_seal_holdout_predictions.py' -v
@@ -30,3 +30,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_phase19_provenance_gate.py' -v
           python -m unittest discover -s tests -p 'test_asof_feature_gate.py' -v
           python -m unittest discover -s tests -p 'test_local_validation_tuning.py' -v
+          python -m unittest discover -s tests -p 'test_validation_baseline_comparison.py' -v

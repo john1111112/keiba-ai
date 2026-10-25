@@ -32,7 +32,7 @@ class LocalValidationTuningTests(unittest.TestCase):
             )
             self.assertEqual(result["train_races"], 1)
             self.assertEqual(result["validation_races"], 1)
-            self.assertEqual(result["holdout_status"], "NOT_ACCESSED")
+            self.assertEqual(result["holdout_status"], "NOT_ACCESSED")\n            comparison = result["validation_baseline_comparison"]\n            self.assertEqual(comparison["status"], "IN_SAMPLE_VALIDATION_DIAGNOSTIC_ONLY")\n            self.assertEqual(comparison["race_count"], 1)\n            self.assertIn("weighted", comparison["models"])\n            self.assertIn("uniform", comparison["models"])
             self.assertEqual(result["asof_status"], "NOT_CERTIFIED")
             self.assertIsNone(result["roi"])
             self.assertEqual(db.read_bytes(), before)
