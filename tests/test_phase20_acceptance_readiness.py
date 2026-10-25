@@ -15,6 +15,7 @@ from scripts.phase20_acceptance_readiness import (
     generate_readiness_matrix,
     run_safe_paper_execution_demo,
     execute_comprehensive_acceptance,
+    run_dynamic_code_verification,
     ACCEPTANCE_SCHEMA_VERSION,
     main,
 )
@@ -254,6 +255,56 @@ class TestPhase20AcceptanceReadiness(unittest.TestCase):
         # Read directly and verify
         ver_file = verify_integrated_audit_log_file(audit_file)
         self.assertTrue(ver_file["valid"])
+
+    def test_run_dynamic_code_verification_logic(self):
+        # 1. Normal execution
+        res_pass = run_dynamic_code_verification(test_pattern=None)
+        self.assertTrue(res_pass["passed"])
+        self.assertEqual(res_pass["status"], "PASS")
+        self.assertGreater(res_pass["test_count"], 0)
+
+        # 2. Skipped verification
+        res_skip = run_dynamic_code_verification(skip_tests=True)
+        self.assertFalse(res_skip["passed"])
+        self.assertEqual(res_skip["status"], "NOT_EVALUABLE")
+
+        # 3. Injected failure
+        res_fail = run_dynamic_code_verification(inject_failure=True)
+        self.assertFalse(res_fail["passed"])
+        self.assertEqual(res_fail["status"], "FAIL")
+
+    def test_acceptance_unverified_code_is_not_ready(self):
+        # When run_code_verification=False, status must be NOT_READY and dimension_a NOT_EVALUABLE
+        rep = execute_comprehensive_acceptance(
+            db_path=str(self.mock_db),
+            run_code_verification=False,
+        )
+        self.assertEqual(rep["readiness_matrix"]["dimension_a_code_functionality"]["status"], "NOT_EVALUABLE")
+        self.assertEqual(rep["final_readiness_determination"]["paper_research_status"], "NOT_READY")
+        self.assertIn("Code functionality verification failure or missing evidence", rep["final_readiness_determination"]["primary_blockers"][0])
+
+    def test_acceptance_failed_code_is_not_ready(self):
+        # When code verification fails, status must be NOT_READY and dimension_a FAIL
+        fail_override = {"passed": False, "status": "FAIL", "error": "Forced unit test failure", "evidence": "Failed"}
+        rep = execute_comprehensive_acceptance(
+            db_path=str(self.mock_db),
+            code_verification_override=fail_override,
+        )
+        self.assertEqual(rep["readiness_matrix"]["dimension_a_code_functionality"]["status"], "FAIL")
+        self.assertEqual(rep["final_readiness_determination"]["paper_research_status"], "NOT_READY")
+        self.assertIn("Code functionality verification failure", rep["final_readiness_determination"]["primary_blockers"][0])
+
+    def test_cli_skip_code_verification(self):
+        report_file = self.tmp_path / "cli_unverified.json"
+        main([
+            "check",
+            "--db", str(self.mock_db),
+            "--output-report", str(report_file),
+            "--skip-code-verification",
+        ])
+        data = json.loads(report_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["readiness_matrix"]["dimension_a_code_functionality"]["status"], "NOT_EVALUABLE")
+        self.assertEqual(data["final_readiness_determination"]["paper_research_status"], "NOT_READY")
 
     def test_cli_subcommands(self):
         report_file = self.tmp_path / "cli_acceptance.json"

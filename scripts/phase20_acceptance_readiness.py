@@ -14,12 +14,14 @@ Strictly zero cost, paper-only, read-only DB access, no scraping, no real bets, 
 import argparse
 import datetime as dt
 import hashlib
+import io
 import json
 import math
 import os
 import sqlite3
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -56,7 +58,107 @@ from scripts.phase19_realdata_validation import (
     POST_RACE_LEAKAGE_COLS,
 )
 
-ACCEPTANCE_SCHEMA_VERSION = "20.1.0"
+ACCEPTANCE_SCHEMA_VERSION = "20.2.0"
+
+
+class AcceptanceCoreInvariantsTest(unittest.TestCase):
+    """Dynamic automated test suite executed at runtime to verify core code invariants."""
+
+    def test_in_race_softmax_normalization(self):
+        probs = compute_in_race_softmax([1.0, 2.0, 3.0], temperature=1.0)
+        self.assertEqual(len(probs), 3)
+        self.assertAlmostEqual(sum(probs), 1.0, places=6)
+        self.assertTrue(probs[2] > probs[1] > probs[0])
+
+    def test_non_finite_metric_guard(self):
+        self.assertTrue(check_finite_metrics({"metric": 0.5}))
+        with self.assertRaises(ValueError):
+            check_finite_metrics({"metric": float("nan")})
+
+    def test_hash_chain_verification_integrity(self):
+        # Genesis hash check
+        rec = {
+            "sequence_id": 1,
+            "previous_hash": "0" * 64,
+            "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "data": {"status": "ok"},
+        }
+        raw_str = json.dumps(rec, sort_keys=True, ensure_ascii=False)
+        rec["record_hash"] = hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
+        ver = verify_audit_log_hash_chain([rec])
+        self.assertTrue(ver["valid"])
+
+    def test_pre_race_vs_post_race_cutoff_separation(self):
+        pre_keys = set(PRE_RACE_ELIGIBLE_COLS.keys())
+        post_keys = set(POST_RACE_LEAKAGE_COLS.keys())
+        self.assertEqual(len(pre_keys.intersection(post_keys)), 0)
+
+
+def run_dynamic_code_verification(
+    test_pattern: Optional[str] = None,
+    skip_tests: bool = False,
+    inject_failure: bool = False,
+) -> Dict[str, Any]:
+    """Dynamically execute automated tests and inspect actual runtime results (no hardcoded PASS)."""
+    if skip_tests:
+        return {
+            "passed": False,
+            "status": "NOT_EVALUABLE",
+            "test_count": 0,
+            "evidence": "Code test verification was explicitly skipped or not requested.",
+            "error": "No test execution evidence provided.",
+        }
+    if inject_failure:
+        return {
+            "passed": False,
+            "status": "FAIL",
+            "test_count": 0,
+            "evidence": "Injected code verification failure for testing purposes.",
+            "error": "Simulated test failure triggered.",
+        }
+
+    try:
+        suite = unittest.TestSuite()
+        loader = unittest.TestLoader()
+
+        if test_pattern:
+            tests_dir = PROJECT_ROOT / "tests"
+            if tests_dir.is_dir():
+                discovered = loader.discover(start_dir=str(tests_dir), pattern=test_pattern)
+                suite.addTests(discovered)
+        else:
+            # Execute dedicated runtime core invariants test suite
+            suite.addTests(loader.loadTestsFromTestCase(AcceptanceCoreInvariantsTest))
+
+        stream = io.StringIO()
+        runner = unittest.TextTestRunner(stream=stream, failfast=False)
+        result = runner.run(suite)
+
+        if result.wasSuccessful() and result.testsRun > 0:
+            return {
+                "passed": True,
+                "status": "PASS",
+                "test_count": result.testsRun,
+                "evidence": f"Dynamically executed {result.testsRun} automated test cases with 0 failures and 0 errors.",
+            }
+        else:
+            fail_details = [str(f[0]) for f in result.failures]
+            err_details = [str(e[0]) for e in result.errors]
+            return {
+                "passed": False,
+                "status": "FAIL",
+                "test_count": result.testsRun,
+                "evidence": f"Executed {result.testsRun} tests with {len(result.failures)} failures and {len(result.errors)} errors.",
+                "error": f"Failures: {fail_details[:3]}, Errors: {err_details[:3]}",
+            }
+    except Exception as e:
+        return {
+            "passed": False,
+            "status": "FAIL",
+            "test_count": 0,
+            "evidence": "Exception occurred during dynamic code verification execution.",
+            "error": str(e),
+        }
 
 
 def generate_readiness_matrix(
@@ -71,7 +173,11 @@ def generate_readiness_matrix(
     db_file = inventory.get("database_file", "unknown")
 
     # 1. Dimension A: Code Functionality (Dynamic verification)
-    if code_verification and code_verification.get("passed", False):
+    if code_verification and code_verification.get("status") == "NOT_EVALUABLE":
+        status_a = "NOT_EVALUABLE"
+        evidence_a = code_verification.get("evidence", "Code verification was not executed")
+        summary_a = "Code functionality cannot be determined without test execution results."
+    elif code_verification and code_verification.get("passed", False):
         status_a = "PASS"
         evidence_a = code_verification.get("evidence", "Test suite passed successfully")
         summary_a = "Full offline pipeline operational: data ingestion, purged time-series splitting, calibration, quality gates, hash chaining, and comparator."
@@ -332,15 +438,20 @@ def execute_comprehensive_acceptance(
     db_path: str = "data/keiba.db",
     output_report: Optional[str] = None,
     output_audit_log: Optional[str] = None,
+    code_verification_override: Optional[Dict[str, Any]] = None,
+    run_code_verification: bool = True,
 ) -> Dict[str, Any]:
     """Execute complete Phase 20 acceptance evaluation and final readiness determination."""
     inventory = audit_real_database_inventory(db_path)
 
-    # 1. Code verification check
-    code_verification = {
-        "passed": True,
-        "evidence": "All pipeline modules imported, mathematical constraints validated, and unit tests operational",
-    }
+    # 1. Dynamic Code verification check (no hardcoded PASS)
+    if code_verification_override is not None:
+        code_verification = code_verification_override
+    elif not run_code_verification:
+        code_verification = run_dynamic_code_verification(skip_tests=True)
+    else:
+        # Dynamically execute core invariants test suite and inspect actual runtime results
+        code_verification = run_dynamic_code_verification(test_pattern=None)
 
     # 2. Run real data walk-forward evaluation on subset (120 races)
     p19_res = run_phase19_real_validation(db_path=db_path, n_races_eval=120, n_folds=3)
@@ -388,15 +499,23 @@ def execute_comprehensive_acceptance(
         and matrix["dimension_f_paper_only_operations"]["status"] == "PASS"
     )
 
+    primary_blockers = [
+        "Missing authentic pre-race closing odds snapshot with certified timestamps (T-10m).",
+        "Missing official JRA-VAN licensed commercial API credentials.",
+        "Missing cryptographically verified pari-mutuel payout feed.",
+        "Strict non-negotiable policy prohibiting real-money wagering and automatic betting execution.",
+    ]
+    if matrix["dimension_a_code_functionality"]["status"] != "PASS":
+        primary_blockers.insert(0, f"Code functionality verification failure or missing evidence: {matrix['dimension_a_code_functionality']['summary']}")
+    if matrix["dimension_b_real_data_prediction_validity"]["status"] != "PASS":
+        primary_blockers.insert(0, f"Real-data prediction validation failure: {matrix['dimension_b_real_data_prediction_validity']['summary']}")
+    if matrix["dimension_f_paper_only_operations"]["status"] != "PASS":
+        primary_blockers.insert(0, f"Paper-only safety operations failure: {matrix['dimension_f_paper_only_operations']['summary']}")
+
     final_determination = {
         "paper_research_status": "READY_FOR_PAPER_RESEARCH" if paper_ready else "NOT_READY",
         "live_trading_status": "BLOCKED_FOR_LIVE_TRADING",
-        "primary_blockers": [
-            "Missing authentic pre-race closing odds snapshot with certified timestamps (T-10m).",
-            "Missing official JRA-VAN licensed commercial API credentials.",
-            "Missing cryptographically verified pari-mutuel payout feed.",
-            "Strict non-negotiable policy prohibiting real-money wagering and automatic betting execution.",
-        ],
+        "primary_blockers": primary_blockers,
         "zero_cost_achievements": [
             "Leak-free purged time-series walk-forward cross-validation architecture.",
             "In-race probability normalization (Softmax sum to 1.0) and temperature calibration.",
@@ -471,6 +590,7 @@ def main(argv=None):
     check_cmd.add_argument("--db", default="data/keiba.db", help="Path to keiba.db")
     check_cmd.add_argument("--output-report", help="Output JSON report path")
     check_cmd.add_argument("--output-audit-log", help="Output JSONL audit log path")
+    check_cmd.add_argument("--skip-code-verification", action="store_true", help="Skip dynamic test suite execution")
 
     summary_cmd = subparsers.add_parser("summary")
     summary_cmd.add_argument("--report", required=True, help="Path to acceptance report JSON")
@@ -482,6 +602,7 @@ def main(argv=None):
             db_path=args.db,
             output_report=args.output_report,
             output_audit_log=args.output_audit_log,
+            run_code_verification=not args.skip_code_verification,
         )
         det = rep["final_readiness_determination"]
         print(json.dumps({
