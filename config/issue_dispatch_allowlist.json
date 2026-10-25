@@ -103,6 +103,34 @@
         "report_issue"
       ],
       "disallow_reasons": []
+    },
+    "27": {
+      "approved_by_user": true,
+      "action_mode": "execute",
+      "allowed_actions": [
+        "check_activity",
+        "dry_run_plan",
+        "implement_phase20",
+        "run_tests",
+        "push_branch",
+        "create_draft_pr",
+        "report_issue"
+      ],
+      "disallow_reasons": []
+    },
+    "29": {
+      "approved_by_user": false,
+      "action_mode": "audit_only",
+      "allowed_actions": [
+        "check_activity",
+        "dry_run_plan",
+        "review_fix_phase20",
+        "run_tests",
+        "push_branch",
+        "create_draft_pr",
+        "report_issue"
+      ],
+      "disallow_reasons": []
     }
   }
 }
