@@ -119,8 +119,8 @@
       "disallow_reasons": []
     },
     "29": {
-      "approved_by_user": true,
-      "action_mode": "execute",
+      "approved_by_user": false,
+      "action_mode": "audit_only",
       "allowed_actions": [
         "check_activity",
         "dry_run_plan",
