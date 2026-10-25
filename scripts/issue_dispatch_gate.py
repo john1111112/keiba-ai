@@ -120,6 +120,7 @@ def run_dry_run_inspection(issue_number, *, allowlist_path=DEFAULT_ALLOWLIST_PAT
     state = load_state(state_path)
     issue_key = str(issue_number)
     state.setdefault("issues", {})
+    existing_status = state["issues"].get(issue_key, {}).get("status", "pending")
     state["issues"][issue_key] = {
         "title": meta.get("title", ""),
         "state": meta.get("state", "unknown"),
@@ -129,6 +130,7 @@ def run_dry_run_inspection(issue_number, *, allowlist_path=DEFAULT_ALLOWLIST_PAT
         "approved_by_user": eval_res["approved"],
         "execution_authorized": is_authorized,
         "execution_skipped": not is_authorized,
+        "status": existing_status,
         "reason": eval_res["reason"]
     }
     save_state(state, state_path)
@@ -145,16 +147,47 @@ def run_dry_run_inspection(issue_number, *, allowlist_path=DEFAULT_ALLOWLIST_PAT
         "code_modified": False
     }
 
+def get_next_approved_issue(*, allowlist_path=DEFAULT_ALLOWLIST_PATH, state_path=DEFAULT_STATE_PATH):
+    """Find the next approved issue that has not been completed yet."""
+    allowlist = load_allowlist(allowlist_path)
+    state = load_state(state_path)
+    allowed = allowlist.get("allowed_issues", {})
+    state_issues = state.get("issues", {})
+
+    for issue_key, cfg in allowed.items():
+        if cfg.get("approved_by_user") and cfg.get("action_mode") == "execute":
+            cur_state = state_issues.get(issue_key, {})
+            # If already completed and code was modified, skip to avoid re-run
+            if cur_state.get("status") == "completed":
+                continue
+            return int(issue_key)
+    return None
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Issue Automation Safety Gate")
-    parser.add_argument("--issue", type=int, default=11, help="Issue number to inspect")
+    parser.add_argument("--issue", type=int, help="Issue number to inspect")
+    parser.add_argument("--scan-next", action="store_true", help="Scan for next approved pending issue")
     parser.add_argument("--allowlist", default=str(DEFAULT_ALLOWLIST_PATH), help="Path to allowlist JSON")
     parser.add_argument("--state", default=str(DEFAULT_STATE_PATH), help="Path to state JSON")
     args = parser.parse_args(argv)
 
     with FileLock():
+        target_issue = args.issue
+        if args.scan_next or target_issue is None:
+            next_issue = get_next_approved_issue(
+                allowlist_path=Path(args.allowlist),
+                state_path=Path(args.state)
+            )
+            if next_issue is None:
+                print(json.dumps({
+                    "status": "idle",
+                    "message": "No pending approved issues found for execution."
+                }, ensure_ascii=False, indent=2))
+                return
+            target_issue = next_issue
+
         result = run_dry_run_inspection(
-            args.issue,
+            target_issue,
             allowlist_path=Path(args.allowlist),
             state_path=Path(args.state)
         )
