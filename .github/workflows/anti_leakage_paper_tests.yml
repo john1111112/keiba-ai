@@ -1,0 +1,27 @@
+name: Paper-only anti-leakage unit tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feature/holdout-ci-guardrails
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and test independent backtest modules
+        run: |
+          python -m compileall -q scripts/seal_holdout_predictions.py scripts/validation_weight_tuning.py scripts/external_holdout_grader.py scripts/market_gap_data_audit.py
+          python -m unittest discover -s tests -p 'test_seal_holdout_predictions.py' -v
+          python -m unittest discover -s tests -p 'test_validation_weight_tuning.py' -v
+          python -m unittest discover -s tests -p 'test_external_holdout_grader.py' -v
+          python -m unittest discover -s tests -p 'test_market_gap_data_audit.py' -v
