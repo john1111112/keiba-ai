@@ -26,10 +26,20 @@ def run_cycle(manifest, db, *, now=None, dry_run=False, config_path=None, use_jv
     # JV-Link 取得オプションが有効な場合、最新フィードの自動取得・構築を試行
     if use_jvlink:
         try:
-            from src.jvlink_client import JVLinkClient
+            from src.jvlink_client import JVLinkClient, JVLinkNoDataError
             client = JVLinkClient()
             out_feed = client.fetch_and_build_live_feed(output_dir=path if path.is_dir() else path.parent)
             path = (path if path.is_dir() else path.parent) / "latest_jvlink_feed.json"
+        except JVLinkNoDataError:
+            # No published races / betting markets on this date is normal.
+            # Do not fall back to an old feed or send any alerts.
+            return {
+                "status": "NO_UPCOMING_RACES",
+                "reason": "NO_JVLINK_DATA_PUBLISHED",
+                "processed_races": 0, "captured_count": 0,
+                "notifications_sent": 0, "bet_status": "NO_BET",
+                "model_inference_allowed": False,
+            }
         except Exception as exc:
             return {
                 "status": "JVLINK_FETCH_FAILED",
