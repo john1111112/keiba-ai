@@ -84,9 +84,19 @@ def run_schedule_scan(
 
     for race_id, group in races_grouped:
         first_row = group.iloc[0]
-        race_time_str = first_row.get("race_time") or first_row.get("start_time")
-        if not race_time_str:
+        race_time_str = first_row.get("race_time")
+        if pd.isna(race_time_str) or not race_time_str:
+            race_time_str = first_row.get("start_time")
+        if pd.isna(race_time_str) or not race_time_str:
             results.append({"race_id": str(race_id), "status": "SKIPPED_MISSING_RACE_TIME", "odds_status": "missing", "message": "Race start time is unavailable; never invent a start time."})
+            continue
+
+        try:
+            parsed_start = datetime.datetime.fromisoformat(str(race_time_str).replace("Z", "+00:00"))
+            if parsed_start.tzinfo is None or parsed_start.utcoffset() is None or parsed_start <= now_dt:
+                raise ValueError("missing timezone or already started")
+        except (ValueError, TypeError):
+            results.append({"race_id": str(race_id), "status": "SKIPPED_INVALID_RACE_TIME", "odds_status": "missing", "message": "Invalid, timezone-naive, or elapsed race start time."})
             continue
 
         # all_timings 指定時は pre_30m, pre_10m, pre_5m すべてを順次検証
