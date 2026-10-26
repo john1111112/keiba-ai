@@ -222,6 +222,8 @@ def record_prerace_snapshot(
         raise ValueError("Post-start execution cannot be recorded as a pre-race snapshot")
     if exec_dt < cutoff_dt:
         raise ValueError("Cannot record a future target snapshot before its scheduled cutoff")
+    if exec_dt > cutoff_dt + datetime.timedelta(minutes=5):
+        raise ValueError("Snapshot window expired; cannot backfill an earlier timing tag")
     init_odds_history_db(target_db)
     exec_iso = format_iso(exec_dt)
     race_iso = format_iso(race_dt)
