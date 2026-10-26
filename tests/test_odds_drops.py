@@ -116,6 +116,22 @@ class OddsDropTests(unittest.TestCase):
         result = detect_drops(self.db, race_start_time="2026-10-25T06:10:00+00:00")
         self.assertEqual(result["alerts"], [])
 
+    def test_invalid_horse_number_rejected(self):
+        self.add(10, "2026-10-25T06:00:00+00:00", horse="invalid")
+        self.add(5, "2026-10-25T06:05:00+00:00", horse="invalid")
+        result = detect_drops(self.db)
+        self.assertEqual(result["alerts"], [])
+        self.assertEqual(result["rejected_records"], 2)
+
+    def test_unknown_source_rejected(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(5, "2026-10-25T06:05:00+00:00")
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("UPDATE odds_timeline SET source = 'unknown'")
+        result = detect_drops(self.db)
+        self.assertEqual(result["alerts"], [])
+        self.assertEqual(result["rejected_records"], 2)
+
     def test_no_db(self):
         self.assertEqual(detect_drops(self.db.parent / "absent.db")["status"], "NO_ODDS_DB")
 
