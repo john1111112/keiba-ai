@@ -57,7 +57,7 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
     for rid, horse, odds, observed, fetched, status, source, timing in rows:
         if race_id is not None and str(rid) != str(race_id):
             continue
-        if (str(status).lower() in {"final", "final_settled", "post_race", "settled", "result"}
+        if (str(status).strip().lower() not in {"pre_race_flash", "manual_prerace"}
                 or str(source).strip().lower() in {"", "unknown", "none"}):
             rejected += 1
             continue
