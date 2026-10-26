@@ -40,6 +40,15 @@ class JVLinkIngestTests(unittest.TestCase):
             self.assertEqual(result["received"], 1)
             self.assertEqual(link.closed, 1)
 
+    def test_async_wait_then_record(self):
+        with tempfile.TemporaryDirectory() as folder:
+            link = FakeLink(replies=[(-3, b""), (4, b"RA12"), (0, b"")])
+            result = capture(link, Path(folder)/"db", sid="TEST",
+                             data_spec="0B30", from_time="202610270000",
+                             sleep=lambda _: None)
+            self.assertEqual(result["received"], 1)
+            self.assertEqual(link.closed, 1)
+
     def test_error_closes(self):
         with tempfile.TemporaryDirectory() as folder:
             link = FakeLink(open_code=-1)
