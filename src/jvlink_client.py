@@ -115,23 +115,26 @@ def check_environment_compatibility() -> Dict[str, Any]:
     except ImportError:
         pass
 
+    # Read the registered ProgID using the 32-bit registry view too:
+    # the Streamlit dashboard commonly runs with 64-bit Python.
     sdk_registered = False
     sdk_clsid = None
     if is_windows:
         try:
             import winreg
-            for root in [winreg.HKEY_CLASSES_ROOT]:
-                for subkey in ["JVDTLab.JVLink\\CLSID", "WOW6432Node\\CLSID\\JVDTLab.JVLink"]:
-                    try:
-                        with winreg.OpenKey(root, subkey) as key:
-                            sdk_clsid = winreg.QueryValue(key, "")
-                            sdk_registered = True
+            for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_CLASSES_ROOT, r"JVDTLab.JVLink\CLSID",
+                        0, winreg.KEY_READ | view
+                    ) as entry:
+                        sdk_clsid = winreg.QueryValueEx(entry, "")[0]
+                        sdk_registered = bool(sdk_clsid)
+                        if sdk_registered:
                             break
-                    except (OSError, WindowsError):
-                        continue
-                if sdk_registered:
-                    break
-        except Exception:
+                except OSError:
+                    continue
+        except (ImportError, OSError):
             sdk_registered = False
 
     python32_path = find_32bit_python()
