@@ -16,6 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from scripts.diagnose_beta_readiness import readiness_report
+
 
 def _safe_reports(reports_dir):
     root = Path(reports_dir)
@@ -168,6 +170,9 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
     if not odds_html:
         odds_html = '<tr><td colspan="7">有効な発走前オッズはありません</td></tr>'
     background = html.escape(_background_status(scan_status, now=now))
+    readiness = readiness_report(manifest=manifest_path, odds_db=odds_db)
+    blockers = "".join("<li>" + html.escape(reason) + "</li>"
+                       for reason in readiness["blockers"])
     now = html.escape((now or datetime.now(timezone.utc)).isoformat())
     return (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
@@ -196,6 +201,7 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '<div class="card"><h2>システム状態</h2>'
             '<p>データソース：未認証｜自動予測：未稼働｜通知：停止中</p>'
             f'<p>バックグラウンド確認：{background}</p>'
+            '<h3>β版の未完了項目（安全上の停止理由）</h3><ul>' + blockers + '</ul>'
             f'<small>表示更新: {now} UTC／自動再読込 {refresh_seconds} 秒</small>'
             '</div></body></html>')
 
