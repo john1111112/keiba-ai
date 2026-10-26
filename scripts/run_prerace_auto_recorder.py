@@ -267,13 +267,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             data = json.load(f)
             odds_records = data.get("odds") if isinstance(data, dict) and "odds" in data else (data if isinstance(data, list) else None)
 
+    # Historical parquet tables are NEVER permitted in pre-race inference.
+    # An explicit upcoming-race manifest is only a schedule, not certified
+    # horse-level features. Never read a historical feature table here.
     features_df = None
-    if args.features and Path(args.features).exists():
-        try:
-            full_df = pd.read_parquet(args.features)
-            features_df = full_df[full_df["race_id"] == str(args.race_id)]
-        except Exception:
-            pass
+    if args.features and Path(args.features).suffix.lower() not in {".json"}:
+        print("[ERROR] --features must be an explicit JSON upcoming-race manifest; "
+              "historical parquet inference is forbidden.", file=sys.stderr)
+        return 2
 
     mgr = OddsProviderManager()
     res = record_prerace_snapshot(
