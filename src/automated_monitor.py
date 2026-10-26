@@ -379,6 +379,37 @@ def validate_feed_payload(
     return True, "VALIDATED", valid_races, is_certified
 
 
+def validate_fresh_race_odds(
+    horses: List[Dict[str, Any]], now_dt: datetime, max_age_seconds: int
+) -> Tuple[bool, str]:
+    """Do not use unobserved, stale or future-dated odds for notifications.
+
+    A numerical quote without a trustworthy timestamp is not sufficient.
+    This is stricter than the read-only dashboard, which may still display
+    win probabilities when some current odds are unavailable.
+    """
+    if max_age_seconds <= 0 or now_dt.tzinfo is None:
+        return False, "INVALID_ODDS_FRESHNESS_CONFIG"
+    for horse in horses:
+        odds = horse.get("win_odds")
+        observed = horse.get("odds_observed_at")
+        if odds is None or not observed:
+            return False, "MISSING_WIN_ODDS_OR_OBSERVATION_TIME"
+        try:
+            price = float(odds)
+            measured_at = datetime.fromisoformat(
+                str(observed).replace("Z", "+00:00")
+            )
+            if not math.isfinite(price) or price < 1.0 or measured_at.tzinfo is None:
+                return False, "INVALID_WIN_ODDS_OR_TIMESTAMP"
+            age = (now_dt - measured_at).total_seconds()
+            if age < 0 or age > max_age_seconds:
+                return False, "STALE_OR_FUTURE_WIN_ODDS"
+        except (ValueError, TypeError, OverflowError):
+            return False, "INVALID_WIN_ODDS_OR_TIMESTAMP"
+    return True, "FRESH_ODDS_VERIFIED"
+
+
 def run_monitor_scan(
     feed_path: Path,
     state_db_path: Optional[Path] = None,
@@ -506,34 +537,12 @@ def run_monitor_scan(
 
         horses = race.get("horses", [])
 
-        # オッズ欠損・鮮度チェック
-        has_valid_odds = True
-        stale_odds = False
-        max_age = config.get("max_odds_age_seconds", 120)
-
-        for h in horses:
-            odds = h.get("win_odds")
-            if odds is None or float(odds) < 1.0 or not math.isfinite(float(odds)):
-                has_valid_odds = False
-                break
-            obs_raw = h.get("odds_observed_at")
-            if obs_raw:
-                try:
-                    obs_dt = datetime.fromisoformat(str(obs_raw).replace("Z", "+00:00"))
-                    if obs_dt.tzinfo is None:
-                        obs_dt = obs_dt.replace(tzinfo=timezone.utc)
-                    age = (now_dt - obs_dt).total_seconds()
-                    if age > max_age:
-                        stale_odds = True
-                except Exception:
-                    pass
-
-        if not has_valid_odds:
-            logger.info(f"レース {race_id}: オッズ欠損のため予測・通知を停止")
-            continue
-
-        if stale_odds:
-            logger.info(f"レース {race_id}: オッズ期限切れ（Stale）のため通知を停止")
+        # Inference/alerts must never treat untimestamped odds as fresh.
+        odds_ready, odds_reason = validate_fresh_race_odds(
+            horses, now_dt, int(config.get("max_odds_age_seconds", 120))
+        )
+        if not odds_ready:
+            logger.info(f"レース {race_id}: オッズ検証待ち ({odds_reason})")
             continue
 
         # 28特徴量の安全生成（開催日を必須渡し、架空補完なし）
