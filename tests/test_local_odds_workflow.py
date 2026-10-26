@@ -31,6 +31,7 @@ class LocalWorkflowTests(unittest.TestCase):
                 timeline = json.loads(Path(item["timeline"]).read_text(encoding="utf-8"))
                 self.assertEqual(timeline["bet_status"], "NO_BET")
                 self.assertEqual(len(timeline["observations"]), 1)
+                self.assertIn("NO BET", Path(item["market"]).read_text(encoding="utf-8"))
             self.assertIn("NO BET", (out / "index.html").read_text(encoding="utf-8"))
             self.assertEqual(Path(result["index"]), out / "index.html")
             self.assertEqual(json.loads((out / "quality_audit.json").read_text())["eligible_rows"], 2)
@@ -64,6 +65,7 @@ class LocalWorkflowTests(unittest.TestCase):
             self.assertEqual(report["changes"][0]["change_percent"], -20.0)
             self.assertEqual(report["bet_status"], "NO_BET")
             self.assertIn("オッズ変動", (root / "reports" / "index.html").read_text(encoding="utf-8"))
+            self.assertIn("オッズ一覧", (root / "reports" / "index.html").read_text(encoding="utf-8"))
 
     def test_late_arrival_does_not_create_false_movement(self):
         with tempfile.TemporaryDirectory() as directory:
