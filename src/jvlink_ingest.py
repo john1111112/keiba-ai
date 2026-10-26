@@ -19,9 +19,9 @@ def _code(result):
     return int(result)
 
 
-def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
-            buffer_size=110000, fetched_at=None, sleep=time.sleep,
-            max_wait_seconds=60, max_total_bytes=256 * 1024 * 1024):
+def validate_capture_args(*, sid, data_spec, from_time, max_records=100000,
+                          buffer_size=110000, max_wait_seconds=60,
+                          max_total_bytes=256 * 1024 * 1024):
     if data_spec not in ("0B15", "0B30", "0B41"):
         raise ValueError("Unsupported data spec")
     if not isinstance(sid, str) or not sid or len(sid) > 32:
@@ -40,6 +40,14 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid wait timeout")
     if not isinstance(max_total_bytes, int) or not 4096 <= max_total_bytes <= 1024 * 1024 * 1024:
         raise ValueError("Invalid capture byte budget")
+
+
+def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
+            buffer_size=110000, fetched_at=None, sleep=time.sleep,
+            max_wait_seconds=60, max_total_bytes=256 * 1024 * 1024):
+    validate_capture_args(sid=sid, data_spec=data_spec, from_time=from_time,
+                          max_records=max_records, buffer_size=buffer_size,
+                          max_wait_seconds=max_wait_seconds, max_total_bytes=max_total_bytes)
     opened = False
     records = []
     wait_count = 0
