@@ -396,9 +396,9 @@ class JVLinkClient:
             raise JVLinkError(f"JV-Link acquisition failed ({status}): {err}")
 
         # レコードの抽出とバイト変換
-        ra_list = [r.encode("cp932") for r in worker_res.get("ra_records", [])]
-        se_list = [r.encode("cp932") for r in worker_res.get("se_records", [])]
-        o1_list = [r.encode("cp932") for r in worker_res.get("o1_records", [])]
+        ra_list = [r.encode("cp932", errors="strict") for r in worker_res.get("ra_records", [])]
+        se_list = [r.encode("cp932", errors="strict") for r in worker_res.get("se_records", [])]
+        o1_list = [r.encode("cp932", errors="strict") for r in worker_res.get("o1_records", [])]
         all_records = ra_list + se_list + o1_list
 
         if not all_records:
