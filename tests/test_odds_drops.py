@@ -35,6 +35,11 @@ class OddsDropTests(unittest.TestCase):
         self.assertEqual(len(result["alerts"]), 1)
         self.assertEqual(result["alerts"][0]["drop_pct"], 50)
 
+    def test_unknown_status_not_used(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(2, "2026-10-25T06:05:00+00:00", status="unknown")
+        self.assertEqual(detect_drops(self.db)["alerts"], [])
+
     def test_final_odds_not_used(self):
         self.add(10, "2026-10-25T06:00:00+00:00")
         self.add(2, "2026-10-25T06:05:00+00:00", status="final")
