@@ -51,7 +51,6 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
     opened = False
     records = []
     wait_count = 0
-    eof = False
     total_bytes = 0
     try:
         init_result = _code(link.JVInit(sid))
@@ -68,12 +67,14 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         waiting_since = None
         control_markers = 0
         while True:
-            response = link.JVRead(buffer_size)
+            try:
+                response = link.JVRead(buffer_size)
+            except StopIteration as exc:
+                raise JVLinkError("JVRead ended without EOF; no partial capture committed") from exc
             if not isinstance(response, tuple) or len(response) < 2:
                 raise JVLinkError("Unexpected JVRead result; SDK adapter needs adjustment")
             rc = int(response[0])
             if rc == 0:
-                eof = True
                 break
             if rc == -1:
                 control_markers += 1
@@ -111,8 +112,6 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             if total_bytes > max_total_bytes:
                 raise JVLinkError("JVRead capture exceeded byte budget; no partial capture committed")
             records.append(raw[:rc])
-        if not eof:
-            raise JVLinkError("JVRead did not reach EOF")
         return store_records(db_path, records, data_spec=data_spec,
                              fetched_at=fetched_at or datetime.now(timezone.utc).isoformat())
     finally:
