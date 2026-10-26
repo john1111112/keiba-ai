@@ -437,7 +437,8 @@ def record_prerace_snapshot(
         else:
             pred_status = "missing"
     else:
-        pred_status = "missing"
+        if pred_status == "skipped":
+            pred_status = "missing"
 
     # 3. 実行監査ログ (asof_snapshot_runs) の保存
     conn = sqlite3.connect(target_db)
