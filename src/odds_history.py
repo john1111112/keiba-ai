@@ -193,11 +193,8 @@ def record_odds_snapshot(
                     "WHERE race_id=? AND horse_number=? AND fetched_at=?",
                     (row[0], row[2], row[7])
                 ).fetchall()
-                if prior and any(
-                    (float(p[0]), p[1], p[2], p[3]) !=
-                    (row[4], row[6], row[8], row[9]) for p in prior
-                ):
-                    raise ValueError("Conflicting existing odds snapshot")
+                if prior:
+                    raise ValueError("Duplicate existing odds timestamp; immutable append-only history")
     init_odds_history_db(target_path)
     # One atomic write: never leave a partial snapshot on failure.
     with sqlite3.connect(target_path) as conn:
