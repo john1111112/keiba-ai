@@ -27,6 +27,10 @@ class LocalWorkflowTests(unittest.TestCase):
             self.assertEqual(result["status"], "COMPLETE")
             self.assertEqual(result["batch"]["inserted_rows"], 2)
             self.assertEqual(len(result["dashboards"]), 2)
+            for item in result["dashboards"]:
+                timeline = json.loads(Path(item["timeline"]).read_text(encoding="utf-8"))
+                self.assertEqual(timeline["bet_status"], "NO_BET")
+                self.assertEqual(len(timeline["observations"]), 1)
             self.assertIn("NO BET", (out / "index.html").read_text(encoding="utf-8"))
             self.assertEqual(Path(result["index"]), out / "index.html")
             self.assertEqual(json.loads((out / "quality_audit.json").read_text())["eligible_rows"], 2)
