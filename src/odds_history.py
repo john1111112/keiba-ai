@@ -138,7 +138,7 @@ def record_odds_snapshot(
         try:
             observed_dt = datetime.datetime.fromisoformat(str(observed_at))
             fetched_dt = datetime.datetime.fromisoformat(str(fetched_at))
-            if observed_dt.tzinfo is None or fetched_dt.tzinfo is None:
+            if observed_dt.tzinfo is None or fetched_dt.tzinfo is None or observed_dt.utcoffset() is None or fetched_dt.utcoffset() is None:
                 continue
             if observed_dt > fetched_dt:
                 continue
@@ -149,13 +149,23 @@ def record_odds_snapshot(
         if status_str in PROHIBITED_STATUSES:
             continue
 
+        if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:
+            continue
+        if str(r.get("odds_type", "win")) != "win":
+            continue
+        try:
+            horse_num = int(r["horse_number"])
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if horse_num < 1:
+            continue
         row_timing = r.get("timing_tag") or timing_tag or ""
 
         valid_rows.append((
             str(r["race_id"]),
             str(r.get("horse_id", "")),
-            int(r["horse_number"]),
-            str(r.get("odds_type", "win")),
+            horse_num,
+            "win",
             float(val),
             int(r.get("popularity", 0)) if r.get("popularity") is not None else None,
             str(observed_at),
