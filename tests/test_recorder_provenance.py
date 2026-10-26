@@ -46,6 +46,16 @@ class RecorderProvenanceTests(unittest.TestCase):
                     db_path=db)
             self.assertFalse(db.exists())
 
+    def test_future_target_cannot_write_db(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "odds.db"
+            with self.assertRaises(ValueError):
+                record_prerace_snapshot(
+                    "r1", "2026-10-25T15:40:00+09:00", "pre_5m",
+                    executed_at="2026-10-25T15:30:00+09:00",
+                    db_path=db)
+            self.assertFalse(db.exists())
+
     def test_valid_record_kept(self):
         self.assertEqual(len(self.check([odds()])), 1)
 
