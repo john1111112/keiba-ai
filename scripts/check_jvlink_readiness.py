@@ -101,10 +101,16 @@ def run_full_readiness_check() -> dict:
                 model_sha_match = False
 
             import joblib
-            clf = joblib.load(str(model_path))
-            n_features = getattr(clf, "n_features_in_", 28)
-            model_ok = (n_features == 28)
-            model_details["n_features_in"] = n_features
+            loaded = joblib.load(str(model_path))
+            feature_names = loaded.get("feature_cols") if isinstance(loaded, dict) else None
+            predictor = loaded.get("model") if isinstance(loaded, dict) else None
+            model_ok = (
+                isinstance(feature_names, (list, tuple))
+                and list(feature_names) == list(FEATURE_COLS_V2_28)
+                and callable(getattr(predictor, "predict_proba", None))
+            )
+            model_details["n_features_in"] = len(feature_names) if feature_names else None
+            model_details["valid_model_bundle"] = model_ok
         except Exception as exc:
             model_details["error"] = str(exc)
 
