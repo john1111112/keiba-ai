@@ -40,7 +40,7 @@ echo [2/3] 常駐バックグラウンド監視サービスを開始中...
 :: 既に稼働中の監視プロセスがないか確認し、無ければ起動
 tasklist /FI "WINDOWTITLE eq KEIBA_AI_BACKGROUND_MONITOR*" 2>NUL | find /I /N "python" >NUL
 if %ERRORLEVEL% NEQ 0 (
-    start "KEIBA_AI_BACKGROUND_MONITOR" /min %PY_CMD% scripts\run_background_monitor.py --manifest data\authorized_feed\latest.json --db data\alert_state.db --interval 60
+    start "KEIBA_AI_BACKGROUND_MONITOR" /min %PY_CMD% scripts\run_background_monitor.py --manifest data\authorized_feed\latest_jvlink_feed.json --db data\alert_state.db --interval 60 --use-jvlink
     echo       -> 監視プロセスを開始しました（60秒間隔で自動分析＆通知）
 ) else (
     echo       -> 監視プロセスは既に稼働中です
