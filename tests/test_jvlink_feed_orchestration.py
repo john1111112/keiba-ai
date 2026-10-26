@@ -1,11 +1,12 @@
 """Offline tests for 0B15 race and 0B31 per-race odds joining."""
 import json
+import base64
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.jvlink_client import JVLinkClient, JVLinkBridgeError
+from src.jvlink_client import JVLinkClient, JVLinkBridgeError, decode_worker_records
 from test_jvdata_spec_regression import race_rec, horse_rec, odds_rec, RACE
 
 
@@ -18,6 +19,9 @@ def worker_result(records, kind):
         "ra_records": [r.decode("cp932") for r in records] if kind == "RA" else [],
         "se_records": [r.decode("cp932") for r in records] if kind == "SE" else [],
         "o1_records": [r.decode("cp932") for r in records] if kind == "O1" else [],
+        "ra_records_b64": [base64.b64encode(r).decode("ascii") for r in records] if kind == "RA" else [],
+        "se_records_b64": [base64.b64encode(r).decode("ascii") for r in records] if kind == "SE" else [],
+        "o1_records_b64": [base64.b64encode(r).decode("ascii") for r in records] if kind == "O1" else [],
     }
 
 
@@ -25,6 +29,7 @@ class OrchestrationTest(unittest.TestCase):
     def test_fetches_0b31_with_full_16_digit_race_key_and_joins_records(self):
         first = worker_result([race_rec()], "RA")
         first["se_records"] = [horse_rec(1).decode("cp932")]
+        first["se_records_b64"] = [base64.b64encode(horse_rec(1)).decode("ascii")]
         first["records_count"] = 2
         second = worker_result([odds_rec()], "O1")
         client = JVLinkClient()
@@ -46,6 +51,23 @@ class OrchestrationTest(unittest.TestCase):
             self.assertEqual(saved.call_count, 2)
             ingested = client.process_records_to_feed.call_args.args[0]
             self.assertEqual([r[:2] for r in ingested], [b"RA", b"SE", b"O1"])
+
+    def test_base64_raw_bytes_are_preserved_exactly(self):
+        record = race_rec()
+        payload = worker_result([record], "RA")
+        self.assertEqual(decode_worker_records(payload, "ra"), [record])
+
+    def test_corrupted_base64_bytes_are_not_ingested(self):
+        payload = worker_result([race_rec()], "RA")
+        payload["ra_records_b64"] = ["invalid!"]
+        with self.assertRaises(JVLinkBridgeError):
+            decode_worker_records(payload, "ra")
+
+    def test_mismatched_base64_counts_fail_closed(self):
+        payload = worker_result([race_rec()], "RA")
+        payload["ra_records_b64"] = []
+        with self.assertRaises(JVLinkBridgeError):
+            decode_worker_records(payload, "ra")
 
     def test_missing_live_odds_do_not_create_synthetic_prices(self):
         first = worker_result([race_rec()], "RA")
