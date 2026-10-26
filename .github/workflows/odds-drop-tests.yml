@@ -49,25 +49,19 @@ jobs:
           python-version: "3.11"
       - name: Install importer dependencies
         run: python -m pip install pandas numpy requests beautifulsoup4 lightgbm pyarrow scikit-learn
-      - name: Run odds-drop tests
-        run: python -m unittest discover -s tests -p 'test_odds_drops.py' -v
-      - name: Run manual-import tests
-        run: python -m unittest discover -s tests -p 'test_manual_odds.py' -v
-      - name: Run readiness tests
-        run: python -m unittest discover -s tests -p 'test_prerace_readiness.py' -v
-      - name: Run as-of provenance tests
-        run: python -m unittest discover -s tests -p 'test_odds_asof.py' -v
-      - name: Run recorder provenance tests
-        run: python -m unittest discover -s tests -p 'test_recorder_provenance.py' -v
-      - name: Run atomic odds batch tests
-        run: python -m unittest discover -s tests -p 'test_odds_batch_atomic.py' -v
-      - name: Run end-to-end manual pipeline tests
-        run: python -m unittest discover -s tests -p 'test_manual_pipeline.py' -v
-      - name: Run dashboard tests
-        run: python -m unittest discover -s tests -p 'test_prerace_dashboard.py' -v
-      - name: Run inference leakage tests
-        run: python -m unittest discover -s tests -p 'test_inference_leakage.py' -v
-      - name: Run provider fail-closed tests
-        run: python -m unittest discover -s tests -p 'test_odds_provider_failclosed.py' -v
-      - name: Run schedule scan safety tests
-        run: python -m unittest discover -s tests -p 'test_schedule_scan_safety.py' -v
+      - name: Run complete offline safety suite
+        run: |
+          set +e
+          failed=0
+          python -m unittest discover -s tests -p 'test_odds_drops.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_manual_odds.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_prerace_readiness.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_odds_asof.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_recorder_provenance.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_odds_batch_atomic.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_manual_pipeline.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_prerace_dashboard.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_inference_leakage.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_odds_provider_failclosed.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_schedule_scan_safety.py' -v || failed=1
+          exit "$failed"
