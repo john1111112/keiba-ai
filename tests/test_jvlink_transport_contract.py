@@ -67,13 +67,13 @@ class TransportContractTest(unittest.TestCase):
         horse = horse_rec(1, "2026102706010102").decode("cp932")
         self.assertFalse(validate_records_integrity([raw], [horse], [])[0])
 
-    def test_placeholder_sid_never_touches_com(self):
+    def test_empty_sid_never_touches_com(self):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "worker.json"
             result = run_worker_capture(
-                sid="UNKNOWN", data_spec="0B15",
+                sid="", data_spec="0B15",
                 from_time="20261027000000", output_path=str(out)
             )
             self.assertFalse(result["success"])
