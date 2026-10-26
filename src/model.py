@@ -452,7 +452,10 @@ class KeibaAIWinModel(KeibaAIModel):
         # 単勝期待値の計算
         # 単勝期待回収倍率 = 予測1着確率 × 単勝オッズ
         # 単勝期待利益率 = 単勝期待回収倍率 - 1.0
-        odds_col = pd.to_numeric(res_df.get("odds", np.nan), errors="coerce").fillna(0.0)
+        if "odds" in res_df.columns:
+            odds_col = pd.to_numeric(res_df["odds"], errors="coerce").fillna(0.0)
+        else:
+            odds_col = pd.Series(0.0, index=res_df.index)
         res_df["win_expected_value"] = res_df["pred_win_prob"] * odds_col
         res_df["expected_profit_margin"] = res_df["win_expected_value"] - 1.0
         res_df["expected_value"] = res_df["win_expected_value"]

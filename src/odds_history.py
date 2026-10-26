@@ -4,6 +4,7 @@ Phase 3D: 発走前時系列オッズ履歴保存基盤
 - 過去の値を上書きせず、時系列スナップショット（30分前・10分前・5分前等）を追記保存
 - 提供元発表時刻（observed_at）とシステム取得時刻（fetched_at）を厳密に区別
 - 指定時刻（as_of_time）時点の最新オッズのみを取得し、未来オッズを完全遮断
+- 発走前オッズおよびAI予測スナップショットの時系列管理（実時刻付き）
 """
 import sqlite3
 import datetime
@@ -14,6 +15,8 @@ import numpy as np
 
 repo_root = Path(__file__).resolve().parent.parent
 ODDS_HISTORY_DB_PATH = repo_root / "data" / "odds_history.db"
+
+PROHIBITED_STATUSES = {"final_settled", "final", "post_race", "settled", "result"}
 
 
 def init_odds_history_db(db_path: Optional[Path] = None) -> Path:
@@ -36,11 +39,64 @@ def init_odds_history_db(db_path: Optional[Path] = None) -> Path:
         fetched_at TEXT NOT NULL,
         source TEXT NOT NULL,
         data_status TEXT NOT NULL,
+        timing_tag TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_odds_race_type_time ON odds_timeline (race_id, odds_type, observed_at);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_odds_race_horse ON odds_timeline (race_id, horse_number);")
+
+    # 既存テーブルに timing_tag カラムが存在しない場合のマイグレーション
+    cols = {row[1] for row in cur.execute("PRAGMA table_info(odds_timeline)").fetchall()}
+    if "timing_tag" not in cols:
+        cur.execute("ALTER TABLE odds_timeline ADD COLUMN timing_tag TEXT;")
+
+    # AI予測スナップショット記録テーブル
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS ai_predictions_timeline (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        race_id TEXT NOT NULL,
+        horse_number INTEGER NOT NULL,
+        horse_name TEXT,
+        pred_place_score REAL,
+        pred_win_prob REAL,
+        market_odds REAL,
+        market_prob REAL,
+        blended_win_prob REAL,
+        expected_value REAL,
+        rank INTEGER,
+        timing_tag TEXT NOT NULL,
+        predicted_at TEXT NOT NULL,
+        odds_observed_at TEXT,
+        odds_fetched_at TEXT,
+        odds_status TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        model_sha256 TEXT,
+        status TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pred_race_timing ON ai_predictions_timeline (race_id, timing_tag);")
+
+    # スナップショット実行監査テーブル
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS asof_snapshot_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        race_id TEXT NOT NULL,
+        timing_tag TEXT NOT NULL,
+        scheduled_race_time TEXT NOT NULL,
+        target_snapshot_time TEXT NOT NULL,
+        executed_at TEXT NOT NULL,
+        odds_status TEXT NOT NULL,
+        odds_count INTEGER NOT NULL DEFAULT 0,
+        pred_status TEXT NOT NULL,
+        pred_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_race_timing ON asof_snapshot_runs (race_id, timing_tag);")
+
     conn.commit()
     conn.close()
     return target_path
@@ -48,11 +104,12 @@ def init_odds_history_db(db_path: Optional[Path] = None) -> Path:
 
 def record_odds_snapshot(
     odds_records: List[Dict[str, Any]],
-    db_path: Optional[Path] = None
+    db_path: Optional[Path] = None,
+    timing_tag: Optional[str] = None
 ) -> int:
     """
     発走前オッズのスナップショットを追記保存する（過去データの上書き禁止）。
-    架空データの生成を禁止し、無効・異常値は記録しない。
+    架空データの生成を禁止し、確定オッズ・無効・異常値は記録しない。
     """
     if not odds_records:
         return 0
@@ -86,8 +143,13 @@ def record_odds_snapshot(
                 continue
         except (ValueError, TypeError):
             continue
-        if str(r.get("data_status", "pre_race_flash")).lower() in ("final_settled", "final", "post_race"):
+
+        status_str = str(r.get("data_status", "pre_race_flash")).lower()
+        if status_str in PROHIBITED_STATUSES:
             continue
+
+        row_timing = r.get("timing_tag") or timing_tag or ""
+
         valid_rows.append((
             str(r["race_id"]),
             str(r.get("horse_id", "")),
@@ -99,13 +161,14 @@ def record_odds_snapshot(
             str(fetched_at),
             str(r.get("source", "unknown")),
             str(r.get("data_status", "pre_race_flash")),
+            str(row_timing),
         ))
 
     cur.executemany("""
     INSERT INTO odds_timeline (
         race_id, horse_id, horse_number, odds_type, odds_value,
-        popularity, observed_at, fetched_at, source, data_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        popularity, observed_at, fetched_at, source, data_status, timing_tag
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, valid_rows)
 
     conn.commit()
@@ -137,8 +200,10 @@ def get_latest_odds_as_of(
         t.odds_value,
         t.popularity,
         t.observed_at,
+        t.fetched_at,
         t.source,
-        t.data_status
+        t.data_status,
+        t.timing_tag
     FROM odds_timeline t
     INNER JOIN (
         SELECT horse_number, MAX(observed_at) AS max_obs
@@ -147,15 +212,19 @@ def get_latest_odds_as_of(
           AND odds_type = ?
           AND observed_at <= ?
           AND fetched_at <= ?
-          AND LOWER(data_status) NOT IN ('final_settled', 'final', 'post_race')
+          AND LOWER(data_status) NOT IN ('final_settled', 'final', 'post_race', 'settled')
         GROUP BY horse_number
     ) latest ON t.horse_number = latest.horse_number AND t.observed_at = latest.max_obs
     WHERE t.race_id = ?
       AND t.odds_type = ?
       AND t.fetched_at <= ?
-      AND LOWER(t.data_status) NOT IN ('final_settled', 'final', 'post_race')
+      AND LOWER(t.data_status) NOT IN ('final_settled', 'final', 'post_race', 'settled')
     ORDER BY t.horse_number ASC
     """
-    df = pd.read_sql_query(query, conn, params=(race_id, odds_type, as_of_time, as_of_time, race_id, odds_type, as_of_time))
+    df = pd.read_sql_query(
+        query,
+        conn,
+        params=(race_id, odds_type, as_of_time, as_of_time, race_id, odds_type, as_of_time)
+    )
     conn.close()
     return df
