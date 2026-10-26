@@ -22,7 +22,7 @@ def worker_result(records, kind):
 
 
 class OrchestrationTest(unittest.TestCase):
-    def test_fetches_0b31_with_12_digit_request_key_and_joins_records(self):
+    def test_fetches_0b31_with_full_16_digit_race_key_and_joins_records(self):
         first = worker_result([race_rec()], "RA")
         first["se_records"] = [horse_rec(1).decode("cp932")]
         first["records_count"] = 2
@@ -38,7 +38,7 @@ class OrchestrationTest(unittest.TestCase):
             )
             self.assertEqual(client.fetch_via_32bit_worker.call_count, 2)
             self.assertEqual(
-                client.fetch_via_32bit_worker.call_args_list[1].kwargs["key"], "202610270501"
+                client.fetch_via_32bit_worker.call_args_list[1].kwargs["key"], RACE
             )
             self.assertEqual(
                 client.fetch_via_32bit_worker.call_args_list[1].kwargs["data_spec"], "0B31"
