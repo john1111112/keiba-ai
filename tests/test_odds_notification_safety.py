@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from src.automated_monitor import validate_fresh_race_odds, collect_fresh_win_odds, classify_notification_delivery
+from src.automated_monitor import validate_fresh_race_odds, collect_fresh_win_odds, classify_notification_delivery, build_discord_buy_alert_payload
 
 NOW = datetime(2026, 10, 27, 4, 26, tzinfo=timezone.utc)
 
@@ -68,6 +68,26 @@ class OddsNotificationSafetyTest(unittest.TestCase):
         self.assertEqual(classify_notification_delivery(
             True, True, "DELIVERED", "DELIVERED"
         ), "DELIVERED")
+
+    def test_discord_buy_signal_mentions_only_owner_when_requested(self):
+        payload = build_discord_buy_alert_payload(
+            "2026102705010101", "2番 EV=1.6", "123456789012345678"
+        )
+        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(
+            payload["allowed_mentions"], {"parse": [], "users": ["123456789012345678"]}
+        )
+        self.assertNotIn("@everyone", str(payload))
+
+    def test_discord_buy_signal_does_not_mass_ping_or_misparse_input(self):
+        payload = build_discord_buy_alert_payload(
+            "2026102705010101", "2番 EV=1.6"
+        )
+        self.assertNotIn("content", payload)
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        for invalid in ("@everyone", "<@123>", "abc", "12", "123456789012３45678"):
+            with self.subTest(user_id=invalid), self.assertRaises(ValueError):
+                build_discord_buy_alert_payload("race", "message", invalid)
 
     def test_windows_only_is_delivered_only_if_toast_succeeds(self):
         self.assertEqual(classify_notification_delivery(
