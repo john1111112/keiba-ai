@@ -111,7 +111,7 @@ def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
     return [v[1] for k, v in sorted(latest.items())]
 
 
-def _background_status(status_path):
+def _background_status(status_path, *, now=None, max_age_seconds=900):
     """Show an untrusted scheduler status, never treat it as certification."""
     path = Path(status_path)
     if not path.is_file():
@@ -126,7 +126,20 @@ def _background_status(status_path):
                 "BLOCKED_NOT_RACE_MANIFEST", "BLOCKED_NO_UPCOMING_MANIFEST",
                 "NO_UPCOMING_RACES", "SCAN_BLOCKED", "COMPLETED"}:
             return "結果ファイル不正"
-        return status + "（未認証・購入判断不可）"
+        raw = payload.get("checked_at")
+        if not isinstance(raw, str):
+            return "スキャン時刻不明（状態確認不可）"
+        checked = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        current = now or datetime.now(timezone.utc)
+        if (checked.tzinfo is None or checked.utcoffset() is None or
+                current.tzinfo is None or current.utcoffset() is None):
+            return "スキャン時刻不正"
+        age = (current - checked).total_seconds()
+        if age < -60:
+            return "スキャン時刻不正（未来）"
+        if age > max_age_seconds:
+            return "スキャン停止の可能性（最終確認 " + checked.isoformat() + "）"
+        return status + "（最終確認 " + checked.isoformat() + "／未認証・購入判断不可）"
     except (OSError, ValueError, TypeError):
         return "結果ファイル不正"
 
@@ -154,7 +167,7 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
         for race, horse, price, _, _ in odds_rows)
     if not odds_html:
         odds_html = '<tr><td colspan="7">有効な発走前オッズはありません</td></tr>'
-    background = html.escape(_background_status(scan_status))
+    background = html.escape(_background_status(scan_status, now=now))
     now = html.escape((now or datetime.now(timezone.utc)).isoformat())
     return (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
