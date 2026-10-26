@@ -207,14 +207,15 @@ def record_prerace_snapshot(
         raise ValueError(f"無効なtiming_tag: {timing_tag} (許可: {TARGET_TIMINGS})")
 
     target_db = Path(db_path or ODDS_HISTORY_DB_PATH)
-    init_odds_history_db(target_db)
-
     race_dt = parse_timestamp(scheduled_race_time)
     cutoff_dt = compute_target_snapshot_time(race_dt, timing_tag)
     exec_dt = parse_timestamp(executed_at) if executed_at is not None else datetime.datetime.now(race_dt.tzinfo)
 
     if race_dt.tzinfo is None or exec_dt.tzinfo is None or race_dt.utcoffset() is None or exec_dt.utcoffset() is None:
         raise ValueError("Race and execution timestamps require explicit timezone")
+    if exec_dt >= race_dt:
+        raise ValueError("Post-start execution cannot be recorded as a pre-race snapshot")
+    init_odds_history_db(target_db)
     exec_iso = format_iso(exec_dt)
     race_iso = format_iso(race_dt)
     cutoff_iso = format_iso(cutoff_dt)
