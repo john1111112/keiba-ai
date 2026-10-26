@@ -247,47 +247,85 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
 
 
 def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
-    """
-    O1 単複オッズレコードのパース (Shift-JIS 固定長バイトスライス)
+    """Decode O1 win odds per official JV-Data 4.9.0.1, section 7, page 12.
+
+    Positions in that specification are 1-based *bytes*:
+    race key 12..27, announcement MMDDhhmm 28..35,
+    win odds (horse no 2 + odds 4 + rank 2) 44..267, 28 entries.
+    Record length is 962 including CRLF. Never interpret sentinel odds
+    such as 9999 (capped), 0000 (no bets), ----, **** as actual prices.
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
-        raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
-    if len(raw_bytes) < 47:
-        raise ValueError(f"O1 record too short: length {len(raw_bytes)} < 47 required")
+        raise TypeError("O1 must be raw bytes")
+    if len(raw_bytes) != 962 or raw_bytes[:2] != b"O1":
+        raise ValueError("Invalid O1 record type or length (962 bytes expected)")
+    if raw_bytes[-2:] != b"\r\n":
+        raise ValueError("O1 record terminator is invalid")
 
-    rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
-    if rec_type != "O1":
-        raise ValueError(f"Expected O1 record, got '{rec_type}'")
+    race_key = raw_bytes[11:27].decode("ascii")
+    if len(race_key) != 16 or not race_key.isascii() or not race_key.isdigit():
+        raise ValueError("O1 race key must be 16 ASCII digits")
+    data_kubun = raw_bytes[2:3].decode("ascii")
+    if data_kubun not in ("1", "2", "3"):
+        raise ValueError("O1 is not a supported pre-race odds record")
+    creation_date = raw_bytes[3:11].decode("ascii")
+    if len(creation_date) != 8 or not creation_date.isascii() or not creation_date.isdigit():
+        raise ValueError("O1 creation date invalid")
+    try:
+        created = datetime.strptime(creation_date, "%Y%m%d")
+    except ValueError as exc:
+        raise ValueError("O1 creation date impossible") from exc
 
-    race_key = raw_bytes[11:27].decode("ascii", errors="replace")
+    obs_iso = None
+    if data_kubun == "1":
+        mmddhhmm = raw_bytes[27:35].decode("ascii")
+        if len(mmddhhmm) != 8 or not mmddhhmm.isascii() or not mmddhhmm.isdigit():
+            raise ValueError("O1 intermediate odds require a valid MMDDhhmm")
+        # O1 has no announcement year. Resolve it against the record's
+        # creation date, including Dec/Jan transitions, and refuse ambiguity.
+        candidates = []
+        for year in (created.year - 1, created.year, created.year + 1):
+            try:
+                candidate = datetime.strptime(str(year) + mmddhhmm, "%Y%m%d%H%M")
+                candidates.append(candidate)
+            except ValueError:
+                continue
+        if not candidates:
+            raise ValueError("O1 announcement timestamp is not a calendar date")
+        observed = min(candidates, key=lambda dt: abs((created - dt).total_seconds()))
+        if abs((created - observed).total_seconds()) > 7 * 86400:
+            raise ValueError("O1 announcement year ambiguous versus creation date")
+        obs_iso = observed.strftime("%Y-%m-%dT%H:%M:00+09:00")
 
-    # Timestamp and odds offsets require independent validation against JV-Data spec.
-    # Never derive observation time from the race key.
-    raise ValueError("O1 odds layout unverified; cannot safely compute expected value")
-    obs_time_str = raw_bytes[11:23].decode("ascii", errors="replace").strip()
-    if not (obs_time_str.isdigit() and len(obs_time_str) == 12):
-        raise ValueError(f"Invalid observation timestamp in O1 record: '{obs_time_str}'")
+    sale_flag = raw_bytes[39:40].decode("ascii")
+    if sale_flag not in ("0", "1", "3", "7"):
+        raise ValueError("O1 invalid win ticket sale flag")
+    odds_map: Dict[int, Tuple[float, Optional[str]]] = {}
+    if sale_flag == "7":
+        for index in range(28):
+            start = 43 + index * 8
+            slot = raw_bytes[start:start + 8]
+            horse_text = slot[:2].decode("ascii")
+            odd_text = slot[2:6].decode("ascii")
+            if horse_text == "  ":
+                if slot.strip():
+                    raise ValueError("O1 vacant horse slot has non-space data")
+                continue
+            if not horse_text.isascii() or not horse_text.isdigit():
+                raise ValueError(f"O1 invalid horse-number slot {index + 1}")
+            horse = int(horse_text)
+            if horse != index + 1:
+                raise ValueError(f"O1 horse number is out of order: {horse}")
+            if odd_text in ("9999", "0000", "----", "****", "    "):
+                continue
+            if not odd_text.isascii() or not odd_text.isdigit():
+                raise ValueError(f"O1 invalid odds field for horse {horse}")
+            odds = int(odd_text) / 10.0
+            if not (1.0 <= odds < 999.9):
+                raise ValueError(f"O1 odds outside representable range: {odds}")
+            odds_map[horse] = (odds, obs_iso)
 
-    y = obs_time_str[:4]
-    m = obs_time_str[4:6]
-    d = obs_time_str[6:8]
-    hh = obs_time_str[8:10]
-    mm = obs_time_str[10:12]
-    obs_iso = f"{y}-{m}-{d}T{hh}:{mm}:00+09:00"
-
-    odds_map: Dict[int, Tuple[float, str]] = {}
-    offset = 47
-    for num in range(1, 29):
-        if offset + 4 <= len(raw_bytes):
-            o_str = raw_bytes[offset:offset+4].decode("ascii", errors="replace").strip()
-            if o_str.isdigit() and 10 <= int(o_str) <= 9990:
-                odds_map[num] = (float(o_str) / 10.0, obs_iso)
-        offset += 8
-
-    return {
-        "race_key": race_key,
-        "odds_map": odds_map
-    }
+    return {"race_key": race_key, "odds_map": odds_map}
 
 
 def convert_multiple_jvlink_records_to_feed(records: List[bytes]) -> Dict[str, Any]:
