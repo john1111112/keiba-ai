@@ -71,6 +71,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_prerace_feature_contract.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_features_csv.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_alert_policy.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_unattended_alerts.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_research_training.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_walk_forward.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_manual_odds.py' -v || failed=1
