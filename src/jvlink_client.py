@@ -379,6 +379,9 @@ class JVLinkClient:
         ):
             raise JVLinkError("Inconsistent worker success status")
 
+        if worker_res.get("success") and (worker_res.get("auth_status") != "AUTHENTICATED" or worker_res.get("fetch_status") != "SUCCESS" or not isinstance(worker_res.get("records_count"), int) or worker_res["records_count"] <= 0):
+            raise JVLinkError("Inconsistent worker success metadata")
+
         if not worker_res.get("success"):
             status = worker_res.get("driver_status", "FETCH_FAILED")
             err = worker_res.get("error", "Unknown worker error")
