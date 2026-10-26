@@ -2,7 +2,9 @@
 
 Python標準ライブラリのみで起動する、読み取り専用のローカル画面です。Windowsのブラウザから開けます。
 
-Windowsではリポジトリ直下の **`START_KEIBA_AI.bat` をダブルクリック**するとブラウザが開き、画面サーバーが起動します。Python 3のインストールが必要です。バッチファイルのウィンドウを閉じると画面サーバーも終了します。Windows実機での確認は未実施です。\n\nコマンドから起動する場合は、リポジトリのルートで実行：
+Windowsではリポジトリ直下の **`START_KEIBA_AI.bat` をダブルクリック**するとブラウザが開き、画面サーバーが起動します。Python 3のインストールが必要です。バッチファイルのウィンドウを閉じると画面サーバーも終了します。Windows実機での確認は未実施です。
+
+コマンドから起動する場合は、リポジトリのルートで実行：
 
 ```powershell
 python -m scripts.run_beta_dashboard
@@ -15,3 +17,20 @@ python -m scripts.run_beta_dashboard
 ## 発走前オッズ一覧の表示条件
 
 `data/upcoming_races.json` に `race_status: upcoming`、`race_id`、タイムゾーン付きの `race_time` または `start_time` が登録されており、`data/odds_history.db` に対応する単勝オッズが存在する場合のみ表示します。提供元の観測時刻とローカル取得時刻がともに現在以前かつ発走以前で、取得後10分以内の値だけを表示します。確定オッズは除外します。古いオッズを最新値として見せないため、10分を超えたら一覧から消えます。これらは**時刻整合性の検査**であり、データの独立した真偽認証ではありません。
+
+## Windowsのバックグラウンド自動スキャン
+
+画面を開かなくても5分ごとに出走予定レースの発走30・10・5分前を確認するためのタスクを用意しています。**デフォルトではインストールされません。** Windows PowerShellでリポジトリ直下から次を実行してください。
+
+```powershell
+# まず設定を確認（変更なし）
+.\scripts\install_windows_scan_task.ps1
+
+# ログイン中のWindowsで5分ごとに実行
+.\scripts\install_windows_scan_task.ps1 -Install -IntervalMinutes 5
+
+# 削除
+.\scripts\install_windows_scan_task.ps1 -Remove
+```
+
+スキャン結果は `data/last_background_scan.json` に保存されます。開催予定表がなければ `NO_UPCOMING_MANIFEST`、実オッズ提供元が未接続なら取得なしとして記録します。**このタスクは通知・予測・購入を実行しません。** Windowsへのログイン中のみ実行する構成で、Windows実機検証は未実施です。自動通知については `WINDOWS_UNATTENDED_ALERTS.md` を参照してください。現在は出所を独立認証できないため通知は停止中です。
