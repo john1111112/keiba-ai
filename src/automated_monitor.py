@@ -426,6 +426,26 @@ def collect_fresh_win_odds(
     return quotes
 
 
+def classify_notification_delivery(
+    windows_enabled: bool, discord_enabled: bool,
+    windows_status: str, discord_status: str
+) -> str:
+    """Do not mark a phone alert delivered based on a PC-only toast.
+
+    The Windows task runs when the Streamlit UI is closed. Discord delivery
+    is the phone-alert requirement when Discord is enabled.
+    """
+    if discord_enabled:
+        if discord_status != "DELIVERED":
+            return "FAILED"
+        if windows_enabled and windows_status != "DELIVERED":
+            return "PARTIAL_SUCCESS"
+        return "DELIVERED"
+    if windows_enabled:
+        return "DELIVERED" if windows_status == "DELIVERED" else "FAILED"
+    return "NOT_CONFIGURED"
+
+
 def run_monitor_scan(
     feed_path: Path,
     state_db_path: Optional[Path] = None,
@@ -622,6 +642,10 @@ def run_monitor_scan(
 
             # 通知処理
             if candidate["eligible"] and not dry_run:
+                if (not config.get("windows_toast_enabled", True)
+                        and not config.get("discord_enabled", False)):
+                    logger.info("通知手段が設定されていないため送信を保留")
+                    continue
                 event_type = f"EV_{min_ev}_WIN_{min_p}"
                 
                 # 重複通知防止チェック（安全ロック状態およびリトライ上限を渡す）
@@ -705,20 +729,13 @@ def run_monitor_scan(
                     else:
                         d_status = "NO_WEBHOOK"
 
-                # 総合ステータス判定
-                any_success = (w_status == "DELIVERED" or d_status == "DELIVERED")
-                all_failed = (w_status == "FAILED" or d_status == "FAILED")
-                
-                if (config.get("windows_toast_enabled", True) and w_status != "DELIVERED") and \
-                   (config.get("discord_enabled", True) and d_status not in ("DELIVERED", "NO_WEBHOOK")):
-                    overall_status = "FAILED"
-                elif any_success:
-                    overall_status = "DELIVERED" if not all_failed else "PARTIAL_SUCCESS"
-                elif not config.get("windows_toast_enabled", True) and not config.get("discord_enabled", True):
-                    # チャネル無効設定時
-                    overall_status = "DELIVERED"
-                else:
-                    overall_status = "DELIVERED" if not err_msg else "FAILED"
+                # Discordが有効な場合、PC通知だけでは配信完了にしない。
+                # Discord失敗時はFAILEDとして次回サイクルの再試行を許可。
+                overall_status = classify_notification_delivery(
+                    config.get("windows_toast_enabled", True),
+                    config.get("discord_enabled", False),
+                    w_status, d_status
+                )
 
                 # 履歴保存
                 record_alert_delivery(
