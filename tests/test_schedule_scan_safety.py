@@ -9,66 +9,64 @@ from scripts.run_prerace_auto_recorder import run_schedule_scan
 
 
 class ScheduleScanSafetyTests(unittest.TestCase):
-    def test_missing_race_time_never_defaults_to_fabricated_start(self):
+    def test_historical_parquet_is_blocked(self):
         with tempfile.TemporaryDirectory() as folder:
-            features = Path(folder) / "features.parquet"
-            db = Path(folder) / "odds.db"
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
-                                  "date": "2026-10-25", "race_time": None,
-                                  "start_time": None}])
-            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
+            historical = Path(folder) / "features.parquet"
+            historical.touch()
+            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet") as read, patch(
                 "scripts.run_prerace_auto_recorder.record_prerace_snapshot"
             ) as record:
-                features.touch()
-                report = run_schedule_scan(features, db, as_of_time="2026-10-25T06:00:00+00:00")
+                report = run_schedule_scan(historical, Path(folder) / "odds.db")
+            read.assert_not_called()
             record.assert_not_called()
-            self.assertEqual(report["missing_count"], 1)
+            self.assertEqual(report["status"], "BLOCKED_NOT_RACE_MANIFEST")
+
+    def test_missing_race_time_never_defaults_to_fabricated_start(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                            "race_time": None}]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                report = run_schedule_scan(manifest, Path(folder) / "odds.db",
+                                           as_of_time="2026-10-25T06:00:00+00:00")
+            record.assert_not_called()
             self.assertEqual(report["snapshots"][0]["status"], "SKIPPED_MISSING_RACE_TIME")
 
     def test_naive_race_time_skipped(self):
         with tempfile.TemporaryDirectory() as folder:
-            features = Path(folder) / "features.parquet"
-            features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
-                                  "race_time": "2026-10-25 15:40:00"}])
-            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
-                "scripts.run_prerace_auto_recorder.record_prerace_snapshot"
-            ) as record:
-                result = run_schedule_scan(features, Path(folder) / "odds.db",
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                            "race_time": "2026-10-25 15:40:00"}]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                report = run_schedule_scan(manifest, Path(folder) / "odds.db",
                                            as_of_time="2026-10-25T06:00:00+00:00")
             record.assert_not_called()
-            self.assertEqual(result["snapshots"][0]["status"], "SKIPPED_INVALID_RACE_TIME")
+            self.assertEqual(report["snapshots"][0]["status"], "SKIPPED_INVALID_RACE_TIME")
 
     def test_elapsed_race_skipped(self):
         with tempfile.TemporaryDirectory() as folder:
-            features = Path(folder) / "features.parquet"
-            features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
-                                  "race_time": "2026-10-25T05:00:00+00:00"}])
-            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
-                "scripts.run_prerace_auto_recorder.record_prerace_snapshot"
-            ) as record:
-                result = run_schedule_scan(features, Path(folder) / "odds.db",
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                            "race_time": "2026-10-25T05:00:00+00:00"}]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                report = run_schedule_scan(manifest, Path(folder) / "odds.db",
                                            as_of_time="2026-10-25T06:00:00+00:00")
             record.assert_not_called()
-            self.assertEqual(result["snapshots"][0]["status"], "SKIPPED_INVALID_RACE_TIME")
+            self.assertEqual(report["snapshots"][0]["status"], "SKIPPED_INVALID_RACE_TIME")
 
     def test_all_timings_skips_future_targets(self):
         with tempfile.TemporaryDirectory() as folder:
-            features = Path(folder) / "features.parquet"
-            features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
-                                  "race_time": "2026-10-25T15:40:00+09:00"}])
-            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
-                "scripts.run_prerace_auto_recorder.record_prerace_snapshot",
-                return_value={"odds_status": "missing", "status": "RECORDED"}
-            ) as record:
-                result = run_schedule_scan(features, Path(folder) / "odds.db",
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                            "race_time": "2026-10-25T15:40:00+09:00"}]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot",
+                       return_value={"odds_status": "missing", "status": "RECORDED"}) as record:
+                report = run_schedule_scan(manifest, Path(folder) / "odds.db",
                                            as_of_time="2026-10-25T15:12:00+09:00",
                                            all_timings=True)
             self.assertEqual(record.call_count, 1)
-            self.assertEqual(sum(r["status"] == "SKIPPED_FUTURE_TARGET"
-                                 for r in result["snapshots"]), 2)
+            self.assertEqual(sum(row["status"] == "SKIPPED_FUTURE_TARGET"
+                                 for row in report["snapshots"]), 2)
 
     def test_explicit_json_manifest_scans_without_parquet(self):
         with tempfile.TemporaryDirectory() as folder:
