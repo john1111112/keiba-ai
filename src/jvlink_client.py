@@ -372,13 +372,55 @@ class JVLinkClient:
             self._driver_status = "NO_RECORDS_FETCHED"
             raise JVLinkError("Worker reported success but returned 0 valid records (Fail-Closed)")
 
-        # SQLite への生レコード永続保存
+        # JRA-VAN publishes 0B15 RA/SE separately from 0B31 O1 odds.
+        # 0B31 is race-scoped; query using each fully-qualified 16-digit key.
+        # An unavailable quote remains missing (never invented).
+        odds_records = []
+        odds_errors = {}
+        if data_spec == "0B15" and mode == "rt":
+            race_keys = set()
+            for raw in ra_list:
+                if len(raw) != 1272:
+                    raise JVLinkError("RA record length violates official JV-Data layout")
+                race_key = raw[11:27].decode("ascii")
+                if len(race_key) != 16 or not race_key.isascii() or not race_key.isdigit():
+                    raise JVLinkError("JV-Link returned an invalid race key")
+                race_keys.add(race_key)
+            for race_key in sorted(race_keys):
+                try:
+                    odds_result = self.fetch_via_32bit_worker(
+                        data_spec="0B31", from_time=from_time,
+                        output_path=worker_out, mode="rt", key=race_key
+                    )
+                    if (not odds_result.get("success")
+                            or odds_result.get("auth_status") != "AUTHENTICATED"
+                            or odds_result.get("fetch_status") != "SUCCESS"):
+                        raise JVLinkError(str(odds_result.get("error") or "No O1 odds"))
+                    for encoded_record in odds_result.get("o1_records", []):
+                        raw_odds = encoded_record.encode("cp932", errors="strict")
+                        if (len(raw_odds) != 962 or raw_odds[:2] != b"O1"
+                                or raw_odds[11:27].decode("ascii") != race_key):
+                            raise JVLinkError("O1 record invalid or attached to wrong race")
+                        odds_records.append(raw_odds)
+                except (JVLinkError, OSError, ValueError, UnicodeError) as exc:
+                    odds_errors[race_key] = str(exc)
+            all_records.extend(odds_records)
+
+        # Raw records are saved before parsing; no silent data-loss exception.
+        from src.jvlink_raw_store import store_records
+        raw_db = REPO_ROOT / "data" / "jvlink_raw.db"
         try:
-            from src.jvlink_raw_store import store_records
-            raw_db = REPO_ROOT / "data" / "jvlink_raw.db"
-            store_records(raw_db, all_records, data_spec=data_spec)
+            store_records(raw_db, ra_list + se_list + o1_list, data_spec=data_spec)
+            if odds_records:
+                store_records(raw_db, odds_records, data_spec="0B31")
         except Exception as exc:
             raise JVLinkError(f"Raw JV-Link record persistence failed: {exc}") from exc
+
+        if odds_errors:
+            diagnostic = target_dir / "latest_odds_fetch_errors.json"
+            diagnostic.write_text(
+                json.dumps(odds_errors, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
         self._driver_status = "AUTHENTICATED"
         return self.process_records_to_feed(all_records, output_dir=target_dir)
