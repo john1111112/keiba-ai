@@ -83,6 +83,16 @@ class ScheduledLiveScanTest(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertEqual(json.loads(out.read_text())["status"], "JVLINK_FETCH_FAILED")
 
+    def test_live_task_no_manifest_is_failure_but_legacy_scan_is_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("scripts.run_background_scan.run_cycle", return_value={
+                "status": "NO_UPCOMING_MANIFEST", "processed_races": 0,
+                "model_inference_allowed": False
+            }):
+                out = str(Path(tmp) / "out.json")
+                self.assertEqual(main(["--out", out, "--use-jvlink"]), 1)
+                self.assertEqual(main(["--out", out]), 0)
+
     def test_scheduled_cli_clean_scan_exit_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch("scripts.run_background_scan.run_cycle", return_value={
