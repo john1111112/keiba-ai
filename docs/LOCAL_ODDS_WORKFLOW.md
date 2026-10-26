@@ -19,3 +19,5 @@ python -m scripts.run_local_odds_workflow data/manual_snapshots --db data/odds_h
 Windowsのタスクスケジューラでこのコマンドを定期実行することもできますが、入力JSONの取得・時刻記録は別途必要です。これを「自動オッズ取得」と呼ばないでください。
 
 実行後は `data/prerace_reports/index.html` をブラウザで開くと、各レースの監査画面へのリンク一覧が表示されます。データはすべてローカルで、外部送信しません。
+
+各レースのオッズ推移は `race_<ハッシュ>_timeline.json` にも出力します。`observed_at` と `fetched_at` が指定した as-of 時刻より後のレコード、発走後オッズ、確定オッズは含めません。これは研究用の時系列表示であり、独立に認証された相場履歴ではありません。
