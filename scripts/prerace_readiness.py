@@ -15,10 +15,13 @@ def race_readiness(db_path, race_id, *, as_of_time, race_start_time):
     if not db.is_file():
         return {"race_id": str(race_id), "status": "NO_BET", "reason": "NO_ODDS_DB"}
     with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
-        odds = conn.execute("""
+        try:
+            odds = conn.execute("""
             SELECT horse_number, odds_value, observed_at, fetched_at, source, data_status
             FROM odds_timeline WHERE race_id = ? AND odds_type = 'win'
         """, (str(race_id),)).fetchall()
+        except sqlite3.OperationalError:
+            return {"race_id": str(race_id), "status": "NO_BET", "reason": "NO_ODDS_TABLE"}
         try:
             predictions = conn.execute("""
                 SELECT horse_number, pred_win_prob, predicted_at, odds_status
