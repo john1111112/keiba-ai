@@ -109,6 +109,22 @@ class ScheduledLiveScanTest(unittest.TestCase):
                 self.assertEqual(result["captured_count"], 1)
                 self.assertEqual(result["bet_status"], "NO_BET")
 
+    def test_no_races_published_is_quiet_success_and_never_reuses_feed(self):
+        from src.jvlink_client import JVLinkNoDataError
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "latest_jvlink_feed.json").write_text('{"races":[]}')
+            with patch("src.jvlink_client.JVLinkClient") as client, patch(
+                "scripts.run_background_scan.run_monitor_scan"
+            ) as scan:
+                client.return_value.fetch_and_build_live_feed.side_effect = (
+                    JVLinkNoDataError("no races")
+                )
+                result = run_cycle(folder, folder / "alerts.db", use_jvlink=True)
+                self.assertEqual(result["status"], "NO_UPCOMING_RACES")
+                self.assertEqual(result["notifications_sent"], 0)
+                scan.assert_not_called()
+
     def test_failed_acquisition_cannot_reuse_previous_feed(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
