@@ -65,6 +65,25 @@ class LocalWorkflowTests(unittest.TestCase):
             self.assertEqual(report["bet_status"], "NO_BET")
             self.assertIn("オッズ変動", (root / "reports" / "index.html").read_text(encoding="utf-8"))
 
+    def test_late_arrival_does_not_create_false_movement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / "snapshots"
+            folder.mkdir()
+            early = snapshot("race-late")
+            early["observed_at"] = "2026-10-26T15:19:00+09:00"
+            early["fetched_at"] = "2026-10-26T15:31:00+09:00"
+            early["odds"][0]["odds_value"] = 5.0
+            later = snapshot("race-late")
+            later["observed_at"] = "2026-10-26T15:29:00+09:00"
+            later["fetched_at"] = "2026-10-26T15:29:05+09:00"
+            later["odds"][0]["odds_value"] = 4.0
+            (folder / "early.json").write_text(json.dumps(early), encoding="utf-8")
+            (folder / "later.json").write_text(json.dumps(later), encoding="utf-8")
+            result = run_local_workflow(folder, root / "odds.db", root / "reports")
+            self.assertEqual(result["status"], "COMPLETE")
+            self.assertIsNone(result["dashboards"][0]["movement"])
+
     def test_dry_run_no_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
