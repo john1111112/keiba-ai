@@ -17,3 +17,5 @@ python -m scripts.run_local_odds_workflow data/manual_snapshots --db data/odds_h
 - **常に NO BET**。勝率の生成、EVの認証、オッズの自動取得、投票操作は行いません。
 
 Windowsのタスクスケジューラでこのコマンドを定期実行することもできますが、入力JSONの取得・時刻記録は別途必要です。これを「自動オッズ取得」と呼ばないでください。
+
+実行後は `data/prerace_reports/index.html` をブラウザで開くと、各レースの監査画面へのリンク一覧が表示されます。データはすべてローカルで、外部送信しません。
