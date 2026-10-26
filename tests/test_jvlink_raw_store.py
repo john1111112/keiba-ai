@@ -1,3 +1,4 @@
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -16,7 +17,7 @@ class JVRawStoreTests(unittest.TestCase):
             self.assertEqual(first["status"], "RAW_RECORDS_STORED_UNPARSED")
             store_records(db, [raw], data_spec="0B15",
                           fetched_at="2026-10-27T12:01:00+09:00")
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 self.assertEqual(conn.execute(
                     "SELECT count(*) FROM jv_raw_records").fetchone()[0], 1)
                 self.assertEqual(conn.execute(
