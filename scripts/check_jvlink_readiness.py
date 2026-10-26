@@ -73,7 +73,7 @@ def run_full_readiness_check() -> dict:
             com_error = str(exc)
 
     results["jvlink_sdk"] = {
-        "sdk_registered": compat["sdk_registered"],
+        "sdk_registered": compat["sdk_registered"] or com_creatable,
         "sdk_clsid": compat["sdk_clsid"],
         "com_instantiable": com_creatable,
         "com_error": com_error,
@@ -129,7 +129,7 @@ def run_full_readiness_check() -> dict:
     # 1. Python環境
     m_python = "READY" if (compat["is_windows"] and compat["python32_available"] and probe_details.get("pywin32_available", False)) else "NOT_READY"
     # 2. SDK導入
-    m_sdk = "READY" if compat["sdk_registered"] else "NOT_READY"
+    m_sdk = "READY" if com_creatable else "NOT_READY"
     # 3. COM接続
     m_com = "READY" if com_creatable else "NOT_READY"
     # 4. API仕様検証 (JVRTOpen, JVRead, 16桁キー、固定長仕様の照合完了状態)
@@ -161,7 +161,7 @@ def run_full_readiness_check() -> dict:
     elif not model_ok or not model_sha_match:
         results["overall_status"] = "BLOCKED"
         results["action_required"].append("Model file is missing, corrupted, or failed SHA-256 verification.")
-    elif not compat["sdk_registered"]:
+    elif not com_creatable:
         results["overall_status"] = "SETUP_REQUIRED"
         results["action_required"].append(
             "Download and install JV-Link SDK from JRA-VAN Data Lab official website."
@@ -213,8 +213,8 @@ def print_report(results: dict):
         print("  すべてのコード、モデル、パイプライン、SDK接続準備が整っています。")
     elif status == "SETUP_REQUIRED":
         print("【 総合判定: SETUP_REQUIRED 】")
-        print("  コード・モデル・32bitワーカー環境は100%準備完了しています。")
-        print("  以下の外部環境（ユーザー操作）が必要です：")
+        print("  未検証または未設定の条件が残っています。")
+        print("  必要な対応・検証事項：")
         for issue in results["action_required"]:
             print(f"    * {issue}")
     else:
