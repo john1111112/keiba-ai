@@ -12,7 +12,7 @@ def main():
         try:
             import win32com.client
             result["pywin32_available"] = True
-            link = win32com.client.Dispatch("jvdg.JVLink")
+            link = win32com.client.Dispatch("JVDTLab.JVLink")
             result["com_creatable"] = link is not None
         except Exception as exc:
             result["error"] = str(exc)
