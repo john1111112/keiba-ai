@@ -33,6 +33,13 @@ class ScheduledLiveScanTest(unittest.TestCase):
         self.assertIn("run_scheduled_task.bat", scheduler)
         self.assertNotIn("-File \"app.py\"", installer)
 
+    def test_opening_dashboard_does_not_start_duplicate_monitor(self):
+        repo = Path(__file__).resolve().parents[1]
+        launcher = (repo / "START_KEIBA_AI.bat").read_text(encoding="utf-8")
+        self.assertIn("KeibaAI_BackgroundMonitor", launcher)
+        self.assertNotIn("scripts\\run_background_monitor.py", launcher)
+        self.assertIn("streamlit run app.py", launcher)
+
     def test_one_time_install_enables_buy_candidate_discord_without_losing_thresholds(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
