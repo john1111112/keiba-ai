@@ -1,3 +1,4 @@
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -24,7 +25,7 @@ class CollectionTests(unittest.TestCase):
             report = collect(Link, db, sid="TEST", from_time="202610270000")
             self.assertEqual(report["status"], "RAW_CAPTURE_COMPLETE")
             self.assertEqual(len(report["reports"]), 3)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM jv_raw_records").fetchone()[0], 3)
 
     def test_empty_capture_not_marked_complete(self):
