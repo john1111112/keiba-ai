@@ -60,6 +60,12 @@ class UnattendedAlertsTests(unittest.TestCase):
         self.assertEqual(second["duplicate_suppressed"], 2)
         self.assertEqual(toast.call_count, 1)
 
+    def test_missing_feed_fails_closed_without_writing_state(self):
+        result = run_alert_cycle(self.candidates, self.state, now=self.now, deliver=False)
+        self.assertEqual(result["status"], "NO_CANDIDATE_DATA")
+        self.assertEqual(result["bet_status"], "NO_BET")
+        self.assertFalse(self.state.exists())
+
     def test_bad_file_rejected(self):
         self.candidates.write_text('{"not":"a list"}', encoding="utf-8")
         with self.assertRaises(ValueError):
