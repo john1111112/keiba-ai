@@ -64,6 +64,35 @@ class ManualOddsTests(unittest.TestCase):
             with sqlite3.connect(target) as conn:
                 self.assertEqual(conn.execute("SELECT odds_value FROM odds_timeline").fetchone()[0], 5.0)
 
+    def test_fractional_horse_rejected(self):
+        data = sample()
+        data["odds"][0]["horse_number"] = 1.5
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_blank_source_rejected(self):
+        data = sample()
+        data["source"] = " "
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_atomic_rollback_on_second_horse_conflict(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "snapshot.json"
+            target = Path(folder) / "odds.db"
+            source.write_text(json.dumps(sample()), encoding="utf-8")
+            import_snapshot(source, target)
+            revised = sample()
+            revised["odds"] = [
+                {"horse_number": 2, "odds_value": 10.0},
+                {"horse_number": 1, "odds_value": 2.0}
+            ]
+            source.write_text(json.dumps(revised), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                import_snapshot(source, target)
+            with sqlite3.connect(target) as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM odds_timeline").fetchone()[0], 1)
+
     def test_dry_run_no_db_created(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "snapshot.json"
