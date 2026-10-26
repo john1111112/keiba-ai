@@ -21,6 +21,8 @@ ALLOWED = {"pre_race_flash", "manual_prerace"}
 
 def audit_odds_history(db_path, *, as_of_time=None, race_starts=None):
     race_starts = race_starts or {}
+    if not isinstance(race_starts, dict):
+        raise ValueError("race_starts must be a mapping")
     cutoff = parse_time(as_of_time) if as_of_time is not None else None
     if as_of_time is not None and cutoff is None:
         raise ValueError("as_of_time must include timezone")
