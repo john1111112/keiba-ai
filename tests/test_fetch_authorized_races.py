@@ -73,6 +73,13 @@ class AuthorizedFeedTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_feed(payload, received_at=NOW)
 
+    def test_upcoming_race_past_start_rejected_even_without_odds(self):
+        payload = json.loads(json.dumps(PAYLOAD))
+        payload["races"][0]["race_time"] = "2026-10-27T11:30:00+09:00"
+        payload["races"][0]["horses"][0].update(win_odds=None, odds_observed_at=None)
+        with self.assertRaisesRegex(ValueError, "already started"):
+            validate_feed(payload, received_at=NOW)
+
     def test_missing_odds_not_fabricated(self):
         payload = json.loads(json.dumps(PAYLOAD))
         payload["races"][0]["horses"][0].update(win_odds=None, odds_observed_at=None)
