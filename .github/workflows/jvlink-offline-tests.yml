@@ -29,6 +29,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_alert_policy_freshness.py" -v
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_race_dashboard.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Compile SDK boundary
         shell: pwsh
         run: |
