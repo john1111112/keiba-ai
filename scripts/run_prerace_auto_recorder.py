@@ -61,7 +61,17 @@ def run_schedule_scan(
             "missing_count": 0
         }
 
-    df_feat = pd.read_parquet(features_path)
+    if features_path.suffix.lower() == ".json":
+        # A race schedule is a separate, explicit input, never derived from results.
+        manifest = json.loads(features_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, list) or not manifest:
+            return {"status": "BLOCKED_EMPTY_MANIFEST", "processed_races": 0,
+                    "captured_count": 0, "missing_count": 0, "snapshots": []}
+        if any(not isinstance(entry, dict) for entry in manifest):
+            raise ValueError("Every race manifest entry must be an object")
+        df_feat = pd.DataFrame(manifest)
+    else:
+        df_feat = pd.read_parquet(features_path)
     # Race result fields cannot certify upcoming status; require a separate
     # explicit upcoming race manifest before scanning.
     if "race_status" not in df_feat.columns:
