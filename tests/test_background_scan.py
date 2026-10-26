@@ -44,7 +44,9 @@ class BackgroundScanTests(unittest.TestCase):
                            "--db", str(Path(folder) / "odds.db"),
                            "--out", str(report)])
             self.assertEqual(status, 0)
-            self.assertIn("NO_UPCOMING_MANIFEST", report.read_text(encoding="utf-8"))
+            saved = __import__("json").loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], "NO_UPCOMING_MANIFEST")
+            self.assertIn("checked_at", saved)
 
 
 if __name__ == "__main__":
