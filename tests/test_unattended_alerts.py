@@ -48,17 +48,17 @@ class UnattendedAlertsTests(unittest.TestCase):
                 self.assertEqual(report["delivered"], 0)
                 toast.assert_not_called()
 
-    def test_dedupe_across_repeated_runs(self):
+    def test_self_attested_verified_json_cannot_trigger_notification(self):
         self.write([self.good, self.good])
-        with patch("scripts.run_unattended_alerts.sys.platform", "win32"):
-            with patch("scripts.run_unattended_alerts._toast") as toast:
-                first = run_alert_cycle(self.candidates, self.state, now=self.now, deliver=True)
-                second = run_alert_cycle(self.candidates, self.state, now=self.now, deliver=True)
-        self.assertEqual(first["delivered"], 1)
-        self.assertEqual(first["duplicate_suppressed"], 1)
-        self.assertEqual(second["delivered"], 0)
-        self.assertEqual(second["duplicate_suppressed"], 2)
-        self.assertEqual(toast.call_count, 1)
+        with patch("scripts.run_unattended_alerts._toast") as toast:
+            result = run_alert_cycle(self.candidates, self.state,
+                                     now=self.now, deliver=True)
+        self.assertEqual(result["status"], "BLOCKED_UNVERIFIED_PROVENANCE")
+        self.assertEqual(result["eligible_by_claim"], 2)
+        self.assertEqual(result["delivered"], 0)
+        self.assertEqual(result["bet_status"], "NO_BET")
+        self.assertFalse(self.state.exists())
+        toast.assert_not_called()
 
     def test_missing_feed_fails_closed_without_writing_state(self):
         result = run_alert_cycle(self.candidates, self.state, now=self.now, deliver=False)
@@ -71,13 +71,6 @@ class UnattendedAlertsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_alert_cycle(self.candidates, self.state, now=self.now)
 
-    def test_delivery_failure_is_reported(self):
-        self.write([self.good])
-        with patch("scripts.run_unattended_alerts.sys.platform", "win32"):
-            with patch("scripts.run_unattended_alerts._toast", side_effect=RuntimeError("toast failed")):
-                report = run_alert_cycle(self.candidates, self.state, now=self.now, deliver=True)
-        self.assertEqual(report["delivery_failures"], 1)
-        self.assertEqual(report["delivered"], 0)
 
 
 if __name__ == "__main__":
