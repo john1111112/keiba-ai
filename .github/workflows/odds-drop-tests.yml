@@ -6,6 +6,8 @@ on:
       - "scripts/detect_odds_drops.py"
       - "scripts/validate_prerace_features.py"
       - "scripts/train_prerace_research.py"
+      - "scripts/walk_forward_prerace_research.py"
+      - "tests/test_prerace_walk_forward.py"
       - "tests/test_prerace_research_training.py"
       - "tests/test_prerace_feature_contract.py"
       - "scripts/import_manual_odds.py"
@@ -66,6 +68,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_odds_drops.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_feature_contract.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_research_training.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_prerace_walk_forward.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_manual_odds.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_csv.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_history_audit.py' -v || failed=1
