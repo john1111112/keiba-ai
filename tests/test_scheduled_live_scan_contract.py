@@ -165,6 +165,23 @@ class ScheduledLiveScanTest(unittest.TestCase):
                 self.assertEqual(main(["--out", out, "--use-jvlink"]), 1)
                 self.assertEqual(main(["--out", out]), 0)
 
+    def test_all_inference_failures_surface_as_failed_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("scripts.run_background_scan.run_cycle", return_value={
+                "status": "INFERENCE_BLOCKED", "processed_races": 0,
+                "errors": ["Missing historical feature data"],
+                "model_inference_allowed": False
+            }):
+                out = Path(tmp) / "last_background_scan.json"
+                rc = main(["--out", str(out), "--use-jvlink"])
+                self.assertEqual(rc, 1)
+                self.assertEqual(
+                    json.loads((Path(tmp) / "monitor_daemon_status.json").read_text(
+                        encoding="utf-8"
+                    ))["daemon_status"],
+                    "ERROR_RECOVERING"
+                )
+
     def test_scheduled_cli_clean_scan_exit_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch("scripts.run_background_scan.run_cycle", return_value={
