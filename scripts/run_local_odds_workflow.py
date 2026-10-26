@@ -16,6 +16,7 @@ from scripts.render_prerace_dashboard import render_dashboard
 from scripts.render_race_index import write_index
 from scripts.race_odds_timeline import race_odds_timeline
 from scripts.compare_prerace_odds import compare_odds
+from scripts.render_market_table import render_market_table
 
 
 def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
@@ -76,6 +77,7 @@ def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
         # Compare two actual receipt cutoffs, not publication timestamps.
         # A delayed early publication cannot be treated as an early receipt.
         movement_path = None
+        movement = None
         observations = timeline.get("observations", [])
         receipt_times = sorted({
             parse_time(horse["fetched_at"])
@@ -92,7 +94,11 @@ def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
                 json.dumps(movement, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8")
             movement_path = str(movement_target)
+        market_target = output_dir / ("race_" + safe_name + "_market.html")
+        market_target.write_text(render_market_table(
+            timeline, movement if movement_path else None), encoding="utf-8")
         dashboards.append({"race_id": race, "html": str(target),
+                           "market": str(market_target),
                            "timeline": str(timeline_target),
                            "movement": movement_path, "bet_status": "NO_BET"})
     output_dir.mkdir(parents=True, exist_ok=True)
