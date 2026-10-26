@@ -30,20 +30,18 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid buffer size")
     if not isinstance(from_time, str) or len(from_time) != 12 or not from_time.isdigit():
         raise ValueError("from_time must be YYYYMMDDHHMM")
-    initialized = False
     opened = False
     records = []
     try:
         init_result = _code(link.JVInit(sid))
         if init_result != 0:
             raise JVLinkError("JVInit failed: " + str(init_result))
-        initialized = True
         open_result = link.JVOpen(data_spec, from_time, 0)
         if isinstance(open_result, tuple):
             rc = int(open_result[0])
         else:
             rc = int(open_result)
-        if rc != 0:
+        if rc < 0:
             raise JVLinkError("JVOpen failed: " + str(rc))
         opened = True
         for _ in range(max_records):
