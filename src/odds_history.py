@@ -158,6 +158,8 @@ def record_odds_snapshot(
         if horse_num < 1:
             raise ValueError("Invalid horse number")
         row_timing = r.get("timing_tag") or timing_tag or ""
+        if row_timing and row_timing not in {"pre_30m", "pre_10m", "pre_5m", "manual"}:
+            raise ValueError("Invalid timing tag")
 
         valid_rows.append((
             str(r["race_id"]),
