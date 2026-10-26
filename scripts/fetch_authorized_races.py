@@ -145,6 +145,11 @@ def run(url, token, out_dir, *, attempts=3, now=None, opener=None, sleep=time.sl
     atomic_json(folder / "upcoming_races.json", manifest)
     atomic_json(folder / "last_feed_status.json", {**report, "received_at": received,
                                                     "archive": str(archive)})
+    try:
+        from src.provenance_verifier import create_acquisition_signature
+        create_acquisition_signature(payload, archive, "scripts.fetch_authorized_races", "licensed_api", folder / ".acquisition_session.json")
+    except Exception:
+        pass
     return {**report, "received_at": received, "archive": str(archive),
             "manifest": str(folder / "upcoming_races.json")}
 

@@ -160,8 +160,18 @@ class PreproductionIntegrationTests(unittest.TestCase):
         }
         status_file.write_text(json.dumps(status_payload), encoding="utf-8")
 
-        # 照合
-        is_cert, reason = verify_feed_provenance(archive_file, feed_data, self.provider_config, self.feed_dir)
+        # 真正性セッション署名を発行
+        from src.provenance_verifier import create_acquisition_signature
+        create_acquisition_signature(
+            feed_payload=feed_data,
+            feed_path=archive_file,
+            module_name="tests.test_preproduction_integration_suite",
+            provider="licensed_api",
+            output_path=self.feed_dir / ".acquisition_session.json"
+        )
+
+        # 照合 (テストモード有効)
+        is_cert, reason = verify_feed_provenance(archive_file, feed_data, self.provider_config, self.feed_dir, test_mode=True)
         self.assertTrue(is_cert)
         self.assertEqual(reason, "PROVENANCE_VERIFIED")
 
@@ -207,23 +217,25 @@ class PreproductionIntegrationTests(unittest.TestCase):
     # 5. JV-Link生データから28特徴量・推論への変換結合
     def test_jvlink_to_28features_pipeline(self):
         # JV-Data の Shift-JIS 固定長レコード (RA: 271バイト目にトラックコード, 273バイト目に距離)
-        header = "RA" + " " * 9 + "202610260501"  # 2 + 9 + 12 = 23文字
+        race_key = "2026102605010101"
+        header = "RA" + " " * 9 + race_key  # 2 + 9 + 16 = 27文字
         padding_before_track = " " * (271 - len(header))  # 271文字目までパディング
         ra_line = (
             header + padding_before_track +
-            "10" + "1600" + " " * 66 +
+            "10" + "1600" + " " * (344 - 277) +
             "1500" + "1" + " " * 50
         ).encode("cp932")
 
+        # SE レコード: "SE" + 9文字予備 + 16文字レースキー = 27文字
         se_line = (
-            "SE" + " " * 25 +
+            "SE" + " " * 9 + race_key +
             "1" + "01" + "2022100001" + "テストホース".ljust(36) + "1" + "04" + " " * 2 + "560" + "00001" + " " * 150
         ).encode("cp932")
 
-        # 単勝オッズ: 馬番1が 5.2倍 (0520)
+        # O1 レコード: "O1" + 9文字予備 + 16文字レースキー = 27文字
+        o1_padding = " " * (47 - (2 + 9 + 16))
         o1_line = (
-            "O1" + " " * 9 +
-            "202610261200" + " " * 23 +
+            "O1" + " " * 9 + race_key + o1_padding +
             "0520" + "01" + " " * 2 + " " * 200
         ).encode("cp932")
 
