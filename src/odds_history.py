@@ -190,13 +190,12 @@ def get_latest_odds_as_of(
     未来のオッズ（as_of_time より後の時刻）および確定オッズは厳密に遮断され参照不可。
     """
     target_path = Path(db_path or ODDS_HISTORY_DB_PATH)
-    if not target_path.exists():
-        return pd.DataFrame()
-
     cutoff = _parse_aware_utc(as_of_time)
     if cutoff is None:
         raise ValueError("as_of_time must have an explicit timezone")
-    conn = sqlite3.connect(target_path)
+    if not target_path.exists():
+        return pd.DataFrame()
+    conn = sqlite3.connect(f"file:{target_path.resolve()}?mode=ro", uri=True)
     try:
         rows = conn.execute("""
             SELECT horse_number, horse_id, odds_value, popularity, observed_at,
