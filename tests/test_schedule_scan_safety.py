@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -68,6 +69,35 @@ class ScheduleScanSafetyTests(unittest.TestCase):
             self.assertEqual(record.call_count, 1)
             self.assertEqual(sum(r["status"] == "SKIPPED_FUTURE_TARGET"
                                  for r in result["snapshots"]), 2)
+
+    def test_explicit_json_manifest_scans_without_parquet(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{
+                "race_id": "r1", "race_status": "upcoming",
+                "race_time": "2026-10-25T15:40:00+09:00"
+            }]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet") as read_parquet, patch(
+                "scripts.run_prerace_auto_recorder.record_prerace_snapshot",
+                return_value={"odds_status": "missing", "status": "RECORDED"}
+            ) as record:
+                result = run_schedule_scan(manifest, Path(folder) / "odds.db",
+                                           as_of_time="2026-10-25T15:10:00+09:00")
+            read_parquet.assert_not_called()
+            record.assert_called_once()
+            self.assertEqual(result["scanned_races_count"], 1)
+
+    def test_json_manifest_without_upcoming_flag_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{
+                "race_id": "r1", "race_time": "2026-10-25T15:40:00+09:00"
+            }]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                result = run_schedule_scan(manifest, Path(folder) / "odds.db",
+                                           as_of_time="2026-10-25T15:10:00+09:00")
+            record.assert_not_called()
+            self.assertEqual(result["status"], "BLOCKED_NO_UPCOMING_MANIFEST")
 
     def test_missing_manifest_blocks_scan(self):
         with tempfile.TemporaryDirectory() as folder:
