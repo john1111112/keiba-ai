@@ -13,6 +13,7 @@ on:
       - "scripts/run_prerace_auto_recorder.py"
       - "tests/test_schedule_scan_safety.py"
       - "tests/test_recorder_provenance.py"
+      - "tests/test_inference_leakage.py"
       - "tests/test_odds_asof.py"
       - "tests/test_odds_drops.py"
       - "tests/test_manual_odds.py"
@@ -52,6 +53,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_odds_asof.py' -v
       - name: Run recorder provenance tests
         run: python -m unittest discover -s tests -p 'test_recorder_provenance.py' -v
+      - name: Run inference leakage tests
+        run: python -m unittest discover -s tests -p 'test_inference_leakage.py' -v
       - name: Run provider fail-closed tests
         run: python -m unittest discover -s tests -p 'test_odds_provider_failclosed.py' -v
       - name: Run schedule scan safety tests
