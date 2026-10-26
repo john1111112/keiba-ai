@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "scripts/detect_odds_drops.py"
+      - "scripts/import_manual_odds.py"
       - "tests/test_odds_drops.py"
+      - "tests/test_manual_odds.py"
       - ".github/workflows/odds-drop-tests.yml"
   push:
     branches:
@@ -27,4 +29,4 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run offline odds-drop tests
-        run: python -m unittest discover -s tests -p 'test_odds_drops.py' -v
+        run: python -m unittest discover -s tests -p 'test_*odds.py' -v
