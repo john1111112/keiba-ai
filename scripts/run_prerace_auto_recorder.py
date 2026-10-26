@@ -111,6 +111,13 @@ def run_schedule_scan(
                 timings_to_run.append(applicable)
 
         for timing in timings_to_run:
+            offset = {"pre_30m": 30, "pre_10m": 10, "pre_5m": 5}[timing]
+            target = parsed_start - datetime.timedelta(minutes=offset)
+            if now_dt < target:
+                results.append({"race_id": str(race_id), "timing_tag": timing,
+                                "status": "SKIPPED_FUTURE_TARGET", "odds_status": "missing",
+                                "message": "Target snapshot time has not arrived."})
+                continue
             res = record_prerace_snapshot(
                 race_id=str(race_id),
                 scheduled_race_time=race_time_str,
