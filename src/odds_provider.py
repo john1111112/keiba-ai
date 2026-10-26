@@ -18,8 +18,6 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
-import requests
-from bs4 import BeautifulSoup
 
 repo_root = Path(__file__).resolve().parent.parent
 
@@ -51,29 +49,14 @@ class JVLinkOddsProvider(BaseOddsProvider):
         super().__init__("JV-Link")
 
     def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
-        try:
-            win32com = importlib.import_module("win32com.client")
-            jv = win32com.Dispatch("JVDTLab.JVLink")
-            return {
-                "provider": self.name,
-                "connected": True,
-                "status": "READY",
-                "note": "JVDTLab.JVLink COM component is initialized."
-            }
-        except ImportError:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "reason": "win32com library is not installed in current Python environment."
-            }
-        except Exception as e:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "reason": f"JVLink COM component unavailable: {e}"
-            }
+        # COM availability is not evidence of a working pre-race odds feed.
+        # The JV-Link odds parser has not been implemented.
+        return {
+            "provider": self.name,
+            "connected": False,
+            "status": "DISCONNECTED",
+            "reason": "JV-Link pre-race odds parser and timestamp verification are not implemented."
+        }
 
     def fetch_prerace_odds(
         self,
@@ -98,18 +81,12 @@ class LicensedFeedOddsProvider(BaseOddsProvider):
         has_dir = self.feed_dir.exists()
         has_contract = feed_contract_path.exists()
 
-        if has_dir and has_contract:
-            return {
-                "provider": self.name,
-                "connected": True,
-                "status": "READY",
-                "feed_dir": str(self.feed_dir)
-            }
+        # A directory and a contract file alone cannot prove a usable feed.
         return {
             "provider": self.name,
             "connected": False,
             "status": "DISCONNECTED",
-            "reason": f"Licensed feed directory ({self.feed_dir}) or contract ({feed_contract_path}) not configured."
+            "reason": f"Verified pre-race feed unavailable (directory={has_dir}, contract={has_contract}); data/timestamps not certified."
         }
 
     def fetch_prerace_odds(
@@ -118,7 +95,7 @@ class LicensedFeedOddsProvider(BaseOddsProvider):
         scheduled_race_time: str,
         timing_tag: str
     ) -> Optional[List[Dict[str, Any]]]:
-        if not self.feed_dir.exists():
+        if not self.check_connection(race_id).get("connected"):
             return None
         target_file = self.feed_dir / f"{race_id}_{timing_tag}.json"
         if not target_file.exists():
@@ -175,29 +152,13 @@ class FileSnapshotOddsProvider(BaseOddsProvider):
         self.snapshot_dir = snapshot_dir or (repo_root / "data" / "snapshots")
 
     def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
-        has_dir = self.snapshot_dir.exists()
-        if not has_dir:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "snapshot_dir": str(self.snapshot_dir),
-                "reason": f"Directory {self.snapshot_dir} does not exist."
-            }
-        if race_id:
-            files = list(self.snapshot_dir.glob(f"*{race_id}*.json"))
-            if not files:
-                return {
-                    "provider": self.name,
-                    "connected": False,
-                    "status": "DISCONNECTED",
-                    "reason": f"No snapshot files found for race_id {race_id} in {self.snapshot_dir}."
-                }
+        # Presence of files is not proof that publication and receipt times are
+        # independently verifiable. Explicit local files require separate audit.
         return {
             "provider": self.name,
-            "connected": True,
-            "status": "READY",
-            "snapshot_dir": str(self.snapshot_dir)
+            "connected": False,
+            "status": "DISCONNECTED",
+            "reason": "Local snapshot provenance is not independently certified; use audited manual import."
         }
 
     def fetch_prerace_odds(
@@ -206,7 +167,7 @@ class FileSnapshotOddsProvider(BaseOddsProvider):
         scheduled_race_time: str,
         timing_tag: str
     ) -> Optional[List[Dict[str, Any]]]:
-        if not self.snapshot_dir.exists():
+        if not self.check_connection(race_id).get("connected"):
             return None
         candidate = self.snapshot_dir / f"odds_{race_id}_{timing_tag}.json"
         if not candidate.exists():
