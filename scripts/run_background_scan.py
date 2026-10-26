@@ -149,6 +149,30 @@ def main(argv=None):
     temp = target.with_suffix(target.suffix + ".tmp")
     temp.write_text(payload + "\n", encoding="utf-8")
     temp.replace(target)
+    if args.use_jvlink:
+        # A scheduled one-shot scan also provides a heartbeat: Streamlit need
+        # not be open, and the older daemon is not required.
+        import os
+        heartbeat = {
+            "daemon_status": (
+                "ERROR_RECOVERING" if result.get("status") in {
+                    "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
+                    "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST",
+                    "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND"
+                } else "RUNNING"
+            ),
+            "run_mode": "WINDOWS_TASK_SCHEDULER",
+            "pid": os.getpid(),
+            "last_run_at": result["checked_at"],
+            "last_scan_result": result
+        }
+        status = target.parent / "monitor_daemon_status.json"
+        status_temp = status.with_suffix(status.suffix + ".tmp")
+        status_temp.write_text(
+            json.dumps(heartbeat, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8"
+        )
+        status_temp.replace(status)
     # Task Scheduler must not mark an acquisition/scan failure as success.
     # A legitimate NO_UPCOMING_RACES result remains a successful scan.
     failures = {
