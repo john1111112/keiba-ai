@@ -75,6 +75,19 @@ def record_odds_snapshot(
         except (ValueError, TypeError):
             continue
 
+        observed_at = r.get("observed_at")
+        fetched_at = r.get("fetched_at") or datetime.datetime.now().isoformat()
+        try:
+            observed_dt = datetime.datetime.fromisoformat(str(observed_at))
+            fetched_dt = datetime.datetime.fromisoformat(str(fetched_at))
+            if (observed_dt.tzinfo is None) != (fetched_dt.tzinfo is None):
+                continue
+            if observed_dt > fetched_dt:
+                continue
+        except (ValueError, TypeError):
+            continue
+        if str(r.get("data_status", "pre_race_flash")).lower() in ("final_settled", "final", "post_race"):
+            continue
         valid_rows.append((
             str(r["race_id"]),
             str(r.get("horse_id", "")),
@@ -82,8 +95,8 @@ def record_odds_snapshot(
             str(r.get("odds_type", "win")),
             float(val),
             int(r.get("popularity", 0)) if r.get("popularity") is not None else None,
-            str(r.get("observed_at", "")),
-            str(r.get("fetched_at", datetime.datetime.now().isoformat())),
+            str(observed_at),
+            str(fetched_at),
             str(r.get("source", "unknown")),
             str(r.get("data_status", "pre_race_flash")),
         ))
@@ -133,12 +146,16 @@ def get_latest_odds_as_of(
         WHERE race_id = ?
           AND odds_type = ?
           AND observed_at <= ?
+          AND fetched_at <= ?
+          AND LOWER(data_status) NOT IN ('final_settled', 'final', 'post_race')
         GROUP BY horse_number
     ) latest ON t.horse_number = latest.horse_number AND t.observed_at = latest.max_obs
     WHERE t.race_id = ?
       AND t.odds_type = ?
+      AND t.fetched_at <= ?
+      AND LOWER(t.data_status) NOT IN ('final_settled', 'final', 'post_race')
     ORDER BY t.horse_number ASC
     """
-    df = pd.read_sql_query(query, conn, params=(race_id, odds_type, as_of_time, race_id, odds_type))
+    df = pd.read_sql_query(query, conn, params=(race_id, odds_type, as_of_time, as_of_time, race_id, odds_type, as_of_time))
     conn.close()
     return df
