@@ -52,6 +52,8 @@ def run_schedule_scan(
     明示的に race_status=upcoming と指定されたレースをスキャンし、発走30分前・10分前・5分前の
     該当レースに対して二重記録防止・再試行付きスナップショットを実行する。
     """
+    features_path = Path(features_path)
+    db_path = Path(db_path)
     if not features_path.exists():
         return {
             "status": "NO_FEATURES_FILE",
