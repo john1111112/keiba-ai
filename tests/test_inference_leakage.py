@@ -29,6 +29,20 @@ class InferenceLeakageTests(unittest.TestCase):
             self.assertEqual(audit["runs"][0]["pred_status"], "blocked_uncertified_features")
             self.assertEqual(audit["predictions"], [])
 
+    def test_unrecognized_future_feature_also_blocks_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Mock()
+            result = record_prerace_snapshot(
+                "r3", "2026-10-25T15:40:00+09:00", "pre_5m",
+                features_df=pd.DataFrame([{"race_id": "r3", "horse_number": 1,
+                                           "mysterious_future_signal": 1}]),
+                win_model=model, odds_records=[],
+                executed_at="2026-10-25T15:35:00+09:00",
+                db_path=Path(directory) / "odds.db")
+            model.predict_win_race.assert_not_called()
+            self.assertEqual(result["pred_status"], "blocked_uncertified_features")
+            self.assertEqual(result["pred_count"], 0)
+
     def test_settled_odds_column_blocks_model(self):
         with tempfile.TemporaryDirectory() as directory:
             model = Mock()
