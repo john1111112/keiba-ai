@@ -1,6 +1,6 @@
 """
 JV-Link 32bit 専用取得ワーカー (JV-Link 32-bit Acquisition Worker)
-- 32bit COM DLL である JV-Link SDK (jvdg.JVLink) と直接通信する専用プロセス
+- 32bit COM DLL である JV-Link SDK (JVDTLab.JVLink) と直接通信する専用プロセス
 - JRA-VAN公式仕様に基づく API 呼び出し:
   - JVInit(sid): 初期化
   - JVStatus(): サービス利用権限・認証状態確認
@@ -287,8 +287,8 @@ def run_worker_capture(
         "error": None
     }
 
-    if not sid or sid == "UNKNOWN":
-        result["error"] = "Set KEIBA_JVLINK_SID to the issued JRA-VAN software identifier"
+    if not sid or not sid.strip() or sid[0].isspace():
+        result["error"] = "Invalid software ID: empty or leading space (UNKNOWN is valid for development)"
         result["auth_status"] = "SOFTWARE_ID_MISSING"
         _write_output(output_path, result)
         return result
@@ -308,9 +308,9 @@ def run_worker_capture(
         return result
 
     try:
-        link = win32com.client.Dispatch("jvdg.JVLink")
+        link = win32com.client.Dispatch("JVDTLab.JVLink")
     except Exception as exc:
-        result["error"] = f"Failed to instantiate jvdg.JVLink in worker: {exc}"
+        result["error"] = f"Failed to instantiate JVDTLab.JVLink in worker: {exc}"
         result["auth_status"] = "SDK_NOT_INSTALLED"
         _write_output(output_path, result)
         return result
