@@ -114,6 +114,8 @@ def validate_odds_records(
     - 目標スナップショット時刻以前の観測値であること
     """
     race_dt = parse_timestamp(scheduled_race_time)
+    if race_dt.tzinfo is None or target_cutoff_time.tzinfo is None:
+        raise ValueError("Race and cutoff timestamps must be timezone-aware")
     valid_list = []
 
     for idx, r in enumerate(odds_records):
@@ -129,8 +131,11 @@ def validate_odds_records(
         if not obs_raw or not fetch_raw:
             continue
 
-        obs_dt = parse_timestamp(obs_raw)
-        fetch_dt = parse_timestamp(fetch_raw)
+        try:
+            obs_dt = parse_timestamp(obs_raw)
+            fetch_dt = parse_timestamp(fetch_raw)
+        except (ValueError, TypeError):
+            continue
 
         # タイムゾーン整合性
         if (obs_dt.tzinfo is None or fetch_dt.tzinfo is None or
@@ -160,6 +165,13 @@ def validate_odds_records(
         except (ValueError, TypeError):
             continue
 
+        if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:
+            continue
+        try:
+            if int(r.get("horse_number", 0)) < 1:
+                continue
+        except (TypeError, ValueError, OverflowError):
+            continue
         valid_list.append(r)
 
     return valid_list
