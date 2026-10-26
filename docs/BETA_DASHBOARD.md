@@ -69,3 +69,15 @@ python -m scripts.import_upcoming_races_csv data\races.csv --out data\upcoming_r
 ## バックグラウンド処理の停止検知
 
 定期スキャンは結果ファイルに `checked_at`（タイムゾーン付きUTC時刻）を保存します。画面では最終確認時刻を表示し、15分以上更新がない場合に「スキャン停止の可能性」と警告します。時刻が欠落・不正・未来の場合も正常稼働とみなしません。これはタスク実行の監視であり、実オッズ接続や予測品質を保証しません。
+
+## リアルタイムオッズ連携の受け渡し仕様
+
+`scripts/validate_licensed_feed_handoff.py` を追加しました。許諾済み提供元の接続アダプターが将来出力するJSONを、発走前・取得後10分以内・馬番重複なし・単勝オッズの妥当性という条件で検査します。
+
+必須項目は `race_id`、`race_start_time`、`source`、`license_reference`、`observed_at`、`fetched_at`、`odds` です。`odds` は `horse_number` と `win_odds` の配列です。すべての時刻はタイムゾーン必須です。
+
+```powershell
+python -m scripts.validate_licensed_feed_handoff path\to\feed.json
+```
+
+**重要：形式が正しくてもライセンスの有効性・配信元・公式発表時刻を独立認証したことにはなりません。** 検査結果は必ず `SCHEMA_VALID_ONLY`、`NO_BET` とし、本番オッズプロバイダー・通知・購入推奨には接続していません。契約済みのフィードと認証可能なアダプターが必要です。
