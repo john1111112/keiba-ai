@@ -57,7 +57,8 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
     for rid, horse, odds, observed, fetched, status, source, timing in rows:
         if race_id is not None and str(rid) != str(race_id):
             continue
-        if str(status).lower() in {"final", "final_settled", "post_race", "settled", "result"}:
+        if (str(status).lower() in {"final", "final_settled", "post_race", "settled", "result"}
+                or str(source).strip().lower() in {"", "unknown", "none"}):
             rejected += 1
             continue
         obs, got = parse_time(observed), parse_time(fetched)
@@ -69,7 +70,15 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
         if not obs or not got or obs > got or (cutoff is not None and (obs > cutoff or got > cutoff)) or (race_start is not None and (obs >= race_start or got >= race_start)) or not math.isfinite(price) or price < 1:
             rejected += 1
             continue
-        grouped.setdefault((str(rid), int(horse)), []).append((obs, got, price, source, timing))
+        try:
+            horse_num = int(horse)
+        except (ValueError, TypeError, OverflowError):
+            rejected += 1
+            continue
+        if horse_num < 1:
+            rejected += 1
+            continue
+        grouped.setdefault((str(rid), horse_num), []).append((obs, got, price, source, timing))
 
     alerts, compared = [], 0
     # Market-wide reference: other horses in the same race and publication window.
