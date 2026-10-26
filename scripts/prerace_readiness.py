@@ -1,6 +1,7 @@
 """Offline race-level readiness report: never label manual odds as certified."""
 import argparse
 import json
+import math
 import sqlite3
 from pathlib import Path
 
@@ -33,16 +34,29 @@ def race_readiness(db_path, race_id, *, as_of_time, race_start_time):
     latest = {}
     for horse, price, observed, fetched, source, status in odds:
         obs, got = parse_time(observed), parse_time(fetched)
+        try:
+            price = float(price)
+            horse = int(horse)
+        except (ValueError, TypeError, OverflowError):
+            continue
         if (not obs or not got or obs > got or got > asof or got >= start
-                or obs >= start or str(status).lower() in
+                or obs >= start or not math.isfinite(price) or price < 1
+                or horse < 1 or str(source).strip().lower() in {"", "unknown", "none"}
+                or str(status).lower() in
                 {"final", "final_settled", "post_race", "settled", "result"}):
             continue
-        if horse not in latest or obs > latest[horse][0]:
-            latest[horse] = (obs, price, source, status)
+        if horse not in latest or (obs, got) > latest[horse][0]:
+            latest[horse] = ((obs, got), price, source, status)
     valid_preds = []
     for horse, prob, predicted_at, status in predictions:
         at = parse_time(predicted_at)
-        if at and at <= asof and at < start and status == "captured" and prob is not None:
+        try:
+            prob = float(prob)
+            horse = int(horse)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if (at and at <= asof and at < start and status == "captured"
+                and horse > 0 and math.isfinite(prob) and 0 <= prob <= 1):
             valid_preds.append((horse, prob))
     movement = detect_drops(db, race_id=race_id, as_of_time=as_of_time,
                             race_start_time=race_start_time)
