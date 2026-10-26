@@ -340,6 +340,14 @@ def record_prerace_snapshot(
                 ", ".join(present_forbidden)
             )
             features_df = None
+    # No feature-level observation timestamps or model provenance contract
+    # is implemented. Even innocently named columns may contain future data.
+    # Fail closed rather than publish unverified AI probabilities.
+    if features_df is not None and len(features_df) > 0:
+        pred_status = "blocked_uncertified_features"
+        error_msg = ((error_msg + "; ") if error_msg else "") + (
+            "Prediction blocked: no independently verified as-of feature contract")
+        features_df = None
     if features_df is not None and len(features_df) > 0:
         race_feat = features_df[features_df["race_id"] == str(race_id)].copy() if "race_id" in features_df.columns else features_df.copy()
         if len(race_feat) > 0:
