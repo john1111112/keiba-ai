@@ -272,6 +272,12 @@ def run_worker_capture(
         "error": None
     }
 
+    if not result["is_32bit"]:
+        result["error"] = "JV-Link worker requires 32-bit Python"
+        result["auth_status"] = "WRONG_PYTHON_ARCHITECTURE"
+        _write_output(output_path, result)
+        return result
+
     try:
         import win32com.client
     except ImportError as exc:
