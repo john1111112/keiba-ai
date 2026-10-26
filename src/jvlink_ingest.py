@@ -21,7 +21,7 @@ def _code(result):
 
 def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             buffer_size=110000, fetched_at=None, sleep=time.sleep,
-            max_wait_seconds=60):
+            max_wait_seconds=60, max_total_bytes=256 * 1024 * 1024):
     if data_spec not in ("0B15", "0B30", "0B41"):
         raise ValueError("Unsupported data spec")
     if not isinstance(sid, str) or not sid or len(sid) > 32:
@@ -38,10 +38,13 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid JV-Link calendar timestamp") from exc
     if max_wait_seconds < 0 or max_wait_seconds > 600:
         raise ValueError("Invalid wait timeout")
+    if not isinstance(max_total_bytes, int) or not 4096 <= max_total_bytes <= 1024 * 1024 * 1024:
+        raise ValueError("Invalid capture byte budget")
     opened = False
     records = []
     wait_count = 0
     eof = False
+    total_bytes = 0
     try:
         init_result = _code(link.JVInit(sid))
         if init_result != 0:
@@ -86,6 +89,9 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 raise JVLinkError("JVRead did not return raw bytes")
             if len(raw) < rc:
                 raise JVLinkError("JVRead buffer shorter than declared length")
+            total_bytes += rc
+            if total_bytes > max_total_bytes:
+                raise JVLinkError("JVRead capture exceeded byte budget; no partial capture committed")
             records.append(raw[:rc])
         else:
             raise JVLinkError("JVRead record limit reached without EOF")
