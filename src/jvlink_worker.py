@@ -68,26 +68,37 @@ def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_
     if not se_records:
         return False, "No SE (runner) record found"
 
-    # 主レースキーの抽出 (11:27)
-    ra_primary_key = ra_records[0][11:27]
-    if len(ra_primary_key) != 16 or not ra_primary_key.isdigit():
-        return False, f"Invalid RA race key: '{ra_primary_key}'"
+    # Validate each race independently. A single JVRead batch may contain multiple races.
+    def race_key(record: str, kind: str, index: int) -> str:
+        key = record[11:27]
+        if len(key) != 16 or not key.isascii() or not key.isdigit():
+            raise ValueError(f"Invalid {kind} race key at record #{index}: {key!r}")
+        return key
 
-    # SE レコードのレースキー整合性検証
-    for i, se in enumerate(se_records):
-        if len(se) < 89:
-            return False, f"SE record #{i} too short (<89 bytes)"
-        se_key = se[11:27]
-        if se_key != ra_primary_key:
-            return False, f"SE record #{i} race key mismatch: expected '{ra_primary_key}', got '{se_key}'"
-
-    # O1 レコード（オッズ）のレースキー整合性検証
-    for i, o1 in enumerate(o1_records):
-        if len(o1) < 47:
-            return False, f"O1 record #{i} too short (<47 bytes)"
-        o1_key = o1[11:27]
-        if o1_key != ra_primary_key:
-            return False, f"O1 record #{i} race key mismatch: expected '{ra_primary_key}', got '{o1_key}'"
+    try:
+        ra_keys = [race_key(rec, "RA", i) for i, rec in enumerate(ra_records)]
+        if len(set(ra_keys)) != len(ra_keys):
+            return False, "Duplicate RA race key"
+        known = set(ra_keys)
+        se_counts = {key: 0 for key in known}
+        for i, se in enumerate(se_records):
+            if len(se) < 89:
+                return False, f"SE record #{i} too short"
+            key = race_key(se, "SE", i)
+            if key not in known:
+                return False, f"Orphan SE record #{i} for race {key}"
+            se_counts[key] += 1
+        for key, count in se_counts.items():
+            if count == 0:
+                return False, f"Race {key} has no SE records"
+        for i, o1 in enumerate(o1_records):
+            if len(o1) < 47:
+                return False, f"O1 record #{i} too short"
+            key = race_key(o1, "O1", i)
+            if key not in known:
+                return False, f"Orphan O1 record #{i} for race {key}"
+    except ValueError as exc:
+        return False, str(exc)
 
     return True, "INTEGRITY_VERIFIED"
 
