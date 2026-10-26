@@ -239,7 +239,7 @@ def get_latest_odds_as_of(
     for horse, horse_id, odds, popularity, observed, fetched, source, status, tag, row_id in rows:
         obs, got = _parse_aware_utc(observed), _parse_aware_utc(fetched)
         if (obs is None or got is None or obs > got or obs > cutoff or got > cutoff
-                or str(status).lower() in PROHIBITED_STATUSES
+                or str(status).strip().lower() not in {"pre_race_flash", "manual_prerace"}
                 or str(source).strip().lower() in {"", "unknown", "none"}):
             continue
         try:
