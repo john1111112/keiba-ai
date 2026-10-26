@@ -25,6 +25,15 @@ class RecorderProvenanceTests(unittest.TestCase):
     def test_naive_observed_rejected(self):
         self.assertEqual(self.check([odds(observed_at="2026-10-25T15:30:00")]), [])
 
+    def test_invalid_timestamp_rejected(self):
+        self.assertEqual(self.check([odds(observed_at="invalid")]), [])
+
+    def test_missing_source_rejected(self):
+        self.assertEqual(self.check([odds(source="unknown")]), [])
+
+    def test_missing_horse_rejected(self):
+        self.assertEqual(self.check([odds(horse_number=None)]), [])
+
     def test_valid_record_kept(self):
         self.assertEqual(len(self.check([odds()])), 1)
 
