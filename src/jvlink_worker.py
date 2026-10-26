@@ -66,14 +66,12 @@ def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_
         key = ra[11:27]
         if len(key) != 16 or not key.isascii() or not key.isdigit():
             return False, f"Invalid RA race key at index {i}"
-        if key in ra_keys:
-            return False, f"Duplicate RA race key: {key}"
         ra_keys.add(key)
 
     se_keys = set()
     for i, se in enumerate(se_records):
         key = se[11:27]
-        if len(se) < 89 or key not in ra_keys:
+        if len(se.encode("cp932")) != 555 or key not in ra_keys:
             return False, f"Invalid SE record or unmatched race at index {i}: {key}"
         se_keys.add(key)
     if se_keys != ra_keys:
@@ -81,7 +79,7 @@ def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_
 
     for i, o1 in enumerate(o1_records):
         key = o1[11:27]
-        if len(o1) < 47 or key not in ra_keys:
+        if len(o1.encode("cp932")) != 962 or key not in ra_keys:
             return False, f"Invalid O1 record or unmatched race at index {i}: {key}"
 
     return True, "INTEGRITY_VERIFIED"
@@ -230,7 +228,17 @@ def execute_jvlink_fetch(
         fetch_status = "NO_RECORDS_FETCHED"
         error_msg = "No race records were returned from JV-Link"
     else:
-        is_valid, validation_msg = validate_records_integrity(ra_records, se_records, o1_records)
+        if data_spec in ("0B31", "0B30"):
+            is_valid = bool(o1_records) and all(
+                len(o1.encode("cp932")) == 962 for o1 in o1_records
+            )
+            validation_msg = (
+                "ODDS_ONLY_RECORDS_PRESENT" if is_valid else "O1 records missing or malformed"
+            )
+        else:
+            is_valid, validation_msg = validate_records_integrity(
+                ra_records, se_records, o1_records
+            )
         if not is_valid:
             fetch_status = "RECORD_INTEGRITY_FAILED"
             error_msg = f"Record integrity check failed: {validation_msg}"
