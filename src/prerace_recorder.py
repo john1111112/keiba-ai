@@ -308,6 +308,27 @@ def record_prerace_snapshot(
     model_sha256 = None
 
     if features_df is not None and len(features_df) > 0:
+        # Historical training tables can contain outcomes and post-race labels.
+        # Until an as-of feature contract is independently certified, inference
+        # must not run on such tables.
+        forbidden_feature_columns = {
+            "finish_order", "finish_position", "rank_result", "result",
+            "target", "target_win", "target_place", "is_win", "is_place",
+            "payout", "win_payout", "place_payout", "actual_finish",
+            "race_result", "confirmed_odds", "final_odds",
+        }
+        present_forbidden = sorted(forbidden_feature_columns.intersection(
+            str(col).lower() for col in features_df.columns
+        ))
+        if present_forbidden:
+            pred_status = "blocked_uncertified_features"
+            error_msg = (
+                (error_msg + "; " if error_msg else "") +
+                "Prediction blocked: result/settlement columns present: " +
+                ", ".join(present_forbidden)
+            )
+            features_df = None
+    if features_df is not None and len(features_df) > 0:
         race_feat = features_df[features_df["race_id"] == str(race_id)].copy() if "race_id" in features_df.columns else features_df.copy()
         if len(race_feat) > 0:
             try:
