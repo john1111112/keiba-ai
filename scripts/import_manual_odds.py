@@ -27,6 +27,8 @@ def validate_snapshot(data):
     required = ("race_id", "race_start_time", "observed_at", "fetched_at", "source", "odds")
     if any(not data.get(key) for key in required):
         raise ValueError("Missing required snapshot metadata")
+    if not isinstance(data["race_id"], str) or not data["race_id"].strip():
+        raise ValueError("race_id must be a nonempty string")
     start, observed, fetched = (parse_time(data[key]) for key in
                                 ("race_start_time", "observed_at", "fetched_at"))
     if not all((start, observed, fetched)) or not (observed <= fetched < start):
@@ -48,7 +50,7 @@ def validate_snapshot(data):
             price = float(item["odds_value"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Invalid horse number or odds") from exc
-        if horse < 1 or horse in seen or not math.isfinite(price) or price < 1:
+        if horse < 1 or horse > 99 or horse in seen or not math.isfinite(price) or price < 1:
             raise ValueError("Duplicate horse or invalid odds")
         seen.add(horse)
         validated.append((horse, price))
