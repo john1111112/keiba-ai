@@ -16,6 +16,7 @@ import platform
 import struct
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -263,16 +264,36 @@ class JVLinkClient:
         self,
         data_spec: str,
         from_time: str,
-        output_path: Path,
+        output_path: Optional[Path] = None,
         mode: str = "rt",
         key: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        64bit Python から 32bit Python サブプロセスを介してデータを安全に取得するブリッジ
+        64bit Python から 32bit Python サブプロセスを介してデータを安全に取得するブリッジ。
+        【安全性強化】
+        - 呼び出しごとに一意の一時ファイルパスを使用し、古い出力の誤読を防止
+        - subprocess.run() の終了コードとタイムアウトを厳格検証
+        - 出力JSONの内容（sid, data_spec, タイムスタンプ）を厳密照合
+        - 完了後に一時ファイルを確実に削除
         """
+        import uuid
+        import tempfile
+
         python32 = find_32bit_python()
         if not python32:
             raise JVLinkBridgeError("No 32-bit Python executable found to run JV-Link worker")
+
+        unique_id = uuid.uuid4().hex
+        if output_path is None:
+            tmp_dir = Path(tempfile.gettempdir()) / "keiba_jvlink_bridge"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            target_out = tmp_dir / f"worker_{unique_id}.json"
+        else:
+            target_out = Path(str(output_path) + f".{unique_id}.tmp")
+
+        # 既存ファイルの残骸があれば削除
+        if target_out.is_file():
+            target_out.unlink()
 
         worker_script = REPO_ROOT / "src" / "jvlink_worker.py"
         cmd = [
@@ -282,19 +303,47 @@ class JVLinkClient:
             "--spec", data_spec,
             "--from-time", from_time,
             "--mode", mode,
-            "--out", str(output_path)
+            "--out", str(target_out)
         ]
         if key:
             cmd.extend(["--key", key])
 
+        invocation_start_ts = int(time.time()) - 2
+
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if not output_path.is_file():
-                raise JVLinkBridgeError(f"Worker did not produce output file. Return code: {res.returncode}, Stderr: {res.stderr}")
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            if res.returncode != 0:
+                err_detail = res.stderr.strip() or res.stdout.strip()
+                raise JVLinkBridgeError(f"Worker exited with non-zero code {res.returncode}: {err_detail}")
+
+            if not target_out.is_file():
+                raise JVLinkBridgeError(f"Worker finished but output file was not created: {res.stderr}")
+
+            try:
+                payload = json.loads(target_out.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise JVLinkBridgeError(f"Failed to parse worker output JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise JVLinkBridgeError("Worker output JSON is not a dictionary")
+
+            # 内容の整合性照合（古い出力の誤読防止）
+            out_ts = payload.get("timestamp", 0)
+            if out_ts < invocation_start_ts:
+                raise JVLinkBridgeError(f"Stale worker output detected (timestamp {out_ts} < invocation {invocation_start_ts})")
+            if payload.get("sid") != self.sid or payload.get("data_spec") != data_spec:
+                raise JVLinkBridgeError("Worker output metadata mismatch (sid/data_spec)")
+
             return payload
-        except Exception as exc:
-            raise JVLinkBridgeError(f"32-bit worker execution error: {exc}") from exc
+
+        except subprocess.TimeoutExpired as exc:
+            raise JVLinkBridgeError(f"32-bit worker timed out after {exc.timeout} seconds") from exc
+        finally:
+            if target_out.is_file():
+                try:
+                    target_out.unlink()
+                except Exception:
+                    pass
 
     def fetch_and_build_live_feed(
         self,

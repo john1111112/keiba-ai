@@ -403,6 +403,41 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
         self.assertTrue(is_cert)
         self.assertEqual(reason, "PROVENANCE_VERIFIED")
 
+    # -------------------------------------------------------------
+    # 15. 古いワーカー出力の誤読防止・メタデータ照合
+    # -------------------------------------------------------------
+    def test_stale_worker_output_rejected(self):
+        client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        # タイムスタンプが古い（100秒前）ワーカー出力を生成するモック
+        def fake_worker_run(cmd, capture_output=True, text=True, timeout=60):
+            # cmd 内の --out のパスを取得して古い JSON を書き込む
+            out_idx = cmd.index("--out") + 1
+            out_file = Path(cmd[out_idx])
+            out_file.write_text(json.dumps({
+                "success": True,
+                "timestamp": int(time.time()) - 100,
+                "sid": "OTHER_SID",
+                "data_spec": "0B15"
+            }), encoding="utf-8")
+            res = MagicMock()
+            res.returncode = 0
+            return res
+
+        with patch("subprocess.run", side_effect=fake_worker_run):
+            with self.assertRaises(JVLinkBridgeError) as ctx:
+                client.fetch_via_32bit_worker("0B15", "202610260000")
+            self.assertTrue("Stale worker output" in str(ctx.exception) or "mismatch" in str(ctx.exception))
+
+    # -------------------------------------------------------------
+    # 16. ワーカータイムアウト時の安全停止
+    # -------------------------------------------------------------
+    def test_worker_timeout_raises_bridge_error(self):
+        client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=60)):
+            with self.assertRaises(JVLinkBridgeError) as ctx:
+                client.fetch_via_32bit_worker("0B15", "202610260000")
+            self.assertIn("timed out", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
