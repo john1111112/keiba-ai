@@ -29,7 +29,7 @@ def load_period(connection, *, start: str, end: str, max_races: int | None = Non
     grouped = {}
     invalid_races = set()
     for race_id, date, number, age, carry, finish in connection.execute(query, (start, end)):
-        if not race_id or not date or number is None or age is None or carry is None:
+        if not race_id or not date or number is None or age is None or carry is None or finish is None:
             if race_id is not None:
                 invalid_races.add(str(race_id))
             continue
@@ -43,11 +43,14 @@ def load_period(connection, *, start: str, end: str, max_races: int | None = Non
         if n < 1 or not 0 < age_num < 30 or not 20 < carry_num < 90:
             invalid_races.add(str(race_id))
             continue
+        if not str(finish).strip().isdigit() or int(str(finish).strip()) < 1:
+            invalid_races.add(str(race_id))
+            continue
         row = {
             "race_id": str(race_id), "race_date": str(date),
             # Race-local runner ID only; never used to link horse histories.
             "horse_id": f"{race_id}:{n}",
-            "win": 1 if str(finish).strip() == "1" else 0,
+            "win": int(int(str(finish).strip()) == 1),
             "features": {
                 "age": age_num - 4.5,
                 "weight_carry": carry_num - 55.0,
