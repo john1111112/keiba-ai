@@ -2,13 +2,22 @@
 setlocal
 cd /d "%~dp0\.."
 
+rem The scheduled task must fetch fresh licensed JV-Link data, not reuse
+rem yesterday's local snapshot. All alerts still pass provenance safeguards.
 set "PYTHONPATH=%CD%"
 set "PYTHON_EXE=python"
-if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" (
-    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+set "PYTHON_ARGS="
+where py >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    set "PYTHON_EXE=py"
+    set "PYTHON_ARGS=-3"
 ) else (
-    where py >nul 2>&1 && set "PYTHON_EXE=py"
+    where python >nul 2>&1
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Python not found.
+        exit /b 1
+    )
 )
 
-"%PYTHON_EXE%" scripts\run_background_scan.py --manifest data\authorized_feed\latest.json --db data\alert_state.db
+"%PYTHON_EXE%" %PYTHON_ARGS% scripts\run_background_scan.py --manifest data\authorized_feed\latest_jvlink_feed.json --db data\alert_state.db --use-jvlink
 exit /b %ERRORLEVEL%
