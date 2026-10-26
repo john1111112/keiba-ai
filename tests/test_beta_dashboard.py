@@ -1,9 +1,10 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_beta_dashboard import dashboard_html, _safe_reports, _upcoming_rows, make_handler
+from scripts.run_beta_dashboard import dashboard_html, _safe_reports, _upcoming_rows, _manual_odds_rows, make_handler
 
 
 class BetaDashboardTests(unittest.TestCase):
@@ -59,6 +60,37 @@ class BetaDashboardTests(unittest.TestCase):
              "race_time": "2099-01-01T15:10:00+09:00"}
         ]), encoding="utf-8")
         self.assertEqual(_upcoming_rows(manifest), [])
+
+    def test_odds_table_excludes_final_future_and_wrong_race(self):
+        from datetime import datetime, timezone
+        db = self.root / "odds.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("""CREATE TABLE odds_timeline (
+                race_id TEXT, horse_number INTEGER, odds_value REAL,
+                observed_at TEXT, fetched_at TEXT, source TEXT,
+                data_status TEXT, odds_type TEXT)""")
+            base = ("r1", 3, 4.2, "2026-10-26T09:00:00+09:00",
+                    "2026-10-26T09:01:00+09:00", "manual", "manual_prerace", "win")
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)", base)
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         ("r1", 4, 8.0, *base[3:6], "final_settled", "win"))
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         ("r1", 5, 9.0, "2026-10-26T12:00:00+09:00",
+                          "2026-10-26T12:01:00+09:00", "manual", "manual_prerace", "win"))
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         ("r2", 6, 7.0, *base[3:]))
+        now = datetime.fromisoformat("2026-10-26T10:00:00+09:00")
+        upcoming = [("r1", datetime.fromisoformat("2026-10-26T15:00:00+09:00"))]
+        rows = _manual_odds_rows(db, upcoming, now=now)
+        self.assertEqual([(r[0], r[1]) for r in rows], [("r1", 3)])
+        manifest = self.root / "upcoming.json"
+        manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                         "race_time": "2026-10-26T15:00:00+09:00"}]))
+        page = dashboard_html(self.root, manifest_path=manifest, odds_db=db, now=now)
+        self.assertIn("4.20", page)
+        self.assertIn("AI勝率", page)
+        self.assertIn("NO BET", page)
+        self.assertNotIn("9.00", page)
 
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
