@@ -9,6 +9,7 @@ on:
       - "src/jvlink_client.py"
       - "tests/test_jvdata_spec_regression.py"
       - "tests/test_jvlink_transport_contract.py"
+      - "tests/test_jvlink_feed_orchestration.py"
       - ".github/workflows/jvdata-regression.yml"
   workflow_dispatch:
 
@@ -26,8 +27,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile JV-Link modules and regression tests
-        run: python -m compileall -q src/jvlink_adapter.py src/jvlink_worker.py src/jvlink_client.py tests/test_jvdata_spec_regression.py tests/test_jvlink_transport_contract.py
+        run: python -m compileall -q src/jvlink_adapter.py src/jvlink_worker.py src/jvlink_client.py tests/test_jvdata_spec_regression.py tests/test_jvlink_transport_contract.py tests/test_jvlink_feed_orchestration.py
       - name: Run pure-Python official-layout regression tests
         run: |
           python -m unittest discover -s tests -p test_jvdata_spec_regression.py -v
           python -m unittest discover -s tests -p test_jvlink_transport_contract.py -v
+          python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
