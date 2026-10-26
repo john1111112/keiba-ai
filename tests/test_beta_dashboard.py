@@ -79,7 +79,7 @@ class BetaDashboardTests(unittest.TestCase):
                           "2026-10-26T12:01:00+09:00", "manual", "manual_prerace", "win"))
             conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
                          ("r2", 6, 7.0, *base[3:]))
-        now = datetime.fromisoformat("2026-10-26T10:00:00+09:00")
+        now = datetime.fromisoformat("2026-10-26T09:05:00+09:00")
         upcoming = [("r1", datetime.fromisoformat("2026-10-26T15:00:00+09:00"))]
         rows = _manual_odds_rows(db, upcoming, now=now)
         self.assertEqual([(r[0], r[1]) for r in rows], [("r1", 3)])
@@ -91,6 +91,24 @@ class BetaDashboardTests(unittest.TestCase):
         self.assertIn("AI勝率", page)
         self.assertIn("NO BET", page)
         self.assertNotIn("9.00", page)
+
+    def test_stale_odds_never_displayed(self):
+        from datetime import datetime
+        db = self.root / "odds.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("""CREATE TABLE odds_timeline (
+                race_id TEXT, horse_number INTEGER, odds_value REAL,
+                observed_at TEXT, fetched_at TEXT, source TEXT,
+                data_status TEXT, odds_type TEXT)""")
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         ("r1", 3, 4.2, "2026-10-26T09:00:00+09:00",
+                          "2026-10-26T09:01:00+09:00", "manual",
+                          "manual_prerace", "win"))
+        upcoming = [("r1", datetime.fromisoformat("2026-10-26T15:00:00+09:00"))]
+        self.assertEqual(_manual_odds_rows(
+            db, upcoming, now=datetime.fromisoformat("2026-10-26T09:12:00+09:00")), [])
+        self.assertEqual(len(_manual_odds_rows(
+            db, upcoming, now=datetime.fromisoformat("2026-10-26T09:05:00+09:00"))), 1)
 
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
