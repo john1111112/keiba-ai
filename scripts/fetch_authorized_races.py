@@ -49,6 +49,8 @@ def validate_feed(payload, *, received_at):
         start = timestamp(race["race_time"])
         if race["race_status"] not in ("upcoming", "cancelled", "postponed"):
             raise ValueError("Invalid race status")
+        if race["race_status"] == "upcoming" and start <= now:
+            raise ValueError("Upcoming race already started")
         horses = race["horses"]
         if not isinstance(horses, list) or len(horses) > 30:
             raise ValueError("Invalid runners")
