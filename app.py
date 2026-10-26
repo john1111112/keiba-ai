@@ -282,7 +282,25 @@ with tab0:
             feed_exists = feed_file.exists()
             st.metric("データ取得状況", "保存フィードあり（認証別途確認）" if feed_exists else "未接続（架空補完なし）")
         with c_m3:
-            st.metric("自動通知状態", "待機中（重複抑止稼働）")
+            from src.automated_monitor import load_alert_config
+            notification_config = load_alert_config()
+            running_status = "監視停止または未確認"
+            state_file = Path("data/monitor_daemon_status.json")
+            if state_file.is_file():
+                try:
+                    import json
+                    from datetime import datetime, timezone
+                    runtime = json.loads(state_file.read_text(encoding="utf-8"))
+                    last_checked = datetime.fromisoformat(runtime["last_run_at"])
+                    if last_checked.tzinfo is not None and (
+                        datetime.now(timezone.utc) - last_checked
+                    ).total_seconds() <= 180 and runtime.get("daemon_status") == "RUNNING":
+                        running_status = "監視中（通知安全ロック）" if notification_config.get(
+                            "safety_lock_enabled", True
+                        ) else "監視中（通知条件判定）"
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            st.metric("自動通知状態", running_status)
         with c_m4:
             from datetime import datetime
             st.metric("最終更新", datetime.now().strftime("%H:%M:%S"))
