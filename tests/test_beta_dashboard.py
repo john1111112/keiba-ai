@@ -23,7 +23,7 @@ class BetaDashboardTests(unittest.TestCase):
         good = "race_" + "a" * 20 + ".html"
         (self.root / good).write_text("<h1>race</h1>", encoding="utf-8")
         (self.root / "race_bad.html").write_text("bad", encoding="utf-8")
-        (self.root / "race_" + "b" * 20 + "_timeline.json").write_text("{}")
+        (self.root / ("race_" + "b" * 20 + "_timeline.json")).write_text("{}")
         self.assertEqual(_safe_reports(self.root), [good])
         page = dashboard_html(self.root)
         self.assertIn("/reports/" + good, page)
