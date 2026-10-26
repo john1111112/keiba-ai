@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 from src.jvlink_adapter import (
     convert_jvlink_records_to_prerace_feed,
+    convert_jvlink_batch_to_prerace_feed,
     parse_jv_ra_record,
     parse_jv_se_record,
     parse_jv_o1_record
@@ -401,7 +402,7 @@ class JVLinkClient:
         if not raw_records:
             raise ValueError("raw_records must not be empty")
 
-        feed = convert_jvlink_records_to_prerace_feed(raw_records)
+        feed = convert_jvlink_batch_to_prerace_feed(raw_records)
         target_dir = Path(output_dir or (REPO_ROOT / "data" / "authorized_feed"))
         target_dir.mkdir(parents=True, exist_ok=True)
         feed_file = target_dir / "latest_jvlink_feed.json"
