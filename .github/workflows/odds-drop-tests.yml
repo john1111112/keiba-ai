@@ -9,6 +9,8 @@ on:
       - "scripts/audit_prerace_history.py"
       - "scripts/import_odds_folder.py"
       - "scripts/run_local_odds_workflow.py"
+      - "scripts/render_race_index.py"
+      - "tests/test_race_index.py"
       - "tests/test_local_odds_workflow.py"
       - "tests/test_odds_folder.py"
       - "tests/test_history_audit.py"
@@ -67,6 +69,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_history_audit.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_odds_folder.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_local_odds_workflow.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_race_index.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_readiness.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_odds_asof.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_recorder_provenance.py' -v || failed=1
