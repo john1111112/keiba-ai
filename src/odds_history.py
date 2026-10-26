@@ -183,6 +183,21 @@ def record_odds_snapshot(
         return 0
     if len({(row[0], row[2], row[7]) for row in valid_rows}) != len(valid_rows):
         raise ValueError("Duplicate horse at same fetched time")
+    # Reject contradictory replays instead of silently appending a different
+    # price for the same horse and exact fetch timestamp.
+    if target_path.exists():
+        with sqlite3.connect(f"file:{target_path.resolve()}?mode=ro", uri=True) as existing:
+            for row in valid_rows:
+                prior = existing.execute(
+                    "SELECT odds_value, observed_at, source, data_status FROM odds_timeline "
+                    "WHERE race_id=? AND horse_number=? AND fetched_at=?",
+                    (row[0], row[2], row[7])
+                ).fetchall()
+                if prior and any(
+                    (float(p[0]), p[1], p[2], p[3]) !=
+                    (row[4], row[6], row[8], row[9]) for p in prior
+                ):
+                    raise ValueError("Conflicting existing odds snapshot")
     init_odds_history_db(target_path)
     # One atomic write: never leave a partial snapshot on failure.
     with sqlite3.connect(target_path) as conn:
