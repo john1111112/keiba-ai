@@ -27,7 +27,7 @@ def race_rec(race=RACE):
     raw[697:701] = b"1600"  # distance at 698, 1-indexed
     raw[705:707] = b"11"    # turf left at 706
     raw[873:877] = b"1500"  # post time at 874
-    raw[881:883] = b"02"    # registered runners at 882
+    raw[881:883] = b"01"    # one runner in this synthetic fixture
     raw[888:890] = b"00"    # ground is unknown pre-race
     return bytes(raw)
 
