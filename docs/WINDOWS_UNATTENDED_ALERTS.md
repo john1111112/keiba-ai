@@ -1,3 +1,5 @@
+> **セキュリティ更新（重要）:** JSON内の `odds_asof_certified=true` 等は誰でも書き換えられるため、実際の独立認証にはなりません。現在は `--deliver` を指定しても `BLOCKED_UNVERIFIED_PROVENANCE` として**通知を一切送信しません**。以下の通知実行例・重複通知機構は将来の検証済みデータ接続後の設計であり、現状は利用できません。
+
 # Windows常駐通知（β版・ローカル）
 
 `scripts/run_unattended_alerts.py` は**アプリ画面を開かずに**実行できる通知判定ランナーです。別プロセスとしてWindowsタスクスケジューラから定期実行できます。
