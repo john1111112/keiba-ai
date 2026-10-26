@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.jvlink_raw_store import open_jvlink
 from src.jvlink_ingest import capture
+from src.jvlink_capture_status import build_status, save_status
 
 SPECS = ("0B15", "0B30", "0B41")
 
@@ -36,13 +37,16 @@ def main(argv=None):
     parser.add_argument("--sid", required=True)
     parser.add_argument("--from-time", required=True)
     parser.add_argument("--db", default="data/jvlink_raw.sqlite3")
+    parser.add_argument("--status-out", default="data/jvlink_capture_status.json")
     parser.add_argument("--confirm-trial-active", action="store_true")
     args = parser.parse_args(argv)
     if not args.confirm_trial_active:
         parser.error("Will call JVInit; trial must already be deliberately active")
-    print(json.dumps(collect(open_jvlink, args.db, sid=args.sid,
-                             from_time=args.from_time), ensure_ascii=False, indent=2))
+    report = collect(open_jvlink, args.db, sid=args.sid, from_time=args.from_time)
+    save_status(args.status_out, build_status(report))
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["status"] == "RAW_CAPTURE_COMPLETE" else 2
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
