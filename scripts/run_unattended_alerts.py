@@ -77,36 +77,6 @@ def run_alert_cycle(candidates_path, state_db, *, now=None, deliver=False):
             "eligible": 0, "delivered": 0,
             "blocked": len(evaluated), "bet_status": "NO_BET",
             "reason": "Candidate JSON cannot certify odds or model provenance"}
-    db_path = Path(state_db)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    delivered, duplicate, failures = 0, 0, 0
-    with sqlite3.connect(db_path, timeout=30) as conn:
-        _init(conn)
-        for row in eligible:
-            key = (row["race_id"], row["horse_number"], "ev_candidate")
-            # Reserve once; even concurrent scheduler invocations cannot spam.
-            inserted = conn.execute(
-                "INSERT OR IGNORE INTO alert_delivery VALUES (?,?,?,?)",
-                (*key, current)).rowcount
-            conn.commit()
-            if not inserted:
-                duplicate += 1
-                continue
-            title = "競馬AI｜要確認の候補"
-            message = (f"{row['race_id']} 馬番{row['horse_number']} "
-                       f"理論期待値 {row['theoretical_ev'] * 100:.1f}% "
-                       "（購入推奨ではありません）")
-            try:
-                _toast(title, message)
-                delivered += 1
-            except Exception:
-                # Delivery failure is reported. Reservation prevents retry spam;
-                # manual reset is required to retry a failed delivery.
-                failures += 1
-    return {"status": "DELIVERY_ATTEMPTED", "evaluated": len(evaluated),
-            "eligible": len(eligible), "delivered": delivered,
-            "duplicate_suppressed": duplicate, "delivery_failures": failures,
-            "blocked": len(evaluated) - len(eligible), "bet_status": "NO_BET"}
 
 
 def main():
