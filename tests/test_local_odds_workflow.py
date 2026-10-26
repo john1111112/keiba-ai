@@ -82,7 +82,10 @@ class LocalWorkflowTests(unittest.TestCase):
             (folder / "later.json").write_text(json.dumps(later), encoding="utf-8")
             result = run_local_workflow(folder, root / "odds.db", root / "reports")
             self.assertEqual(result["status"], "COMPLETE")
-            self.assertIsNone(result["dashboards"][0]["movement"])
+            movement = result["dashboards"][0]["movement"]
+            self.assertIsNotNone(movement)
+            report = json.loads(Path(movement).read_text(encoding="utf-8"))
+            self.assertEqual(report["changes"], [])
 
     def test_dry_run_no_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
