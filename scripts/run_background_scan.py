@@ -149,7 +149,15 @@ def main(argv=None):
     temp = target.with_suffix(target.suffix + ".tmp")
     temp.write_text(payload + "\n", encoding="utf-8")
     temp.replace(target)
-    return 0
+    # Task Scheduler must not mark an acquisition/scan failure as success.
+    # A legitimate NO_UPCOMING_RACES result remains a successful scan.
+    failures = {
+        "JVLINK_FETCH_FAILED", "NO_UPCOMING_MANIFEST",
+        "SCAN_BLOCKED", "FEED_VALIDATION_REJECTED",
+        "FEED_PARSE_ERROR", "MODEL_LOAD_ERROR",
+        "MODEL_FILE_NOT_FOUND", "NO_FEED_FILE",
+    }
+    return 1 if result.get("status") in failures else 0
 
 
 if __name__ == "__main__":
