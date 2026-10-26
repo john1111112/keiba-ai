@@ -675,6 +675,12 @@ def run_monitor_scan(
                         and not config.get("discord_enabled", False)):
                     logger.info("通知手段が設定されていないため送信を保留")
                     continue
+                # If phone notifications were enabled during one-click install
+                # but the owner has not entered a webhook yet, do not claim
+                # or exhaust retries before that destination exists.
+                if config.get("discord_enabled", False) and not get_discord_webhook():
+                    logger.warning("買い候補検出。Discord Webhook未設定のため送信保留")
+                    continue
                 event_type = f"EV_{min_ev}_WIN_{min_p}"
                 
                 # 重複通知防止チェック（安全ロック状態およびリトライ上限を渡す）
