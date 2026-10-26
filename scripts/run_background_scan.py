@@ -40,6 +40,7 @@ def main(argv=None):
     parser.add_argument("--out", default="data/last_background_scan.json")
     args = parser.parse_args(argv)
     result = run_cycle(args.manifest, args.db)
+    result["checked_at"] = datetime.now(timezone.utc).isoformat()
     payload = json.dumps(result, ensure_ascii=False, indent=2, default=str)
     print(payload)
     target = Path(args.out)
