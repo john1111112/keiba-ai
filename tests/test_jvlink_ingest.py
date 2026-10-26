@@ -32,6 +32,14 @@ class JVLinkIngestTests(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 self.assertEqual(conn.execute("SELECT payload FROM jv_raw_records").fetchone()[0], b"RA12")
 
+    def test_positive_jvopen_record_count(self):
+        with tempfile.TemporaryDirectory() as folder:
+            link = FakeLink(open_code=2)
+            result = capture(link, Path(folder)/"db", sid="TEST",
+                             data_spec="0B15", from_time="202610270000")
+            self.assertEqual(result["received"], 1)
+            self.assertEqual(link.closed, 1)
+
     def test_error_closes(self):
         with tempfile.TemporaryDirectory() as folder:
             link = FakeLink(open_code=-1)
