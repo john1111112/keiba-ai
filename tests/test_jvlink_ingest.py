@@ -49,6 +49,16 @@ class JVLinkIngestTests(unittest.TestCase):
             self.assertEqual(result["received"], 1)
             self.assertEqual(link.closed, 1)
 
+    def test_byte_budget_rejects_partial_capture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "db"
+            link = FakeLink(replies=[(4097, b"RA" + b"x" * 4095), (0, b"")])
+            with self.assertRaisesRegex(JVLinkError, "byte budget"):
+                capture(link, db, sid="TEST", data_spec="0B15",
+                        from_time="202610270000", max_total_bytes=4096)
+            self.assertFalse(db.exists())
+            self.assertEqual(link.closed, 1)
+
     def test_error_closes(self):
         with tempfile.TemporaryDirectory() as folder:
             link = FakeLink(open_code=-1)
