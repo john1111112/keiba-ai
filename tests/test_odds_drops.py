@@ -97,6 +97,25 @@ class OddsDropTests(unittest.TestCase):
         self.assertEqual(alert["peer_count"], 0)
         self.assertIsNone(alert["relative_drop_pct_points"])
 
+    def test_minutes_before_start(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(5, "2026-10-25T06:05:00+00:00")
+        result = detect_drops(self.db, race_start_time="2026-10-25T06:10:00+00:00")
+        self.assertEqual(result["alerts"][0]["minutes_before_start"], 5)
+
+    def test_post_start_odds_excluded(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(2, "2026-10-25T06:11:00+00:00")
+        result = detect_drops(self.db, race_start_time="2026-10-25T06:10:00+00:00")
+        self.assertEqual(result["alerts"], [])
+
+    def test_post_start_fetch_excluded(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(2, "2026-10-25T06:05:00+00:00",
+                 fetched="2026-10-25T06:11:00+00:00")
+        result = detect_drops(self.db, race_start_time="2026-10-25T06:10:00+00:00")
+        self.assertEqual(result["alerts"], [])
+
     def test_no_db(self):
         self.assertEqual(detect_drops(self.db.parent / "absent.db")["status"], "NO_ODDS_DB")
 
