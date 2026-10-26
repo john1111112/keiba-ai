@@ -14,14 +14,23 @@ from scripts.run_prerace_auto_recorder import run_schedule_scan
 
 
 def run_cycle(manifest, db, *, now=None):
+    """Always return a safe status; malformed external manifests must not crash the task."""
     path = Path(manifest)
     if not path.is_file():
         return {"status": "NO_UPCOMING_MANIFEST", "processed_races": 0,
-                "captured_count": 0, "bet_status": "NO_BET"}
-    result = run_schedule_scan(path, Path(db), as_of_time=now)
-    result["bet_status"] = "NO_BET"
-    result["model_inference_allowed"] = False
-    return result
+                "captured_count": 0, "bet_status": "NO_BET",
+                "model_inference_allowed": False}
+    try:
+        result = run_schedule_scan(path, Path(db), as_of_time=now)
+        if not isinstance(result, dict):
+            raise ValueError("Invalid scanner response")
+        result["bet_status"] = "NO_BET"
+        result["model_inference_allowed"] = False
+        return result
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return {"status": "SCAN_BLOCKED", "reason": type(exc).__name__,
+                "processed_races": 0, "captured_count": 0,
+                "bet_status": "NO_BET", "model_inference_allowed": False}
 
 
 def main(argv=None):
