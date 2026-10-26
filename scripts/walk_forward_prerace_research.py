@@ -50,8 +50,14 @@ def walk_forward(bundles_dir, labels_path, *, boundaries, min_races=20):
             "input_sha256": fold["input_sha256"],
         })
     total = sum(f["validation_horses"] for f in folds)
+    mean_model = sum(f["race_winner_nll_research_only"] * f["validation_races"] for f in folds) / sum(f["validation_races"] for f in folds)
+    mean_baseline = sum(f["uniform_race_winner_nll"] * f["validation_races"] for f in folds) / sum(f["validation_races"] for f in folds)
+    fold_wins = sum(f["race_winner_nll_research_only"] < f["uniform_race_winner_nll"] for f in folds)
     return {
         "status": "RESEARCH_ONLY_UNCERTIFIED",
+        "research_quality_gate": "BASELINE_NOT_BEATEN" if mean_model >= mean_baseline else "BASELINE_BEATEN_NOT_CERTIFIED",
+        "folds_beating_uniform_winner_nll": fold_wins,
+        "total_folds": len(folds),
         "bet_status": "NO_BET",
         "production_inference_allowed": False,
         "asof_certified": False,
