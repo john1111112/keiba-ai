@@ -32,6 +32,22 @@ class JVLinkIngestTests(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 self.assertEqual(conn.execute("SELECT payload FROM jv_raw_records").fetchone()[0], b"RA12")
 
+    def test_limit_allows_final_eof(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result = capture(FakeLink(), Path(folder)/"db", sid="TEST",
+                             data_spec="0B15", from_time="202610270000",
+                             max_records=1)
+            self.assertEqual(result["received"], 1)
+
+    def test_limit_rejects_second_record(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder)/"db"
+            link = FakeLink(replies=[(4, b"RA12"), (4, b"RA13"), (0, b"")])
+            with self.assertRaisesRegex(JVLinkError, "record limit"):
+                capture(link, db, sid="TEST", data_spec="0B15",
+                        from_time="202610270000", max_records=1)
+            self.assertFalse(db.exists())
+
     def test_positive_jvopen_record_count(self):
         with tempfile.TemporaryDirectory() as folder:
             link = FakeLink(open_code=2)
