@@ -106,7 +106,27 @@ def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
     return [v[1] for k, v in sorted(latest.items())]
 
 
-def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db", now=None):
+def _background_status(status_path):
+    """Show an untrusted scheduler status, never treat it as certification."""
+    path = Path(status_path)
+    if not path.is_file():
+        return "未実行（タスク未設定または結果なし）"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return "結果ファイル不正"
+        status = payload.get("status")
+        if not isinstance(status, str) or status not in {
+                "NO_UPCOMING_MANIFEST", "NO_FEATURES_FILE", "BLOCKED_EMPTY_MANIFEST",
+                "BLOCKED_NOT_RACE_MANIFEST", "BLOCKED_NO_UPCOMING_MANIFEST",
+                "NO_UPCOMING_RACES", "SCAN_BLOCKED", "COMPLETED"}:
+            return "結果ファイル不正"
+        return status + "（未認証・購入判断不可）"
+    except (OSError, ValueError, TypeError):
+        return "結果ファイル不正"
+
+
+def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db", scan_status="data/last_background_scan.json", now=None):
     pages = _safe_reports(reports_dir)
     links = "".join(
         '<li><a href="/reports/' + html.escape(name, quote=True) + '">' +
@@ -129,6 +149,7 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
         for race, horse, price, _, _ in odds_rows)
     if not odds_html:
         odds_html = '<tr><td colspan="7">有効な発走前オッズはありません</td></tr>'
+    background = html.escape(_background_status(scan_status))
     now = html.escape((now or datetime.now(timezone.utc)).isoformat())
     return (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
@@ -155,18 +176,19 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '<div class="card"><h2>レース分析レポート</h2><ul>'
             + links + '</ul></div>'
             '<div class="card"><h2>システム状態</h2>'
-            '<p>データソース：未認証｜自動予測：未稼働｜通知：候補検証待ち</p>'
+            '<p>データソース：未認証｜自動予測：未稼働｜通知：停止中</p>'
+            f'<p>バックグラウンド確認：{background}</p>'
             f'<small>表示更新: {now} UTC／自動再読込 {refresh_seconds} 秒</small>'
             '</div></body></html>')
 
 
-def make_handler(reports_dir, *, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db"):
+def make_handler(reports_dir, *, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db", scan_status="data/last_background_scan.json"):
     root = Path(reports_dir)
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == "/":
-                body = dashboard_html(root, manifest_path=manifest_path, odds_db=odds_db).encode("utf-8")
+                body = dashboard_html(root, manifest_path=manifest_path, odds_db=odds_db, scan_status=scan_status).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
             elif path == "/health":
@@ -203,10 +225,11 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--manifest", default="data/upcoming_races.json")
     parser.add_argument("--odds-db", default="data/odds_history.db")
+    parser.add_argument("--scan-status", default="data/last_background_scan.json")
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.reports_dir, manifest_path=args.manifest, odds_db=args.odds_db))
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.reports_dir, manifest_path=args.manifest, odds_db=args.odds_db, scan_status=args.scan_status))
     print(f"競馬AI β版: http://127.0.0.1:{args.port}/ (Ctrl+C to stop)", flush=True)
     try:
         server.serve_forever()
