@@ -54,11 +54,13 @@ def evaluate_alert(candidate, *, now, min_ev=1.15, max_odds_age_seconds=120,
         observed = _time(candidate["odds_observed_at"])
         fetched = _time(candidate["odds_fetched_at"])
         predicted = _time(candidate["prediction_created_at"])
-        if not observed <= fetched <= current < start or not predicted <= current:
+        if not observed <= fetched <= current < start or not observed <= predicted <= current or predicted >= start:
             raise ValueError("Future, stale, or post-race evidence")
-        age = (current - fetched).total_seconds()
+        age = (current - observed).total_seconds()
         if age > max_odds_age_seconds:
             raise ValueError("Stale odds")
+        if (current - predicted).total_seconds() > max_odds_age_seconds:
+            raise ValueError("Stale model prediction")
         seconds = (start - current).total_seconds()
         if not min_seconds_to_start <= seconds <= max_seconds_to_start:
             raise ValueError("Outside pre-race alert window")
