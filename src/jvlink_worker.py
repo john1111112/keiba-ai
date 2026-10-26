@@ -287,6 +287,12 @@ def run_worker_capture(
         "error": None
     }
 
+    if not sid or sid == "UNKNOWN":
+        result["error"] = "Set KEIBA_JVLINK_SID to the issued JRA-VAN software identifier"
+        result["auth_status"] = "SOFTWARE_ID_MISSING"
+        _write_output(output_path, result)
+        return result
+
     if not result["is_32bit"]:
         result["error"] = "JV-Link worker requires 32-bit Python"
         result["auth_status"] = "WRONG_PYTHON_ARCHITECTURE"
