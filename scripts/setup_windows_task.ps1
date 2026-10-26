@@ -1,58 +1,48 @@
-# Windows Task Scheduler registration script for KEIBA AI Background Monitor
+# One-time registration: unattended race monitoring independent of the UI.
+# Registration survives reboots; no SDK subscription or trial is activated.
 param(
-    [string]$Action = "register",  # "register", "unregister", "status", "run-now"
-    [int]$IntervalMinutes = 5
+    [ValidateSet("register", "unregister", "status", "run-now")]
+    [string]$Action = "register",
+    [ValidateRange(1, 60)]
+    [int]$IntervalMinutes = 1
 )
 
+$ErrorActionPreference = "Stop"
 $TaskName = "KeibaAI_BackgroundMonitor"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$RepoRoot = Split-Path -Parent $ScriptDir
-$PythonExe = (Get-Command py, python -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-
-if (-not $PythonExe) {
-    if (Test-Path "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe") {
-        $PythonExe = "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
-    } else {
-        Write-Error "Python 3 executable could not be located on PATH."
-        exit 1
-    }
-}
-
-$RunnerBat = Join-Path $RepoRoot "scripts\run_scheduled_task.bat"
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$RunnerBat = Join-Path $PSScriptRoot "run_scheduled_task.bat"
 
 if ($Action -eq "register") {
-    Write-Host "[INFO] Registering Windows Scheduled Task: $TaskName"
-    
-    # Unregister existing task if present
-    schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
-
-    # Create task running at logon and repeating every N minutes
-    # Using runner batch file to avoid Windows 261-character command line limit
-    $Cmd = "schtasks.exe /Create /TN `"$TaskName`" /TR `"`"$RunnerBat`"`" /SC MINUTE /MO $IntervalMinutes /F"
-    Invoke-Expression $Cmd
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Task '$TaskName' registered successfully (runs every $IntervalMinutes minutes)."
-    } else {
-        Write-Warning "[WARN] Registration with /SC MINUTE returned $LASTEXITCODE. Falling back to /SC ONLOGON..."
-        schtasks.exe /Create /TN "$TaskName" /TR "`"$RunnerBat`"" /SC ONLOGON /F
+    if (-not (Test-Path -LiteralPath $RunnerBat)) {
+        throw "Missing scheduled runner: $RunnerBat"
     }
-}
-elseif ($Action -eq "unregister") {
-    Write-Host "[INFO] Unregistering Windows Scheduled Task: $TaskName"
-    schtasks.exe /Delete /TN $TaskName /F
-}
-elseif ($Action -eq "run-now") {
-    Write-Host "[INFO] Executing task immediately: $TaskName"
-    schtasks.exe /Run /TN $TaskName
-}
-elseif ($Action -eq "status") {
-    $taskCheck = schtasks.exe /Query /TN $TaskName 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        schtasks.exe /Query /TN $TaskName /V /FO LIST
-    } else {
-        Write-Host "[STATUS] Task '$TaskName' is currently NOT registered."
+    # A per-minute task survives Windows restarts and requires no Streamlit.
+    & schtasks.exe /Create /TN $TaskName /TR ('"' + $RunnerBat + '"') /SC MINUTE /MO $IntervalMinutes /F | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Task registration failed (exit code $LASTEXITCODE)"
     }
+    try {
+        $setting = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Set-ScheduledTask -TaskName $TaskName -Settings $setting | Out-Null
+    } catch {
+        Write-Warning "Could not configure IgnoreNew concurrency: $_"
+    }
+    Write-Host "[OK] Auto-monitor registered every $IntervalMinutes minute(s)."
+    & schtasks.exe /Run /TN $TaskName | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Registered but immediate run failed; check task history."
+    }
+    exit 0
 }
-else {
-    Write-Host "Unknown action: $Action. Use 'register', 'unregister', 'status', or 'run-now'."
+if ($Action -eq "unregister") {
+    & schtasks.exe /Delete /TN $TaskName /F | Out-Host
+    exit $LASTEXITCODE
+}
+if ($Action -eq "run-now") {
+    & schtasks.exe /Run /TN $TaskName | Out-Host
+    exit $LASTEXITCODE
+}
+if ($Action -eq "status") {
+    & schtasks.exe /Query /TN $TaskName /V /FO LIST | Out-Host
+    exit $LASTEXITCODE
 }
