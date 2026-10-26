@@ -302,6 +302,45 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     }
 
 
+def convert_jvlink_batch_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
+    """Convert a multi-race JV-Data batch without mixing horses or odds across races.
+
+    Each race is processed by the existing strict single-race converter.
+    Any orphan or malformed record rejects the entire batch.
+    """
+    grouped: Dict[str, List[bytes]] = {}
+    ra_keys: Set[str] = set()
+    for raw in records:
+        if not isinstance(raw, (bytes, bytearray)) or len(raw) < 27:
+            raise ValueError("Invalid JV-Data record")
+        kind = bytes(raw[:2]).decode("ascii", errors="ignore")
+        if kind not in {"RA", "SE", "O1"}:
+            continue
+        # Key occupies the ASCII-only header region; do not decode full CP932 text
+        key = bytes(raw[11:27]).decode("ascii", errors="strict")
+        if len(key) != 16 or not key.isdigit():
+            raise ValueError(f"Invalid race key in {kind} record")
+        if kind == "RA":
+            if key in ra_keys:
+                raise ValueError(f"Duplicate RA for race {key}")
+            ra_keys.add(key)
+        grouped.setdefault(key, []).append(bytes(raw))
+    if not grouped or not ra_keys:
+        raise ValueError("No RA records found")
+    if set(grouped) != ra_keys:
+        raise ValueError(f"Orphan race records: {sorted(set(grouped) - ra_keys)}")
+    races = []
+    for key in sorted(grouped):
+        race_feed = convert_jvlink_records_to_prerace_feed(grouped[key])
+        races.extend(race_feed["races"])
+    return {
+        "published_at": datetime.now(timezone.utc).isoformat(),
+        "source": "jvlink",
+        "certified_source": False,
+        "races": races,
+    }
+
+
 def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
     """
     JV-Link生レコードリスト (RA, SE, O1) から、
