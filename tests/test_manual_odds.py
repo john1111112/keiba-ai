@@ -70,6 +70,18 @@ class ManualOddsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_snapshot(data)
 
+    def test_blank_race_id_rejected(self):
+        data = sample()
+        data["race_id"] = " "
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_out_of_range_horse_rejected(self):
+        data = sample()
+        data["odds"][0]["horse_number"] = 100
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
     def test_blank_source_rejected(self):
         data = sample()
         data["source"] = " "
