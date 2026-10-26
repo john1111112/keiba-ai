@@ -39,6 +39,13 @@ class OddsBatchAtomicTests(unittest.TestCase):
                 record_odds_snapshot([row(), row(odds_value=6)], db_path=db)
             self.assertFalse(db.exists())
 
+    def test_conflicting_existing_timestamp_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "odds.db"
+            self.assertEqual(record_odds_snapshot([row()], db_path=db), 1)
+            with self.assertRaises(ValueError):
+                record_odds_snapshot([row(odds_value=8)], db_path=db)
+
     def test_valid_rows_saved(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
