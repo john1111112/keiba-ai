@@ -261,9 +261,9 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
 
     race_key = raw_bytes[11:27].decode("ascii", errors="replace")
 
-    # This record layout is not yet validated against an official O1 fixture.
-    # The previous timestamp slice overlapped the race key and could fabricate time.
-    raise ValueError("O1 odds timestamp layout unverified; refusing live odds")
+    # Timestamp and odds offsets require independent validation against JV-Data spec.
+    # Never derive observation time from the race key.
+    raise ValueError("O1 odds layout unverified; cannot safely compute expected value")
     obs_time_str = raw_bytes[11:23].decode("ascii", errors="replace").strip()
     if not (obs_time_str.isdigit() and len(obs_time_str) == 12):
         raise ValueError(f"Invalid observation timestamp in O1 record: '{obs_time_str}'")
