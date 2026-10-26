@@ -115,7 +115,7 @@ def execute_jvlink_fetch(
         else:
             # JVOpen(dataspec, fromtime, option): 蓄積系データ (fromtime 14桁)
             normalized_time = normalize_fromtime(from_time)
-            open_res = link.JVOpen(data_spec, normalized_time, 1)
+            open_res = link.JVOpen(data_spec, normalized_time, 1, 0, 0, "")
 
         rc = int(open_res[0]) if isinstance(open_res, (tuple, list)) else int(open_res)
         if rc < 0:
@@ -139,9 +139,9 @@ def execute_jvlink_fetch(
         # 公式仕様に基づく JVRead ループ
         while True:
             try:
-                response = link.JVRead(buffer_size)
+                response = link.JVGets(None, buffer_size, "")
             except Exception as exc:
-                error_msg = f"JVRead exception: {exc}"
+                error_msg = f"JVGets COM invocation failed: {exc}"
                 break
 
             if isinstance(response, (tuple, list)):
@@ -186,11 +186,24 @@ def execute_jvlink_fetch(
             wait_count = 0
             control_markers = 0
 
-            if isinstance(buff, bytes):
-                text = buff[:read_rc].decode("cp932", errors="strict")
+            # JVGets preserves Shift-JIS bytes in a COM byte SAFEARRAY.
+            if isinstance(buff, (bytes, bytearray)):
+                raw = bytes(buff)
+            elif isinstance(buff, (tuple, list)) and all(
+                isinstance(value, int) and 0 <= value < 256 for value in buff
+            ):
+                raw = bytes(buff)
             else:
-                text = str(buff)
-                text.encode("cp932", errors="strict")
+                error_msg = f"Invalid JVGets byte buffer: {type(buff).__name__}"
+                break
+            if len(raw) < read_rc or not raw[:read_rc].endswith(b"\r\n"):
+                error_msg = "JVGets returned truncated or malformed record bytes"
+                break
+            try:
+                text = raw[:read_rc].decode("cp932", errors="strict")
+            except UnicodeDecodeError as exc:
+                error_msg = f"JVGets returned invalid CP932 data: {exc}"
+                break
 
             record_type = text[:2]
             raw_records.append(text)
