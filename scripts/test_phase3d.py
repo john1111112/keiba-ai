@@ -1,7 +1,7 @@
 """
 Phase 3D 検証テストスクリプト
 1. オッズ履歴DBの追記型タイムライン保存（上書き防止）テスト
-2. 予測時点再現テスト（発走30分前・10分前・5分前での未来オッズ遮断）
+2. 予測時点再現テスト（発走30分前・10分前・5分前での未来オッズ遮断、未来取得時刻遮断、確定オッズ遮断）
 3. 市場確率とEVの数学的恒等性テスト
 4. 本番DB・本番資産のSHA-256不変検証
 """
@@ -30,15 +30,15 @@ def test_1_odds_history_timeline_append_only(test_db_path: Path):
 
     init_odds_history_db(test_db_path)
 
-    # 15:10（30分前）のスナップショット
+    # 15:10（30分前）のスナップショット（観測時刻と取得時刻を明示）
     snap_1510 = [
-        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link"},
-        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link"},
     ]
     # 15:30（10分前）のスナップショット
     snap_1530 = [
-        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.2, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link"},
-        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 1, "odds_value": 3.2, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link"},
+        {"race_id": "202605010101", "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link"},
     ]
 
     c1 = record_odds_snapshot(snap_1510, test_db_path)
@@ -57,7 +57,7 @@ def test_1_odds_history_timeline_append_only(test_db_path: Path):
 
 
 def test_2_as_of_time_prediction_reproduction(test_db_path: Path):
-    """テスト2: 予測時点再現テスト（30分前・10分前・5分前での未来オッズ遮断）"""
+    """テスト2: 予測時点再現テスト（30分前・10分前・5分前での未来オッズ遮断、未来取得時刻遮断、確定オッズ遮断）"""
     print("\n--- Test 2: 予測時点再現＆未来オッズ遮断テスト ---")
     race_id = "202605010102"
     # 発走予定時刻: 15:40:00
@@ -66,20 +66,20 @@ def test_2_as_of_time_prediction_reproduction(test_db_path: Path):
     # 5分前:  15:35:00 (馬1: 3.0, 馬2: 8.0)
     # 確定後: 15:45:00 (馬1: 2.8, 馬2: 9.0)
     timeline_data = [
-        {"race_id": race_id, "horse_number": 1, "odds_value": 4.0, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 8.0, "popularity": 2, "observed_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
-        {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
-        {"race_id": race_id, "horse_number": 2, "odds_value": 9.0, "popularity": 2, "observed_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 4.0, "popularity": 1, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:10:00", "source": "JV-Link", "data_status": "pre_30m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 3.5, "popularity": 1, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "popularity": 2, "observed_at": "2026-05-01T15:30:00", "fetched_at": "2026-05-01T15:30:00", "source": "JV-Link", "data_status": "pre_10m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:35:00", "fetched_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 8.0, "popularity": 2, "observed_at": "2026-05-01T15:35:00", "fetched_at": "2026-05-01T15:35:00", "source": "JV-Link", "data_status": "pre_5m"},
+        {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01T15:45:00", "fetched_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
+        {"race_id": race_id, "horse_number": 2, "odds_value": 9.0, "popularity": 2, "observed_at": "2026-05-01T15:45:00", "fetched_at": "2026-05-01T15:45:00", "source": "JV-Link", "data_status": "final_settled"},
     ]
     record_odds_snapshot(timeline_data, test_db_path)
 
     # 1. 30分前 (15:10) 時点の取得
     df_30m = get_latest_odds_as_of(race_id, "2026-05-01T15:10:00", db_path=test_db_path)
-    assert len(df_30m) == 2
+    assert len(df_30m) == 2, f"30分前の取得件数が不正: {len(df_30m)}"
     h1_30m = df_30m[df_30m["horse_number"] == 1]["odds_value"].iloc[0]
     h2_30m = df_30m[df_30m["horse_number"] == 2]["odds_value"].iloc[0]
     assert h1_30m == 4.0 and h2_30m == 6.0, f"30分前のオッズが不一致: {h1_30m}, {h2_30m}"
@@ -87,7 +87,7 @@ def test_2_as_of_time_prediction_reproduction(test_db_path: Path):
 
     # 2. 10分前 (15:30) 時点の取得
     df_10m = get_latest_odds_as_of(race_id, "2026-05-01T15:30:00", db_path=test_db_path)
-    assert len(df_10m) == 2
+    assert len(df_10m) == 2, f"10分前の取得件数が不正: {len(df_10m)}"
     h1_10m = df_10m[df_10m["horse_number"] == 1]["odds_value"].iloc[0]
     h2_10m = df_10m[df_10m["horse_number"] == 2]["odds_value"].iloc[0]
     assert h1_10m == 3.5 and h2_10m == 7.0, f"10分前のオッズが不一致: {h1_10m}, {h2_10m}"
@@ -95,11 +95,30 @@ def test_2_as_of_time_prediction_reproduction(test_db_path: Path):
 
     # 3. 5分前 (15:35) 時点の取得
     df_5m = get_latest_odds_as_of(race_id, "2026-05-01T15:35:00", db_path=test_db_path)
-    assert len(df_5m) == 2
+    assert len(df_5m) == 2, f"5分前の取得件数が不正: {len(df_5m)}"
     h1_5m = df_5m[df_5m["horse_number"] == 1]["odds_value"].iloc[0]
     h2_5m = df_5m[df_5m["horse_number"] == 2]["odds_value"].iloc[0]
     assert h1_5m == 3.0 and h2_5m == 8.0, f"5分前のオッズが不一致: {h1_5m}, {h2_5m}"
     print("  [OK] 5分前時点:  馬1=3.0, 馬2=8.0 を正確に取得（確定オッズ15:45は完全遮断）")
+
+    # 4. 未来取得遮断テスト: 観測時刻は15:10だが取得時刻が15:40のデータ（事後取得データ）を追加
+    late_fetch_data = [
+        {"race_id": race_id, "horse_number": 1, "odds_value": 99.0, "popularity": 9, "observed_at": "2026-05-01T15:10:00", "fetched_at": "2026-05-01T15:40:00", "source": "JV-Link", "data_status": "pre_30m_late"},
+    ]
+    record_odds_snapshot(late_fetch_data, test_db_path)
+    # 15:10時点の判断では、15:40に取得されたオッズは参照されず、以前の 4.0 が得られるべき
+    df_leak_check = get_latest_odds_as_of(race_id, "2026-05-01T15:10:00", db_path=test_db_path)
+    h1_leak = df_leak_check[df_leak_check["horse_number"] == 1]["odds_value"].iloc[0]
+    assert h1_leak == 4.0, f"未来取得オッズが混入しています: {h1_leak}"
+    print("  [OK] 未来取得オッズ遮断: 取得時刻(fetched_at)が予測時点より未来のデータは完全に遮断されることを確認")
+
+    # 5. 確定オッズ遮断テスト: 確定後(15:50)時点を指定しても final_settled のデータは除外されるべき
+    df_post = get_latest_odds_as_of(race_id, "2026-05-01T15:50:00", db_path=test_db_path)
+    # final_settled (2.8, 9.0) は除外され、直前の pre_5m (3.0, 8.0) が得られるべき
+    h1_post = df_post[df_post["horse_number"] == 1]["odds_value"].iloc[0]
+    h2_post = df_post[df_post["horse_number"] == 2]["odds_value"].iloc[0]
+    assert h1_post == 3.0 and h2_post == 8.0, f"final_settledオッズが混入しています: {h1_post}, {h2_post}"
+    print("  [OK] 確定ステータス遮断: final_settled/final/post_race のオッズは予測時点で完全遮断されることを確認")
 
 
 def test_3_market_ev_mathematical_identity():
