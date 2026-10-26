@@ -46,6 +46,23 @@ class OddsBatchAtomicTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 record_odds_snapshot([row(odds_value=8)], db_path=db)
 
+    def test_identical_existing_timestamp_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "odds.db"
+            self.assertEqual(record_odds_snapshot([row()], db_path=db), 1)
+            with self.assertRaises(ValueError):
+                record_odds_snapshot([row()], db_path=db)
+
+    def test_conflict_does_not_insert_other_horses(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "odds.db"
+            record_odds_snapshot([row()], db_path=db)
+            with self.assertRaises(ValueError):
+                record_odds_snapshot([row(horse_number=2), row(odds_value=7)], db_path=db)
+            with sqlite3.connect(db) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 1)
+
     def test_valid_rows_saved(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
