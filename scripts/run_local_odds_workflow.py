@@ -13,6 +13,7 @@ from scripts.import_odds_folder import ingest_directory
 from scripts.import_manual_odds import validate_snapshot
 from scripts.prerace_readiness import race_readiness
 from scripts.render_prerace_dashboard import render_dashboard
+from scripts.render_race_index import write_index
 
 
 def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
@@ -69,9 +70,11 @@ def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
     audit_path = output_dir / "quality_audit.json"
     audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n",
                           encoding="utf-8")
-    return {"status": "PARTIAL_FAILURE" if batch["rejected_files"] else "COMPLETE",
-            "bet_status": "NO_BET", "batch": batch,
-            "audit": str(audit_path), "dashboards": dashboards}
+    result = {"status": "PARTIAL_FAILURE" if batch["rejected_files"] else "COMPLETE",
+              "bet_status": "NO_BET", "batch": batch,
+              "audit": str(audit_path), "dashboards": dashboards}
+    result["index"] = write_index(result, output_dir)
+    return result
 
 
 def main():
