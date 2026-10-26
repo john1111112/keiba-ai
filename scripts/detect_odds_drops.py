@@ -69,6 +69,20 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
         grouped.setdefault((str(rid), int(horse)), []).append((obs, got, price, source, timing))
 
     alerts, compared = [], 0
+    # Market-wide reference: other horses in the same race and publication window.
+    market_changes = {}
+    for (rid, horse), points in grouped.items():
+        by_time = {}
+        for p in points:
+            if p[0] not in by_time or p[1] < by_time[p[0]][1]:
+                by_time[p[0]] = p
+        ordered = sorted(by_time.values(), key=lambda x: x[0])
+        if len(ordered) < 2:
+            continue
+        prev, curr = ordered[-2:]
+        gap = (curr[0] - prev[0]).total_seconds() / 60
+        if 0 < gap <= max_gap_minutes:
+            market_changes[(rid, horse)] = (prev[0], curr[0], (prev[2] - curr[2]) / prev[2] * 100)
     for (rid, horse), points in sorted(grouped.items()):
         # Identical publication times are not distinct market updates.
         distinct = {}
@@ -85,10 +99,16 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
         compared += 1
         drop = (previous[2] - latest[2]) / previous[2] * 100
         if drop >= threshold_pct:
+            peers = [change for (peer_rid, peer_horse), (peer_prev, peer_curr, change) in market_changes.items()
+                     if peer_rid == rid and peer_horse != horse and peer_prev == previous[0] and peer_curr == latest[0]]
+            peer_avg = sum(peers) / len(peers) if peers else None
             alerts.append({
                 "race_id": rid, "horse_number": horse,
                 "previous_odds": previous[2], "latest_odds": latest[2],
                 "drop_pct": round(drop, 2), "gap_minutes": round(minutes, 2),
+                "peer_count": len(peers),
+                "peer_avg_drop_pct": round(peer_avg, 2) if peer_avg is not None else None,
+                "relative_drop_pct_points": round(drop - peer_avg, 2) if peer_avg is not None else None,
                 "previous_observed_at": previous[0].isoformat(),
                 "latest_observed_at": latest[0].isoformat(),
                 "signal": "ODDS_DROP_ONLY_NOT_PROOF_OF_LARGE_BET"
