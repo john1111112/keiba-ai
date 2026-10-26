@@ -342,9 +342,9 @@ def convert_multiple_jvlink_records_to_feed(records: List[bytes]) -> Dict[str, A
     - 他レースの馬やオッズが混ざることを完全に排除。
     """
     ra_by_key: Dict[str, Dict[str, Any]] = {}
-    se_by_key: Dict[str, List[Dict[str, Any]]] = {}
-    seen_horses_by_key: Dict[str, Set[int]] = {}
-    odds_by_key: Dict[str, Dict[int, Tuple[float, str]]] = {}
+    se_by_key: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    ra_version_by_key: Dict[str, str] = {}
+    odds_by_key: Dict[str, Dict[int, Tuple[float, Optional[str]]]] = {}
 
     for raw in records:
         if not isinstance(raw, (bytes, bytearray)) or len(raw) < 2:
@@ -357,30 +357,30 @@ def convert_multiple_jvlink_records_to_feed(records: List[bytes]) -> Dict[str, A
         if rtype == "RA":
             parsed_ra = parse_jv_ra_record(raw)
             rkey = parsed_ra["race_key"]
-            if rkey in ra_by_key:
-                # 同一レースキーの二重RAは更新または拒絶
-                continue
-            ra_by_key[rkey] = parsed_ra
+            kubun = raw[2:3].decode("ascii")
+            # Per JRA-VAN, records are not guaranteed sorted. A final pre-race
+            # DataKubun 2 header supersedes a preliminary DataKubun 1 header.
+            previous = ra_version_by_key.get(rkey)
+            if previous is None or kubun >= previous:
+                ra_by_key[rkey] = parsed_ra
+                ra_version_by_key[rkey] = kubun
 
         elif rtype == "SE":
             parsed_se = parse_jv_se_record(raw)
             rkey = parsed_se["race_key"]
             h_num = parsed_se["horse_number"]
-            if rkey not in se_by_key:
-                se_by_key[rkey] = []
-                seen_horses_by_key[rkey] = set()
-
-            if h_num in seen_horses_by_key[rkey]:
-                raise ValueError(f"Duplicate horse number {h_num} in race '{rkey}'")
-            seen_horses_by_key[rkey].add(h_num)
-            se_by_key[rkey].append(parsed_se)
+            # A later record for the same horse replaces an earlier correction.
+            se_by_key.setdefault(rkey, {})[h_num] = parsed_se
 
         elif rtype == "O1":
             parsed_o1 = parse_jv_o1_record(raw)
             rkey = parsed_o1["race_key"]
-            if rkey not in odds_by_key:
-                odds_by_key[rkey] = {}
-            odds_by_key[rkey].update(parsed_o1["odds_map"])
+            entries = odds_by_key.setdefault(rkey, {})
+            for horse_num, quote in parsed_o1["odds_map"].items():
+                previous = entries.get(horse_num)
+                if previous is None or (quote[1] is not None and
+                                        (previous[1] is None or quote[1] >= previous[1])):
+                    entries[horse_num] = quote
 
     if not ra_by_key:
         raise ValueError("No valid RA (race header) record found in JV-Data")
@@ -397,7 +397,7 @@ def convert_multiple_jvlink_records_to_feed(records: List[bytes]) -> Dict[str, A
     # レースキー昇順で整列
     for rkey in sorted(ra_by_key.keys()):
         ra = ra_by_key[rkey]
-        horses = se_by_key.get(rkey, [])
+        horses = list(se_by_key.get(rkey, {}).values())
         odds_map = odds_by_key.get(rkey, {})
 
         if not horses:
