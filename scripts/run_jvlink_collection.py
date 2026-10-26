@@ -22,9 +22,11 @@ def collect(factory, db_path, *, sid, from_time, now=None):
         except Exception as exc:
             reports.append({"spec": spec, "status": "FAILED",
                             "error_type": type(exc).__name__, "bet_status": "NO_BET"})
-    return {"status": "RAW_CAPTURE_COMPLETE" if all(
-        row["status"] == "RAW_RECORDS_STORED_UNPARSED" for row in reports
-    ) else "RAW_CAPTURE_PARTIAL_FAILURE",
+    successful = all(row["status"] == "RAW_RECORDS_STORED_UNPARSED" for row in reports)
+    received = sum(row.get("received", 0) for row in reports)
+    return {"status": ("RAW_CAPTURE_PARTIAL_FAILURE" if not successful else
+                       "RAW_CAPTURE_EMPTY" if received == 0 else "RAW_CAPTURE_COMPLETE"),
+        "received": received, "inserted": sum(row.get("inserted", 0) for row in reports),
         "checked_at": now or datetime.now(timezone.utc).isoformat(),
         "reports": reports, "bet_status": "NO_BET"}
 
