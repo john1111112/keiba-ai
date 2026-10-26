@@ -25,3 +25,27 @@ python -m scripts.run_unattended_alerts --candidates data/verified_alert_candida
 通知処理自体は、タスクスケジューラから `python.exe -m scripts.run_unattended_alerts --candidates ... --deliver` を呼び出す設計です。作業フォルダをリポジトリのルートに指定してください。タスクは「ユーザーがログオンしている場合のみ実行」を選びます。バルーン通知はWindows環境・通知設定によって表示されない場合があり、実機検証が必要です。
 
 **注意:** 現在は自動取得や候補生成が未実装なので、タスクを設定してもおすすめレースが自動的に発見されるわけではありません。PCの電源OFFやスリープ中は実行されません。通知表示に失敗した場合は失敗数を返し、同じ候補への再試行を抑制します。
+
+## タスクスケジューラの登録（PowerShell）
+
+通常は**設定確認だけ**でWindowsを変更しません：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_alert_task.ps1
+```
+
+定期実行を登録する場合（初期状態では通知送信しない安全なドライラン）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_alert_task.ps1 -Install -IntervalMinutes 5
+```
+
+実際の通知送信は、**認証済みのライブデータと本番モデルが接続・検証された後**、明示的に `-EnableDelivery` を付けて再登録します。候補データが存在しない場合、ランナーは `NO_CANDIDATE_DATA` を返して安全に終了します。
+
+削除：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_alert_task.ps1 -Remove
+```
+
+注意：このスクリプトはWindows上で実際に実行・検証したわけではありません。タスクはログオン中のみ動作し、アプリを閉じていても実行できますが、Windowsからサインアウトした状態やスリープ中は通知できません。
