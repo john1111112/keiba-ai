@@ -73,7 +73,10 @@ def run_schedule_scan(
             raise ValueError("Every race manifest entry must be an object")
         df_feat = pd.DataFrame(manifest)
     else:
-        df_feat = pd.read_parquet(features_path)
+        return {"status": "BLOCKED_NOT_RACE_MANIFEST",
+                "message": "Only explicit JSON upcoming-race manifests are accepted; historical feature tables are forbidden.",
+                "processed_races": 0, "captured_count": 0,
+                "missing_count": 0, "snapshots": []}
     # Race result fields cannot certify upcoming status; require a separate
     # explicit upcoming race manifest before scanning.
     if "race_status" not in df_feat.columns:
