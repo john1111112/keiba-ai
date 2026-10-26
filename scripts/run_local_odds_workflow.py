@@ -73,27 +73,25 @@ def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
         timeline_target = output_dir / ("race_" + safe_name + "_timeline.json")
         timeline_target.write_text(json.dumps(timeline, ensure_ascii=False, indent=2) + "\n",
                                    encoding="utf-8")
-        # Produce an odds movement report only when two distinct publication
-        # times are available. Never synthesize a baseline from missing odds.
+        # Compare two actual receipt cutoffs, not publication timestamps.
+        # A delayed early publication cannot be treated as an early receipt.
         movement_path = None
         observations = timeline.get("observations", [])
-        if len(observations) >= 2:
-            # First publication is not necessarily available at publication
-            # time. Use the latest arrival within the first snapshot so the
-            # baseline contains only data actually fetched by that cutoff.
-            first = max(parse_time(horse["fetched_at"])
-                        for horse in observations[0]["horses"]).isoformat()
-            last = fetched.isoformat()
-            if parse_time(first) >= parse_time(last):
-                first = None
-            if first is not None:
-                movement = compare_odds(db_path, race, earlier=first, later=last,
-                                        race_start_time=starts[race].isoformat())
-                movement_target = output_dir / ("race_" + safe_name + "_movement.json")
-                movement_target.write_text(
-                    json.dumps(movement, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
-                movement_path = str(movement_target)
+        receipt_times = sorted({
+            parse_time(horse["fetched_at"])
+            for observation in observations for horse in observation["horses"]
+            if parse_time(horse["fetched_at"]) is not None
+        })
+        if len(receipt_times) >= 2 and receipt_times[0] < receipt_times[-1]:
+            movement = compare_odds(
+                db_path, race, earlier=receipt_times[0].isoformat(),
+                later=receipt_times[-1].isoformat(),
+                race_start_time=starts[race].isoformat())
+            movement_target = output_dir / ("race_" + safe_name + "_movement.json")
+            movement_target.write_text(
+                json.dumps(movement, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+            movement_path = str(movement_target)
         dashboards.append({"race_id": race, "html": str(target),
                            "timeline": str(timeline_target),
                            "movement": movement_path, "bet_status": "NO_BET"})
