@@ -66,7 +66,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             raise JVLinkError("JVOpen failed: " + str(rc))
         opened = True
         waiting_since = None
-        for _ in range(max_records):
+        for _ in range(max_records + 1):
             response = link.JVRead(buffer_size)
             if not isinstance(response, tuple) or len(response) < 2:
                 raise JVLinkError("Unexpected JVRead result; SDK adapter needs adjustment")
@@ -97,6 +97,8 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 raise JVLinkError("JVRead did not return raw bytes")
             if len(raw) < rc:
                 raise JVLinkError("JVRead buffer shorter than declared length")
+            if len(records) >= max_records:
+                raise JVLinkError("JVRead record limit reached without EOF")
             total_bytes += rc
             if total_bytes > max_total_bytes:
                 raise JVLinkError("JVRead capture exceeded byte budget; no partial capture committed")
