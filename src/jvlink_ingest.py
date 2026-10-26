@@ -83,7 +83,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             if isinstance(raw, str):
                 raise JVLinkError("JVRead returned decoded text; raw bytes are required to preserve official fixed-width offsets")
             if not isinstance(raw, bytes):
-                raise JVLinkError("JVRead did not return bytes or CP932 text")
+                raise JVLinkError("JVRead did not return raw bytes")
             if len(raw) < rc:
                 raise JVLinkError("JVRead buffer shorter than declared length")
             records.append(raw[:rc])
