@@ -15,6 +15,8 @@ class MarketTableTests(unittest.TestCase):
         result = render_market_table(timeline, movement)
         self.assertIn("4.0", result)
         self.assertIn("-20.0%", result)
+        self.assertIn("25.0%", result)
+        self.assertIn("市場暗示確率", result)
         self.assertIn("NO BET", result)
 
     def test_race_id_escaped(self):
