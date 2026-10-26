@@ -157,6 +157,10 @@ def main(argv=None):
         "FEED_PARSE_ERROR", "MODEL_LOAD_ERROR",
         "MODEL_FILE_NOT_FOUND", "NO_FEED_FILE",
     }
+    # Historical schedule-only CLI treats missing manifests as a no-op;
+    # live scheduled tasks must still report missing/failed data as errors.
+    if result.get("status") == "NO_UPCOMING_MANIFEST" and not args.use_jvlink:
+        return 0
     return 1 if result.get("status") in failures else 0
 
 
