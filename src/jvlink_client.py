@@ -10,6 +10,8 @@ JV-Link 統合クライアント & 実接続オーケストレーター (JV-Link
 """
 from __future__ import annotations
 import json
+import base64
+import binascii
 import math
 import os
 import platform
@@ -51,6 +53,41 @@ class JVLinkBridgeError(JVLinkError):
     """32bit ワーカープロセスとの通信失敗"""
     pass
 
+
+
+def decode_worker_records(payload: Dict[str, Any], kind: str) -> List[bytes]:
+    """Prefer byte-exact base64 JV-Data records over decoded CP932 text.
+
+    The current worker emits both forms. The legacy textual form is accepted
+    for old test fixtures, but real acquisitions use the exact byte form.
+    """
+    lengths = {"ra": (b"RA", 1272), "se": (b"SE", 555), "o1": (b"O1", 962)}
+    if kind not in lengths:
+        raise ValueError(f"Unsupported JV-Link record kind: {kind}")
+    rec_type, rec_length = lengths[kind]
+    b64_field = kind + "_records_b64"
+    text_field = kind + "_records"
+    encoded_items = payload.get(b64_field)
+    if encoded_items is not None:
+        if not isinstance(encoded_items, list):
+            raise JVLinkBridgeError(f"Worker {b64_field} must be a list")
+        try:
+            records = [base64.b64decode(value, validate=True) for value in encoded_items]
+        except (ValueError, TypeError, binascii.Error) as exc:
+            raise JVLinkBridgeError(f"Corrupted worker base64 records: {exc}") from exc
+        if isinstance(payload.get(text_field), list) and len(records) != len(payload[text_field]):
+            raise JVLinkBridgeError(f"Worker record count mismatch: {kind}")
+    else:
+        # Backward-compatibility for legacy mocked worker payloads.
+        items = payload.get(text_field, [])
+        if not isinstance(items, list):
+            raise JVLinkBridgeError(f"Worker {text_field} must be a list")
+        records = [value.encode("cp932", errors="strict") for value in items]
+    for record in records:
+        if (len(record) != rec_length or record[:2] != rec_type
+                or record[-2:] != b"\r\n"):
+            raise JVLinkBridgeError(f"Malformed {kind} JV-Link raw record")
+    return records
 
 
 def _verified_32bit_python(candidate: str) -> bool:
@@ -368,9 +405,9 @@ class JVLinkClient:
             raise JVLinkError(f"JV-Link acquisition failed ({status}): {err}")
 
         # レコードの抽出とバイト変換
-        ra_list = [r.encode("cp932", errors="strict") for r in worker_res.get("ra_records", [])]
-        se_list = [r.encode("cp932", errors="strict") for r in worker_res.get("se_records", [])]
-        o1_list = [r.encode("cp932", errors="strict") for r in worker_res.get("o1_records", [])]
+        ra_list = decode_worker_records(worker_res, "ra")
+        se_list = decode_worker_records(worker_res, "se")
+        o1_list = decode_worker_records(worker_res, "o1")
         all_records = ra_list + se_list + o1_list
 
         if not all_records:
@@ -402,8 +439,7 @@ class JVLinkClient:
                             or odds_result.get("auth_status") != "AUTHENTICATED"
                             or odds_result.get("fetch_status") != "SUCCESS"):
                         raise JVLinkError(str(odds_result.get("error") or "No O1 odds"))
-                    for encoded_record in odds_result.get("o1_records", []):
-                        raw_odds = encoded_record.encode("cp932", errors="strict")
+                    for raw_odds in decode_worker_records(odds_result, "o1"):
                         if (len(raw_odds) != 962 or raw_odds[:2] != b"O1"
                                 or raw_odds[11:27].decode("ascii") != race_key):
                             raise JVLinkError("O1 record invalid or attached to wrong race")
