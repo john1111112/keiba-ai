@@ -116,8 +116,25 @@ def train_research_model(bundles_dir, labels_path, *, train_before, validate_bef
     baseline = np.asarray([1.0 / runners_per_race[item[1]] for item in valid])
     if not np.all(np.isfinite(prob)):
         raise ValueError("Nonfinite probabilities")
-    # Each horse's output is a binary win score, NOT a calibrated race-level
-    # win distribution. It must not be used to calculate betting EV.
+    # Research-only race normalization. A binary classifier does not guarantee
+    # per-race win probabilities sum to 1; this is NOT calibration.
+    grouped = {}
+    for idx, item in enumerate(valid):
+        grouped.setdefault(item[1], []).append(idx)
+    normalized = np.zeros_like(prob)
+    race_nll, baseline_race_nll = [], []
+    for indices in grouped.values():
+        scores = np.clip(prob[indices], 0.0, 1.0)
+        total_score = float(scores.sum())
+        if not math.isfinite(total_score) or total_score <= 0:
+            raise ValueError("Cannot normalize zero or nonfinite race scores")
+        normalized[indices] = scores / total_score
+        winning_index = next(idx for idx in indices if y_valid[idx] == 1)
+        race_nll.append(-math.log(max(float(normalized[winning_index]), 1e-15)))
+        baseline_race_nll.append(math.log(len(indices)))
+    if not np.all(np.isfinite(normalized)):
+        raise ValueError("Nonfinite normalized scores")
+    # No model file or individual horse predictions are exported.
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode("utf-8"))
@@ -138,12 +155,15 @@ def train_research_model(bundles_dir, labels_path, *, train_before, validate_bef
         "validate_before": val_cutoff.isoformat(),
         "features": fields,
         "brier_score": float(brier_score_loss(y_valid, prob)),
+        "race_normalized_brier_research_only": float(brier_score_loss(y_valid, normalized)),
+        "race_winner_nll_research_only": float(np.mean(race_nll)),
+        "uniform_race_winner_nll": float(np.mean(baseline_race_nll)),
         "uniform_race_baseline_brier": float(brier_score_loss(y_valid, baseline)),
         "uniform_race_baseline_log_loss": float(log_loss(y_valid, baseline, labels=[0, 1])),
         "log_loss": float(log_loss(y_valid, prob, labels=[0, 1])),
         "roc_auc": float(roc_auc_score(y_valid, prob)),
         "input_sha256": digest.hexdigest(),
-        "warning": "Manual provenance unverified; binary scores not calibrated race win probabilities; no EV or bets",
+        "warning": "Manual provenance unverified; race-normalized scores are NOT calibrated win probabilities; no EV or bets",
     }
 
 
