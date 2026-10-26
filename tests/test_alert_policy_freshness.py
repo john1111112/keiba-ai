@@ -28,6 +28,12 @@ class AlertFreshnessTests(unittest.TestCase):
         self.assertFalse(result["notification_allowed"])
         self.assertIn("Stale odds", result["reason"])
 
+    def test_prediction_before_odds_publication_is_blocked(self):
+        row = self.candidate()
+        row["prediction_created_at"] = "2026-10-27T13:09:00+09:00"
+        result = evaluate_alert(row, now="2026-10-27T13:10:00+09:00")
+        self.assertFalse(result["notification_allowed"])
+
     def test_old_prediction_is_blocked(self):
         row = self.candidate()
         row["prediction_created_at"] = "2026-10-27T13:00:00+09:00"
