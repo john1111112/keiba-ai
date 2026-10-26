@@ -32,6 +32,10 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid buffer size")
     if not isinstance(from_time, str) or len(from_time) != 12 or not from_time.isdigit():
         raise ValueError("from_time must be YYYYMMDDHHMM")
+    try:
+        datetime.strptime(from_time, "%Y%m%d%H%M")
+    except ValueError as exc:
+        raise ValueError("Invalid JV-Link calendar timestamp") from exc
     if max_wait_seconds < 0 or max_wait_seconds > 600:
         raise ValueError("Invalid wait timeout")
     opened = False
@@ -77,7 +81,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 raise JVLinkError("JVRead failed: " + str(rc))
             raw = response[1]
             if isinstance(raw, str):
-                raw = raw.encode("cp932", errors="strict")
+                raise JVLinkError("JVRead returned decoded text; raw bytes are required to preserve official fixed-width offsets")
             if not isinstance(raw, bytes):
                 raise JVLinkError("JVRead did not return bytes or CP932 text")
             if len(raw) < rc:
