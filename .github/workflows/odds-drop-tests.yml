@@ -6,6 +6,7 @@ on:
       - "scripts/detect_odds_drops.py"
       - "scripts/import_manual_odds.py"
       - "scripts/prerace_readiness.py"
+      - "src/odds_provider.py"
       - "tests/test_odds_drops.py"
       - "tests/test_manual_odds.py"
       - "tests/test_prerace_readiness.py"
