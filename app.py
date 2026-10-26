@@ -289,7 +289,17 @@ with tab0:
     else:
         try:
             # AI予測マニフェストの生成（win_model利用）
-            dash_report = build_dashboard(feed_file)
+            if feed_file.name == "latest_jvlink_feed.json":
+                from scripts.build_live_jvlink_dashboard import build_live_dashboard
+                dash_report = build_live_dashboard(feed_file)
+            else:
+                dash_report = build_dashboard(feed_file)
+            if dash_report.get("diagnostics"):
+                st.warning(" / ".join(dash_report["diagnostics"][:3]))
+            if dash_report.get("status") not in (
+                "VERIFIED_LIVE_READ_ONLY", "INFERENCE_PARTIAL", "READ_ONLY_UNCERTIFIED"
+            ):
+                st.info(f"取得・解析状態: {dash_report.get('status', 'UNKNOWN')}")
             rows = dash_report.get("rows", [])
             if rows:
                 df_dash = pd.DataFrame(rows)
