@@ -1,7 +1,7 @@
 """Offline JV-Link COM transport regression tests with no SDK or subscription."""
 import unittest
 
-from src.jvlink_worker import execute_jvlink_fetch, validate_records_integrity
+from src.jvlink_worker import execute_jvlink_fetch, validate_records_integrity, run_worker_capture
 from test_jvdata_spec_regression import race_rec, horse_rec, odds_rec
 
 
@@ -66,6 +66,19 @@ class TransportContractTest(unittest.TestCase):
         raw = race_rec().decode("cp932")
         horse = horse_rec(1, "2026102706010102").decode("cp932")
         self.assertFalse(validate_records_integrity([raw], [horse], [])[0])
+
+    def test_placeholder_sid_never_touches_com(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "worker.json"
+            result = run_worker_capture(
+                sid="UNKNOWN", data_spec="0B15",
+                from_time="20261027000000", output_path=str(out)
+            )
+            self.assertFalse(result["success"])
+            self.assertEqual(result["auth_status"], "SOFTWARE_ID_MISSING")
+            self.assertTrue(out.is_file())
 
     def test_truncated_jvgets_is_rejected(self):
         raw = race_rec()
