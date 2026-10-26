@@ -254,7 +254,12 @@ def execute_jvlink_fetch(
     if error_msg:
         fetch_status = "FETCH_ERROR"
     elif total_count == 0:
-        fetch_status = "NO_RECORDS_FETCHED"
+        # An open stream with immediate EOF is also normal for a racing
+        # date whose race card has not been published yet.
+        fetch_status = (
+            "NO_DATA_AVAILABLE" if data_spec == "0B15" and mode == "rt"
+            else "NO_RECORDS_FETCHED"
+        )
         error_msg = "No race records were returned from JV-Link"
     else:
         if data_spec in ("0B31", "0B30"):
