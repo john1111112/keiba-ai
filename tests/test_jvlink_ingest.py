@@ -1,3 +1,4 @@
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -29,7 +30,7 @@ class JVLinkIngestTests(unittest.TestCase):
                              from_time="202610270000")
             self.assertEqual(result["received"], 1)
             self.assertEqual(link.closed, 1)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 self.assertEqual(conn.execute("SELECT payload FROM jv_raw_records").fetchone()[0], b"RA12")
 
     def test_limit_allows_final_eof(self):
