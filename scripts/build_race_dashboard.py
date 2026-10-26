@@ -17,7 +17,8 @@ def build_dashboard(snapshot_path, *, now=None, predictions=None):
     if not isinstance(raw, dict) or set(raw) != {"received_at", "feed", "provenance_certified"}:
         raise ValueError("Invalid snapshot envelope")
     received = timestamp(raw["received_at"])
-    if raw["provenance_certified"] is not False:\n        raise ValueError("Untrusted provenance flag")\n    if received > timestamp(current):
+    if raw["provenance_certified"] is not False:
+        raise ValueError("Untrusted provenance flag")\n    if received > timestamp(current):
         raise ValueError("Snapshot received in the future")
     validate_feed(raw["feed"], received_at=current)
     if timestamp(raw["feed"]["published_at"]) > received:
