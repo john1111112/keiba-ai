@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,6 +39,30 @@ class ManualOddsTests(unittest.TestCase):
         data["odds"].append(dict(data["odds"][0]))
         with self.assertRaises(ValueError):
             validate_snapshot(data)
+
+    def test_import_idempotent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "snapshot.json"
+            target = Path(folder) / "odds.db"
+            source.write_text(json.dumps(sample()), encoding="utf-8")
+            self.assertEqual(import_snapshot(source, target)["inserted_count"], 1)
+            self.assertEqual(import_snapshot(source, target)["skipped_duplicate_count"], 1)
+            with sqlite3.connect(target) as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM odds_timeline").fetchone()[0], 1)
+
+    def test_conflicting_odds_rejected_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "snapshot.json"
+            target = Path(folder) / "odds.db"
+            source.write_text(json.dumps(sample()), encoding="utf-8")
+            import_snapshot(source, target)
+            revised = sample()
+            revised["odds"][0]["odds_value"] = 3.0
+            source.write_text(json.dumps(revised), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                import_snapshot(source, target)
+            with sqlite3.connect(target) as conn:
+                self.assertEqual(conn.execute("SELECT odds_value FROM odds_timeline").fetchone()[0], 5.0)
 
     def test_dry_run_no_db_created(self):
         with tempfile.TemporaryDirectory() as folder:
