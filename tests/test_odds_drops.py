@@ -56,6 +56,30 @@ class OddsDropTests(unittest.TestCase):
         self.add(2, "2026-10-25T07:00:00+00:00")
         self.assertEqual(detect_drops(self.db)["alerts"], [])
 
+    def test_asof_excludes_later_publication(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(2, "2026-10-25T06:05:00+00:00")
+        result = detect_drops(self.db, as_of_time="2026-10-25T06:03:00+00:00")
+        self.assertEqual(result["alerts"], [])
+
+    def test_asof_excludes_late_arrival(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(2, "2026-10-25T06:02:00+00:00",
+                 fetched="2026-10-25T06:08:00+00:00")
+        result = detect_drops(self.db, as_of_time="2026-10-25T06:05:00+00:00")
+        self.assertEqual(result["alerts"], [])
+
+    def test_asof_accepts_known_data(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(5, "2026-10-25T06:05:00+00:00")
+        result = detect_drops(self.db, as_of_time="2026-10-25T06:06:00+00:00")
+        self.assertEqual(len(result["alerts"]), 1)
+
+    def test_asof_rejects_naive_time(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        with self.assertRaises(ValueError):
+            detect_drops(self.db, as_of_time="2026-10-25T06:05:00")
+
     def test_no_db(self):
         self.assertEqual(detect_drops(self.db.parent / "absent.db")["status"], "NO_ODDS_DB")
 
