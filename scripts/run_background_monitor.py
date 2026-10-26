@@ -110,7 +110,8 @@ def run_daemon(
     manifest_path: str = "data/authorized_feed/latest.json",
     db_path: str = "data/alert_state.db",
     interval_seconds: int = 60,
-    max_cycles: Optional[int] = None
+    max_cycles: Optional[int] = None,
+    use_jvlink: bool = False
 ) -> None:
     global _keep_running
     if not acquire_process_lock():
@@ -131,7 +132,7 @@ def run_daemon(
             cycle_count += 1
             now_iso = datetime.now(timezone.utc).isoformat()
             try:
-                result = run_cycle(manifest_path, db_path)
+                result = run_cycle(manifest_path, db_path, use_jvlink=use_jvlink)
                 status_payload = {
                     "daemon_status": "RUNNING",
                     "pid": os.getpid(),
@@ -180,12 +181,14 @@ def main(argv=None):
     parser.add_argument("--db", default="data/alert_state.db")
     parser.add_argument("--interval", type=int, default=60, help="Scan interval in seconds (default: 60)")
     parser.add_argument("--max-cycles", type=int, default=None, help="Stop after N cycles (for testing)")
+    parser.add_argument("--use-jvlink", action="store_true", help="Fetch fresh authorized JRA-VAN races and odds before each scan")
     args = parser.parse_args(argv)
     run_daemon(
         manifest_path=args.manifest,
         db_path=args.db,
         interval_seconds=args.interval,
-        max_cycles=args.max_cycles
+        max_cycles=args.max_cycles,
+        use_jvlink=args.use_jvlink
     )
 
 
