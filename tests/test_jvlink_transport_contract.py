@@ -60,6 +60,28 @@ class TransportContractTest(unittest.TestCase):
         self.assertEqual(base64.b64decode(result["se_records_b64"][0]), raw_se)
         self.assertTrue(link.closed)
 
+    def test_empty_published_day_is_not_a_transport_error(self):
+        class NotPublished(FakeJVGetsLink):
+            def JVRTOpen(self, data_spec, key):
+                self.calls.append(("JVRTOpen", data_spec, key))
+                return -1
+        link = NotPublished([])
+        result = execute_jvlink_fetch(
+            link, "0B15", "20261027000000", mode="rt"
+        )
+        self.assertEqual(result["fetch_status"], "NO_DATA_AVAILABLE")
+        self.assertEqual(result["records_count"], 0)
+        self.assertEqual(result["ra_records"], [])
+
+    def test_other_jvlink_open_error_is_still_failure(self):
+        class BadAuth(FakeJVGetsLink):
+            def JVRTOpen(self, data_spec, key):
+                return -301
+        result = execute_jvlink_fetch(
+            BadAuth([]), "0B15", "20261027000000", mode="rt"
+        )
+        self.assertEqual(result["fetch_status"], "OPEN_FAILED_CODE_-301")
+
     def test_odds_only_batch_can_be_ingested(self):
         link = FakeJVGetsLink([odds_rec()])
         result = execute_jvlink_fetch(
