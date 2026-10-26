@@ -116,19 +116,17 @@ def record_odds_snapshot(
         return 0
 
     target_path = Path(db_path or ODDS_HISTORY_DB_PATH)
-    init_odds_history_db(target_path)
-
     valid_rows = []
     for r in odds_records:
         # 最低限の必須項目バリデーション
         if not r.get("race_id") or r.get("horse_number") is None:
-            continue
+            raise ValueError("Missing race ID or horse number")
         try:
             val = float(r.get("odds_value", 0.0))
             if val < 1.0 or not np.isfinite(val):
-                continue
-        except (ValueError, TypeError):
-            continue
+                raise ValueError("Invalid odds value")
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid odds value") from exc
 
         observed_at = r.get("observed_at")
         fetched_at = r.get("fetched_at")  # Never invent a fetch timestamp
@@ -136,26 +134,29 @@ def record_odds_snapshot(
             observed_dt = datetime.datetime.fromisoformat(str(observed_at))
             fetched_dt = datetime.datetime.fromisoformat(str(fetched_at))
             if observed_dt.tzinfo is None or fetched_dt.tzinfo is None or observed_dt.utcoffset() is None or fetched_dt.utcoffset() is None:
-                continue
+                raise ValueError("Timezone required for both timestamps")
             if observed_dt > fetched_dt:
-                continue
-        except (ValueError, TypeError):
-            continue
+                raise ValueError("Observed timestamp after fetched timestamp")
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid odds timestamps") from exc
 
         status_str = str(r.get("data_status", "pre_race_flash")).lower()
         if status_str in PROHIBITED_STATUSES:
-            continue
+            raise ValueError("Final or post-race odds prohibited")
 
         if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:
-            continue
+            raise ValueError("Unknown odds source")
         if str(r.get("odds_type", "win")) != "win":
-            continue
+            raise ValueError("Only win odds supported")
         try:
-            horse_num = int(r["horse_number"])
-        except (ValueError, TypeError, OverflowError):
-            continue
+            raw_horse = r["horse_number"]
+            if isinstance(raw_horse, bool) or str(raw_horse).strip() != str(int(raw_horse)):
+                raise ValueError("Horse number must be an integer")
+            horse_num = int(raw_horse)
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise ValueError("Invalid horse number") from exc
         if horse_num < 1:
-            continue
+            raise ValueError("Invalid horse number")
         row_timing = r.get("timing_tag") or timing_tag or ""
 
         valid_rows.append((
@@ -174,6 +175,9 @@ def record_odds_snapshot(
 
     if not valid_rows:
         return 0
+    if len({(row[0], row[2], row[7]) for row in valid_rows}) != len(valid_rows):
+        raise ValueError("Duplicate horse at same fetched time")
+    init_odds_history_db(target_path)
     # One atomic write: never leave a partial snapshot on failure.
     with sqlite3.connect(target_path) as conn:
         conn.executemany("""
