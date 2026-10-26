@@ -61,6 +61,18 @@ JVSTATUS_MAP = {
 }
 
 
+def _verified_32bit_python(candidate: str) -> bool:
+    """Execute candidate interpreter to confirm its pointer size, not just its filename."""
+    try:
+        result = subprocess.run(
+            [candidate, "-c", "import struct; print(struct.calcsize('P') * 8)"],
+            capture_output=True, text=True, timeout=5, check=False
+        )
+        return result.returncode == 0 and result.stdout.strip() == "32"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def find_32bit_python() -> Optional[str]:
     """
     32bit Python 実行可能ファイルのパスを探索する。
@@ -69,11 +81,11 @@ def find_32bit_python() -> Optional[str]:
     3. Windows py ランチャー (py -0p) での 32bit インストール
     """
     env_path = os.getenv("KEIBA_PYTHON32_PATH")
-    if env_path and Path(env_path).is_file():
+    if env_path and Path(env_path).is_file() and _verified_32bit_python(env_path):
         return env_path
 
     vendor_path = REPO_ROOT / "vendor" / "python32" / "python.exe"
-    if vendor_path.is_file():
+    if vendor_path.is_file() and _verified_32bit_python(str(vendor_path)):
         return str(vendor_path)
 
     if platform.system() == "Windows":
@@ -87,7 +99,7 @@ def find_32bit_python() -> Optional[str]:
             for line in res.stdout.splitlines():
                 if "-32" in line:
                     parts = line.strip().split()
-                    if parts and Path(parts[-1]).is_file():
+                    if parts and Path(parts[-1]).is_file() and _verified_32bit_python(parts[-1]):
                         return parts[-1]
         except Exception:
             pass
