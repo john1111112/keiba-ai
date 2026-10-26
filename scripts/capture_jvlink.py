@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src.jvlink_ingest import capture
+from src.jvlink_ingest import capture, validate_capture_args
 from src.jvlink_raw_store import open_jvlink
 
 
@@ -19,6 +19,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.confirm_trial_active:
         parser.error("JVInit may activate SDK usage: pass --confirm-trial-active only after deliberately starting trial")
+    validate_capture_args(sid=args.sid, data_spec=args.spec, from_time=args.from_time)
     result = capture(open_jvlink(), Path(args.db), sid=args.sid,
                      data_spec=args.spec, from_time=args.from_time)
     print(json.dumps(result, ensure_ascii=False, indent=2))
