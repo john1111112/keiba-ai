@@ -22,6 +22,7 @@ jobs:
           python -m unittest discover -s tests -p "test_jvlink*.py" -v
           python -m unittest discover -s tests -p "test_run_jvlink_collection.py" -v
           python -m unittest discover -s tests -p "test_jvlink_capture_status.py" -v
+          python -m unittest discover -s tests -p "test_audit_jvlink_raw.py" -v
       - name: Compile SDK boundary
         shell: pwsh
         run: |
