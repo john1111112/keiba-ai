@@ -410,6 +410,22 @@ def validate_fresh_race_odds(
     return True, "FRESH_ODDS_VERIFIED"
 
 
+def collect_fresh_win_odds(
+    horses: List[Dict[str, Any]], now_dt: datetime, max_age_seconds: int
+) -> Dict[int, float]:
+    """A missing quote on another horse must not block a valid buy signal.
+
+    Every quote that may trigger a notification is independently checked for
+    source timestamps and freshness. Predictions still cover all runners.
+    """
+    quotes: Dict[int, float] = {}
+    for horse in horses:
+        valid, _ = validate_fresh_race_odds([horse], now_dt, max_age_seconds)
+        if valid:
+            quotes[int(horse["horse_number"])] = float(horse["win_odds"])
+    return quotes
+
+
 def run_monitor_scan(
     feed_path: Path,
     state_db_path: Optional[Path] = None,
@@ -537,12 +553,13 @@ def run_monitor_scan(
 
         horses = race.get("horses", [])
 
-        # Inference/alerts must never treat untimestamped odds as fresh.
-        odds_ready, odds_reason = validate_fresh_race_odds(
+        # Only the quoted horse needs a fresh timestamp for a buy signal.
+        # A scratch/no-bet price on another runner cannot suppress the race.
+        fresh_win_odds = collect_fresh_win_odds(
             horses, now_dt, int(config.get("max_odds_age_seconds", 120))
         )
-        if not odds_ready:
-            logger.info(f"レース {race_id}: オッズ検証待ち ({odds_reason})")
+        if not fresh_win_odds:
+            logger.info(f"レース {race_id}: 有効な単勝オッズが未取得")
             continue
 
         # 28特徴量の安全生成（開催日を必須渡し、架空補完なし）
@@ -584,7 +601,9 @@ def run_monitor_scan(
             h_match = next((h for h in horses if int(h["horse_number"]) == h_num), None)
             if not h_match:
                 continue
-            odds = float(h_match["win_odds"])
+            odds = fresh_win_odds.get(h_num)
+            if odds is None:
+                continue
             ev = round(p_win * odds, 4)
             h_name = str(row.get("horse_name", f"馬番{h_num}"))
 
