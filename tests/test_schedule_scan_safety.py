@@ -52,6 +52,23 @@ class ScheduleScanSafetyTests(unittest.TestCase):
             record.assert_not_called()
             self.assertEqual(result["snapshots"][0]["status"], "SKIPPED_INVALID_RACE_TIME")
 
+    def test_all_timings_skips_future_targets(self):
+        with tempfile.TemporaryDirectory() as folder:
+            features = Path(folder) / "features.parquet"
+            features.touch()
+            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0,
+                                  "race_time": "2026-10-25T15:40:00+09:00"}])
+            with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
+                "scripts.run_prerace_auto_recorder.record_prerace_snapshot",
+                return_value={"odds_status": "missing", "status": "RECORDED"}
+            ) as record:
+                result = run_schedule_scan(features, Path(folder) / "odds.db",
+                                           as_of_time="2026-10-25T15:12:00+09:00",
+                                           all_timings=True)
+            self.assertEqual(record.call_count, 1)
+            self.assertEqual(sum(r["status"] == "SKIPPED_FUTURE_TARGET"
+                                 for r in result["snapshots"]), 2)
+
     def test_naive_asof_time_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             features = Path(folder) / "features.parquet"
