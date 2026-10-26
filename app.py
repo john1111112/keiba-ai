@@ -10,12 +10,12 @@ from src.database import init_db, load_all_race_data, get_db_stats, get_connecti
 from src.features import build_features, build_features_for_race_with_history
 from src.model import KeibaAIModel, KeibaAIWinModel, MODEL_PATH, MODEL_WIN_V2_28_PATH
 from scripts.build_race_dashboard import build_dashboard
-send_windows_notification = getattr(notif_mod, "send_windows_notification", None)
 
 import src.backtest as bt_mod
 importlib.reload(bt_mod)
 import src.notifier as notif_mod
 importlib.reload(notif_mod)
+send_windows_notification = getattr(notif_mod, "send_windows_notification", None)
 import src.betting_strategy as bs_mod
 importlib.reload(bs_mod)
 
@@ -254,7 +254,7 @@ with tab0:
     with col_t1:
         snapshot_source = st.selectbox(
             "📡 データ取得ソース",
-            ["最新認可フィード (data/authorized_feed/latest.json)", "発走前スケジュール (data/upcoming_races.json)", "手動スナップショット指定"],
+            ["最新JV-Link公式フィード (data/authorized_feed/latest_jvlink_feed.json)", "発走前スケジュール (data/upcoming_races.json)", "手動スナップショット指定"],
             index=0
         )
     with col_t2:
@@ -262,7 +262,7 @@ with tab0:
         st.write("")
         refresh_btn = st.button("🔄 最新オッズ・予測再計算", use_container_width=True)
 
-    feed_file = Path("data/authorized_feed/latest.json")
+    feed_file = Path("data/authorized_feed/latest_jvlink_feed.json")
     if "upcoming_races" in snapshot_source:
         feed_file = Path("data/upcoming_races.json")
     elif "手動" in snapshot_source:
@@ -272,10 +272,10 @@ with tab0:
     c_m1, c_m2, c_m3, c_m4 = st.columns(4)
     with c_m1:
         win_model_loaded = MODEL_WIN_V2_28_PATH.exists()
-        st.metric("単勝勝率AIモデル", "稼働中 (28特徴量)" if win_model_loaded else "未ロード")
+        st.metric("単勝勝率AIモデル", "モデルファイルあり（稼働は別途検証）" if win_model_loaded else "未ロード")
     with c_m2:
         feed_exists = feed_file.exists()
-        st.metric("データ取得状況", "接続済み (公式)" if feed_exists else "未接続（架空補完なし）")
+        st.metric("データ取得状況", "保存フィードあり（認証別途確認）" if feed_exists else "未接続（架空補完なし）")
     with c_m3:
         st.metric("自動通知状態", "待機中（重複抑止稼働）")
     with c_m4:
@@ -347,7 +347,7 @@ with tab0:
             if st.button("▶️ 今すぐ手動スキャン実行", use_container_width=True):
                 from scripts.run_background_scan import run_cycle
                 with st.spinner("スキャン＆推論実行中..."):
-                    res = run_cycle("data/authorized_feed/latest.json", "data/alert_state.db")
+                    res = run_cycle("data/authorized_feed/latest_jvlink_feed.json", "data/alert_state.db", use_jvlink=True)
                     st.success(f"スキャン完了: 処理レース={res.get('processed_races')}, 候補={res.get('candidates_found')}, 通知={res.get('notifications_sent')}")
                     st.rerun()
         with c_btn2:
@@ -364,7 +364,7 @@ with tab0:
             in_win_toast = st.checkbox("Windowsデスクトップ通知", value=bool(cfg.get("windows_toast_enabled", True)))
         with c_c2:
             in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
-            in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", True)))
+            in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", False)))
             
         if st.button("💾 条件設定を保存", use_container_width=True):
             cfg["min_ev"] = round(in_min_ev, 2)
