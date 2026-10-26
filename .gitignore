@@ -10,3 +10,4 @@ data/discord_config.json
 data/notified_races.json
 models/*.bak
 *.zip
+data/odds_history.db

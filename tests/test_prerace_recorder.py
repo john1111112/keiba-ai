@@ -401,7 +401,7 @@ class TestPreRaceRecorder(unittest.TestCase):
                 super().__init__("FailingTestProvider")
                 self.calls = 0
 
-            def check_connection(self):
+            def check_connection(self, race_id=None):
                 return {"provider": self.name, "connected": True, "status": "TEST"}
 
             def fetch_prerace_odds(self, race_id, scheduled_race_time, timing_tag):

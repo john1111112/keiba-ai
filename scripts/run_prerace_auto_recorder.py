@@ -2,12 +2,12 @@
 発走前オッズ・AI予測 自動実行・再試行・二重記録防止 統合ランナー (Pre-Race Auto Recorder Runner)
 
 【機能】
-1. 実際の発走前オッズ取得元（JV-Link / 許諾フィード / リアルタイム）の疎通・認可状態の診断 (--diagnose-providers)
-   未接続の場合は「未接続」と明示報告し、架空データで成功扱いしない。
-2. 直近出走予定レースの自動スキャン & 30分前・10分前・5分前スナップショット自動実行 (--schedule-scan)
+1. 実際の発走前オッズ取得元（JV-Link / 許諾フィード / リアルタイムWeb）の接続診断 (--diagnose-providers)
+   HTTP 200のみでの成功扱いを禁止。利用許諾・実オッズ・時刻情報が未確認なら未接続として報告。
+2. 次回開催・直近出走予定レースの自動記録準備 & スナップショット自動実行 (--schedule-scan)
 3. 同一 (race_id, timing_tag) に対する二重記録防止 (Idempotency Guard)
 4. オッズ取得時の指数バックオフ付き自動再試行 (Retry Logic)
-5. 既存DB (data/keiba.db) は一切変更せず、独立DB (data/odds_history.db) のみ更新
+5. 実取得件数 (captured_count) と欠損件数 (missing_count) の厳密集計・レポート出力
 """
 from __future__ import annotations
 import argparse
@@ -32,10 +32,10 @@ from src.odds_provider import OddsProviderManager
 import pandas as pd
 
 
-def diagnose_odds_sources() -> Dict[str, Any]:
+def diagnose_odds_sources(race_id: Optional[str] = None) -> Dict[str, Any]:
     """オッズ取得元の接続診断を実行"""
     mgr = OddsProviderManager()
-    return mgr.diagnose_all_providers()
+    return mgr.diagnose_all_providers(race_id=race_id)
 
 
 def run_schedule_scan(
@@ -45,7 +45,8 @@ def run_schedule_scan(
     tolerance_minutes: int = 5,
     max_retries: int = 3,
     backoff_sec: float = 1.0,
-    allow_duplicate: bool = False
+    allow_duplicate: bool = False,
+    all_timings: bool = False
 ) -> Dict[str, Any]:
     """
     出走予定レース（finish_order == 0）をスキャンし、発走30分前・10分前・5分前の
@@ -55,7 +56,9 @@ def run_schedule_scan(
         return {
             "status": "NO_FEATURES_FILE",
             "message": f"特徴量ファイルが見つかりません: {features_path}",
-            "processed_races": 0
+            "processed_races": 0,
+            "captured_count": 0,
+            "missing_count": 0
         }
 
     df_feat = pd.read_parquet(features_path)
@@ -66,7 +69,9 @@ def run_schedule_scan(
             "status": "NO_UPCOMING_RACES",
             "message": "現在、未確定（出走前）の対象レースはありません。",
             "processed_races": 0,
-            "target_snapshots": []
+            "captured_count": 0,
+            "missing_count": 0,
+            "snapshots": []
         }
 
     now_dt = datetime.datetime.fromisoformat(as_of_time) if as_of_time else datetime.datetime.now()
@@ -78,24 +83,26 @@ def run_schedule_scan(
     for race_id, group in races_grouped:
         first_row = group.iloc[0]
         date_val = str(first_row.get("date", ""))[:10]
-        # レース発走時刻（dateカラムやカスタムカラムから推測、または標準設定）
         race_time_str = first_row.get("race_time") or first_row.get("start_time")
         if not race_time_str:
-            # 時刻情報がない場合はデフォルト仮定（例: 15:40:00）または日付結合
             race_time_str = f"{date_val} 15:40:00"
 
-        # 30分前・10分前・5分前それぞれのタイミングをチェック
-        applicable_timing = determine_applicable_timing(
-            race_time_str,
-            as_of_time=now_dt.isoformat(),
-            tolerance_minutes=tolerance_minutes
-        )
+        # all_timings 指定時は pre_30m, pre_10m, pre_5m すべてを順次検証
+        timings_to_run = list(TARGET_TIMINGS) if all_timings else []
+        if not all_timings:
+            applicable = determine_applicable_timing(
+                race_time_str,
+                as_of_time=now_dt.isoformat(),
+                tolerance_minutes=tolerance_minutes
+            )
+            if applicable:
+                timings_to_run.append(applicable)
 
-        if applicable_timing:
+        for timing in timings_to_run:
             res = record_prerace_snapshot(
                 race_id=str(race_id),
                 scheduled_race_time=race_time_str,
-                timing_tag=applicable_timing,
+                timing_tag=timing,
                 features_df=group,
                 executed_at=now_dt.isoformat(),
                 db_path=db_path,
@@ -106,11 +113,20 @@ def run_schedule_scan(
             )
             results.append(res)
 
+    # 実取得件数と欠損件数の厳密集計
+    captured_count = sum(1 for r in results if r.get("odds_status") == "captured")
+    missing_count = sum(1 for r in results if r.get("odds_status") in ("missing", "rejected_post_race", "error"))
+    skipped_duplicate_count = sum(1 for r in results if r.get("is_duplicate_prevented") or r.get("status") == "SKIPPED_ALREADY_RECORDED")
+
     return {
         "status": "COMPLETED",
         "scanned_races_count": len(races_grouped),
-        "executed_snapshots_count": len(results),
+        "total_targets_evaluated": len(results),
+        "captured_count": captured_count,
+        "missing_count": missing_count,
+        "skipped_duplicate_count": skipped_duplicate_count,
         "as_of_time": now_dt.isoformat(),
+        "provider_diagnostics": provider_mgr.diagnose_all_providers(),
         "snapshots": results
     }
 
@@ -121,6 +137,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Check connectivity and readiness of all odds sources")
     parser.add_argument("--schedule-scan", action="store_true",
                         help="Scan upcoming races and automatically record applicable pre-race snapshots")
+    parser.add_argument("--all-timings", action="store_true",
+                        help="In schedule scan mode, evaluate all 3 timings (pre_30m, pre_10m, pre_5m) for all upcoming races")
     parser.add_argument("--race-id", help="Target race ID for single execution")
     parser.add_argument("--race-time", help="Scheduled race start time (ISO or YYYY-MM-DD HH:MM:SS)")
     parser.add_argument("--timing", choices=["pre_30m", "pre_10m", "pre_5m", "auto"], default="auto")
@@ -137,7 +155,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # 1. プロバイダー診断モード
     if args.diagnose_providers:
-        report = diagnose_odds_sources()
+        report = diagnose_odds_sources(race_id=args.race_id)
         out_json = json.dumps(report, ensure_ascii=False, indent=2)
         print(out_json)
         if args.out:
@@ -153,7 +171,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             as_of_time=args.as_of_time,
             max_retries=args.max_retries,
             backoff_sec=args.backoff_sec,
-            allow_duplicate=args.allow_duplicate
+            allow_duplicate=args.allow_duplicate,
+            all_timings=args.all_timings
         )
         out_json = json.dumps(report, ensure_ascii=False, indent=2)
         print(out_json)

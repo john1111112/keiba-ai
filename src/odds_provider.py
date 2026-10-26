@@ -2,10 +2,11 @@
 実際の発走前オッズ取得元プロバイダーおよび接続診断・再試行モジュール (Pre-Race Odds Providers)
 
 【基本原則・制約】
-1. 実際の発走前オッズ取得元（JV-Link / 許諾フィード / リアルタイムスクレイパー）の接続状態を厳密診断
-2. 未接続・未設定の場合は「未接続(DISCONNECTED)」と報告し、架空データで成功扱いしない（フェイルクローズ）
-3. 取得処理における指数バックオフ付き再試行（Retry）を実装
-4. 発走時刻以降の確定オッズは完全拒絶
+1. 実際の発走前オッズ取得元（JV-Link / 許諾フィード / リアルタイムWeb）の接続状態を厳格診断
+2. HTTP 200だけで接続成功扱いとすることを禁止。利用許諾・実データ・時刻情報が確認できなければ「未接続(DISCONNECTED)」
+3. 未接続・未設定の場合は架空データで成功扱いせず欠損扱い（フェイルクローズ）
+4. 取得処理における指数バックオフ付き再試行（Retry）を実装
+5. 発走時刻以降の確定オッズは完全遮断
 """
 from __future__ import annotations
 import datetime
@@ -29,8 +30,8 @@ class BaseOddsProvider(ABC):
         self.name = name
 
     @abstractmethod
-    def check_connection(self) -> Dict[str, Any]:
-        """接続状態・認可状態の診断（ネットワーク疎通・資格情報・SDKの有無）"""
+    def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
+        """接続状態・認可状態の診断（ネットワーク疎通・資格情報・実データ・時刻情報の有無）"""
         pass
 
     @abstractmethod
@@ -49,7 +50,7 @@ class JVLinkOddsProvider(BaseOddsProvider):
     def __init__(self):
         super().__init__("JV-Link")
 
-    def check_connection(self) -> Dict[str, Any]:
+    def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
         try:
             win32com = importlib.import_module("win32com.client")
             jv = win32com.Dispatch("JVDTLab.JVLink")
@@ -80,10 +81,9 @@ class JVLinkOddsProvider(BaseOddsProvider):
         scheduled_race_time: str,
         timing_tag: str
     ) -> Optional[List[Dict[str, Any]]]:
-        diag = self.check_connection()
+        diag = self.check_connection(race_id)
         if not diag["connected"]:
             return None
-        # COMコンポーネント未導入時はNone返却（架空データ生成禁止）
         return None
 
 
@@ -93,7 +93,7 @@ class LicensedFeedOddsProvider(BaseOddsProvider):
         super().__init__("LicensedFeed")
         self.feed_dir = feed_dir or (repo_root / "data" / "feeds" / "prerace_odds")
 
-    def check_connection(self) -> Dict[str, Any]:
+    def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
         feed_contract_path = repo_root / "config" / "phase12_feed_contract.json"
         has_dir = self.feed_dir.exists()
         has_contract = feed_contract_path.exists()
@@ -120,7 +120,6 @@ class LicensedFeedOddsProvider(BaseOddsProvider):
     ) -> Optional[List[Dict[str, Any]]]:
         if not self.feed_dir.exists():
             return None
-        # 指定レースのフィードファイル探索 (e.g. {race_id}_{timing_tag}.json)
         target_file = self.feed_dir / f"{race_id}_{timing_tag}.json"
         if not target_file.exists():
             return None
@@ -132,37 +131,88 @@ class LicensedFeedOddsProvider(BaseOddsProvider):
 
 
 class NetkeibaLiveOddsProvider(BaseOddsProvider):
-    """リアルタイムWebオッズプロバイダー（当日発走前オッズ用）"""
-    def __init__(self, timeout_sec: float = 6.0):
+    """
+    リアルタイムWebオッズプロバイダー
+    【厳格ルール】
+    - 単なる HTTP 200 応答のみで接続成功扱いとすることを禁止
+    - 1. 利用許諾 (ライセンス契約)
+    - 2. 実データ (発走前オッズテーブルの存在)
+    - 3. 公式発表時刻情報 (observed_at)
+    上記3点がすべて確認できなければ「未接続(DISCONNECTED)」としてフェイルクローズ処理する。
+    """
+    def __init__(self, timeout_sec: float = 6.0, license_confirmed: bool = False):
         super().__init__("NetkeibaLive")
         self.timeout_sec = timeout_sec
+        self.license_confirmed = license_confirmed
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-    def check_connection(self) -> Dict[str, Any]:
-        try:
-            # 接続性テスト（HEADリクエスト）
-            resp = requests.head("https://race.netkeiba.com", headers=self.headers, timeout=self.timeout_sec)
-            if resp.status_code < 400:
-                return {
-                    "provider": self.name,
-                    "connected": True,
-                    "status": "ONLINE",
-                    "note": f"Live odds endpoint reachable (status {resp.status_code})."
-                }
+    def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
+        # 1. 利用許諾チェック (Terms of Service / Licensing Check)
+        contract_file = repo_root / "config" / "netkeiba_license.json"
+        has_license = self.license_confirmed or contract_file.exists()
+        if not has_license:
             return {
                 "provider": self.name,
                 "connected": False,
                 "status": "DISCONNECTED",
-                "reason": f"Endpoint returned HTTP {resp.status_code}"
+                "reason": "利用許諾未確認: Netkeiba利用規約に基づくAPI許諾契約が未設定です (config/netkeiba_license.json 不在)。HTTP 200疎通のみでの接続認可は禁止されています。"
             }
+
+        # 2. 実データおよび時刻情報チェック
+        if not race_id:
+            return {
+                "provider": self.name,
+                "connected": False,
+                "status": "DISCONNECTED",
+                "reason": "実データ・時刻情報未確認: 対象レース未指定のため、発走前オッズ表および公式発表時刻が検証されていません。"
+            }
+
+        url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
+        try:
+            resp = requests.get(url, headers=self.headers, timeout=self.timeout_sec)
+            if resp.status_code != 200:
+                return {
+                    "provider": self.name,
+                    "connected": False,
+                    "status": "DISCONNECTED",
+                    "reason": f"HTTPステータス異常: {resp.status_code}"
+                }
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            table = soup.find("table", id="odds_tan_block") or soup.find("table", class_=re.compile("Odds_Table"))
+            if not table:
+                return {
+                    "provider": self.name,
+                    "connected": False,
+                    "status": "DISCONNECTED",
+                    "reason": "実データ欠落: 該当レースの発走前単勝オッズテーブルが見つかりません（非開催日または未発表）。"
+                }
+
+            # 3. 公式発表時刻情報の確認
+            time_el = soup.find(class_=re.compile(r"Update|Time|Date|odds_update")) or soup.find(string=re.compile(r"\d{1,2}:\d{2}更新"))
+            if not time_el:
+                return {
+                    "provider": self.name,
+                    "connected": False,
+                    "status": "DISCONNECTED",
+                    "reason": "公式発表時刻情報(observed_at)欠落: 提供元の発表時刻を特定・検証できません。"
+                }
+
+            return {
+                "provider": self.name,
+                "connected": True,
+                "status": "READY",
+                "note": "利用許諾・実オッズデータ・公式発表時刻のすべてを確認完了。"
+            }
+
         except Exception as e:
             return {
                 "provider": self.name,
                 "connected": False,
                 "status": "DISCONNECTED",
-                "reason": f"Network connection failed: {e}"
+                "reason": f"疎通・解析失敗: {e}"
             }
 
     def fetch_prerace_odds(
@@ -171,10 +221,13 @@ class NetkeibaLiveOddsProvider(BaseOddsProvider):
         scheduled_race_time: str,
         timing_tag: str
     ) -> Optional[List[Dict[str, Any]]]:
-        url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
-        now_dt = datetime.datetime.now()
-        now_iso = now_dt.isoformat()
+        diag = self.check_connection(race_id)
+        if not diag["connected"]:
+            return None
 
+        # 接続が認可されている場合のみ実データ解析を実施
+        url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
+        now_iso = datetime.datetime.now().isoformat()
         try:
             resp = requests.get(url, headers=self.headers, timeout=self.timeout_sec)
             if resp.status_code != 200:
@@ -189,13 +242,11 @@ class NetkeibaLiveOddsProvider(BaseOddsProvider):
                 tds = tr.find_all("td")
                 if len(tds) < 3:
                     continue
-                # 馬番
                 hn_txt = tds[1].get_text(strip=True) if len(tds) > 1 else ""
                 if not hn_txt.isdigit():
                     continue
                 hn = int(hn_txt)
 
-                # 単勝オッズ
                 odds_txt = tds[2].get_text(strip=True) if len(tds) > 2 else ""
                 try:
                     odds_val = float(odds_txt)
@@ -229,14 +280,30 @@ class FileSnapshotOddsProvider(BaseOddsProvider):
         super().__init__("FileSnapshot")
         self.snapshot_dir = snapshot_dir or (repo_root / "data" / "snapshots")
 
-    def check_connection(self) -> Dict[str, Any]:
+    def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
         has_dir = self.snapshot_dir.exists()
+        if not has_dir:
+            return {
+                "provider": self.name,
+                "connected": False,
+                "status": "DISCONNECTED",
+                "snapshot_dir": str(self.snapshot_dir),
+                "reason": f"Directory {self.snapshot_dir} does not exist."
+            }
+        if race_id:
+            files = list(self.snapshot_dir.glob(f"*{race_id}*.json"))
+            if not files:
+                return {
+                    "provider": self.name,
+                    "connected": False,
+                    "status": "DISCONNECTED",
+                    "reason": f"No snapshot files found for race_id {race_id} in {self.snapshot_dir}."
+                }
         return {
             "provider": self.name,
-            "connected": has_dir,
-            "status": "READY" if has_dir else "DISCONNECTED",
-            "snapshot_dir": str(self.snapshot_dir),
-            "reason": None if has_dir else f"Directory {self.snapshot_dir} does not exist."
+            "connected": True,
+            "status": "READY",
+            "snapshot_dir": str(self.snapshot_dir)
         }
 
     def fetch_prerace_odds(
@@ -267,12 +334,12 @@ class OddsProviderManager:
             FileSnapshotOddsProvider(),
         ]
 
-    def diagnose_all_providers(self) -> Dict[str, Any]:
+    def diagnose_all_providers(self, race_id: Optional[str] = None) -> Dict[str, Any]:
         """全プロバイダーの接続状態を診断して包括レポートを返す"""
         diagnostics = []
         connected_count = 0
         for p in self.providers:
-            diag = p.check_connection()
+            diag = p.check_connection(race_id=race_id)
             diagnostics.append(diag)
             if diag.get("connected"):
                 connected_count += 1
@@ -285,7 +352,7 @@ class OddsProviderManager:
             "all_sources_disconnected": all_disconnected,
             "status": "ALL_SOURCES_DISCONNECTED" if all_disconnected else "SOME_SOURCES_CONNECTED",
             "details": diagnostics,
-            "policy": "架空データでの代用は厳禁。未接続時は欠損(MISSING)としてフェイルクローズ処理します。"
+            "policy": "HTTP 200のみでの認可は禁止。利用許諾・実オッズデータ・公式発表時刻が未確認の場合は未接続(DISCONNECTED)とし、架空データ代用を排除して欠損(MISSING)として処理します。"
         }
 
     def fetch_prerace_odds_with_retry(
@@ -322,7 +389,7 @@ class OddsProviderManager:
             return explicit_records, audit_trail
 
         # 2. プロバイダーの診断
-        diag = self.diagnose_all_providers()
+        diag = self.diagnose_all_providers(race_id=race_id)
         if diag["all_sources_disconnected"]:
             audit_trail["outcome"] = "all_sources_disconnected"
             audit_trail["diagnostics"] = diag
@@ -332,7 +399,7 @@ class OddsProviderManager:
         for attempt in range(1, max_retries + 1):
             audit_trail["attempts"] = attempt
             for provider in self.providers:
-                p_diag = provider.check_connection()
+                p_diag = provider.check_connection(race_id=race_id)
                 if not p_diag.get("connected"):
                     continue
 
