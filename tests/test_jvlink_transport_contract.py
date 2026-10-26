@@ -42,6 +42,24 @@ class TransportContractTest(unittest.TestCase):
         self.assertTrue(link.closed)
         self.assertTrue(any(call[0] == "JVGets" for call in link.calls))
 
+    def test_jvgets_memoryview_preserves_raw_bytes(self):
+        import base64
+        class MemoryviewLink(FakeJVGetsLink):
+            def JVGets(self, buffer, size, filename):
+                if self.records:
+                    payload = self.records.pop(0)
+                    return len(payload), memoryview(payload), "JV_TESTFILE"
+                return 0, (), ""
+
+        raw_ra = race_rec()
+        raw_se = horse_rec(1)
+        link = MemoryviewLink([raw_ra, raw_se])
+        result = execute_jvlink_fetch(link, "0B15", "20261027000000")
+        self.assertEqual(result["fetch_status"], "SUCCESS")
+        self.assertEqual(base64.b64decode(result["ra_records_b64"][0]), raw_ra)
+        self.assertEqual(base64.b64decode(result["se_records_b64"][0]), raw_se)
+        self.assertTrue(link.closed)
+
     def test_odds_only_batch_can_be_ingested(self):
         link = FakeJVGetsLink([odds_rec()])
         result = execute_jvlink_fetch(
