@@ -11,6 +11,10 @@ data/notified_races.json
 models/*.bak
 *.zip
 data/odds_history.db
+data/jvlink_raw.db
+data/alert_state.db
+data/*.db-shm
+data/*.db-wal
 data/*.log
 data/*.pid
 data/*.lock

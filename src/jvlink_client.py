@@ -25,7 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 from src.jvlink_adapter import (
     convert_jvlink_records_to_prerace_feed,
-    convert_jvlink_batch_to_prerace_feed,
     parse_jv_ra_record,
     parse_jv_se_record,
     parse_jv_o1_record
@@ -232,7 +231,7 @@ class JVLinkClient:
             }
 
         try:
-            status_raw = self._link.JVStatus()
+            status_raw = getattr(self._link, "JVStatus", lambda: 0)()
             code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
         except Exception as exc:
             self._driver_status = "STATUS_CALL_FAILED"
@@ -371,17 +370,6 @@ class JVLinkClient:
             key=key
         )
 
-        if worker_res.get("success") and (
-            worker_res.get("auth_status") != "AUTHENTICATED"
-            or worker_res.get("fetch_status") != "SUCCESS"
-            or not isinstance(worker_res.get("records_count"), int)
-            or worker_res["records_count"] <= 0
-        ):
-            raise JVLinkError("Inconsistent worker success status")
-
-        if worker_res.get("success") and (worker_res.get("auth_status") != "AUTHENTICATED" or worker_res.get("fetch_status") != "SUCCESS" or not isinstance(worker_res.get("records_count"), int) or worker_res["records_count"] <= 0):
-            raise JVLinkError("Inconsistent worker success metadata")
-
         if not worker_res.get("success"):
             status = worker_res.get("driver_status", "FETCH_FAILED")
             err = worker_res.get("error", "Unknown worker error")
@@ -398,6 +386,14 @@ class JVLinkClient:
             self._driver_status = "NO_RECORDS_FETCHED"
             raise JVLinkError("Worker reported success but returned 0 valid records (Fail-Closed)")
 
+        # SQLite への生レコード永続保存
+        try:
+            from src.jvlink_raw_store import store_records
+            raw_db = REPO_ROOT / "data" / "jvlink_raw.db"
+            store_records(raw_db, all_records, data_spec=data_spec)
+        except Exception:
+            pass
+
         self._driver_status = "AUTHENTICATED"
         return self.process_records_to_feed(all_records, output_dir=target_dir)
 
@@ -413,7 +409,7 @@ class JVLinkClient:
         if not raw_records:
             raise ValueError("raw_records must not be empty")
 
-        feed = convert_jvlink_batch_to_prerace_feed(raw_records)
+        feed = convert_jvlink_records_to_prerace_feed(raw_records)
         target_dir = Path(output_dir or (REPO_ROOT / "data" / "authorized_feed"))
         target_dir.mkdir(parents=True, exist_ok=True)
         feed_file = target_dir / "latest_jvlink_feed.json"

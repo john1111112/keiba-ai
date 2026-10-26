@@ -112,10 +112,11 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
     def _build_valid_se(self, race_key=None, horse_num="01", b_num="1", horse_id="2022100001",
                         sex="1", age="04", weight_carry="560", jockey_id="00001") -> bytes:
         rkey = race_key or self.race_key
-        return (
-            "SE" + " " * 9 + rkey +
-            b_num + horse_num + horse_id + "テストホース".ljust(36) + sex + age + " " * 2 + weight_carry + jockey_id + " " * 150
-        ).encode("cp932")
+        # 馬名フィールドはShift-JISで厳密に36バイト (全角6文字=12バイト + 空白24バイト)
+        horse_name_bytes = "テストホース".encode("cp932").ljust(36, b" ")
+        prefix = ("SE" + " " * 9 + rkey + b_num + horse_num + horse_id).encode("ascii")
+        suffix = (sex + age + "  " + weight_carry + jockey_id + " " * 150).encode("ascii")
+        return prefix + horse_name_bytes + suffix
 
     def _build_valid_o1(self, race_key=None, odds_str="0052", obs_time="202610261200") -> bytes:
         rkey = race_key or self.race_key
@@ -437,6 +438,60 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
             with self.assertRaises(JVLinkBridgeError) as ctx:
                 client.fetch_via_32bit_worker("0B15", "202610260000")
             self.assertIn("timed out", str(ctx.exception))
+
+
+    # -------------------------------------------------------------
+    # 17. 複数レースの同時取得・完全分離とレース間混入防止
+    # -------------------------------------------------------------
+    def test_multi_race_batch_parsing_and_isolation(self):
+        from src.jvlink_adapter import convert_multiple_jvlink_records_to_feed
+
+        race1_key = "2026102605010101"  # 東京1R
+        race2_key = "2026102605010102"  # 東京2R
+
+        # レース1のレコード
+        ra1 = self._build_valid_ra(race_key=race1_key, distance="1600")
+        se1_h1 = self._build_valid_se(race_key=race1_key, horse_num="01", horse_id="2022100001")
+        se1_h2 = self._build_valid_se(race_key=race1_key, horse_num="02", horse_id="2022100002")
+        o1_1 = self._build_valid_o1(race_key=race1_key, odds_str="0025")  # 単勝2.5倍
+
+        # レース2のレコード
+        ra2 = self._build_valid_ra(race_key=race2_key, distance="2000")
+        se2_h1 = self._build_valid_se(race_key=race2_key, horse_num="01", horse_id="2022100003")
+        se2_h2 = self._build_valid_se(race_key=race2_key, horse_num="02", horse_id="2022100004")
+        o1_2 = self._build_valid_o1(race_key=race2_key, odds_str="0045")  # 単勝4.5倍
+
+        # 意図的に混在させた順序（JRA-VANの実際の配信順序に近いシャッフル）
+        mixed_records = [ra2, se1_h1, o1_1, ra1, se2_h1, se1_h2, o1_2, se2_h2]
+
+        feed = convert_multiple_jvlink_records_to_feed(mixed_records)
+
+        # 2レースが抽出されていること
+        self.assertEqual(len(feed["races"]), 2)
+
+        # レースキー順にソートされていること
+        r1 = feed["races"][0]
+        r2 = feed["races"][1]
+        self.assertEqual(r1["race_id"], race1_key)
+        self.assertEqual(r2["race_id"], race2_key)
+
+        # レース1の出走馬・オッズが独立していること
+        self.assertEqual(r1["distance"], 1600.0)
+        self.assertEqual(len(r1["horses"]), 2)
+        self.assertEqual(r1["horses"][0]["horse_number"], 1)
+        self.assertEqual(r1["horses"][0]["horse_id"], "2022100001")
+        self.assertEqual(r1["horses"][0]["win_odds"], 2.5)
+        self.assertEqual(r1["horses"][1]["horse_number"], 2)
+        self.assertEqual(r1["horses"][1]["horse_id"], "2022100002")
+
+        # レース2の出走馬・オッズが独立していること
+        self.assertEqual(r2["distance"], 2000.0)
+        self.assertEqual(len(r2["horses"]), 2)
+        self.assertEqual(r2["horses"][0]["horse_number"], 1)
+        self.assertEqual(r2["horses"][0]["horse_id"], "2022100003")
+        self.assertEqual(r2["horses"][0]["win_odds"], 4.5)
+        self.assertEqual(r2["horses"][1]["horse_number"], 2)
+        self.assertEqual(r2["horses"][1]["horse_id"], "2022100004")
 
 
 if __name__ == "__main__":

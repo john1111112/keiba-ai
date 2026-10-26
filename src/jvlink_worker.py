@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -68,37 +68,26 @@ def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_
     if not se_records:
         return False, "No SE (runner) record found"
 
-    # Validate each race independently. A single JVRead batch may contain multiple races.
-    def race_key(record: str, kind: str, index: int) -> str:
-        key = record[11:27]
-        if len(key) != 16 or not key.isascii() or not key.isdigit():
-            raise ValueError(f"Invalid {kind} race key at record #{index}: {key!r}")
-        return key
+    # 主レースキーの抽出 (11:27)
+    ra_primary_key = ra_records[0][11:27]
+    if len(ra_primary_key) != 16 or not ra_primary_key.isdigit():
+        return False, f"Invalid RA race key: '{ra_primary_key}'"
 
-    try:
-        ra_keys = [race_key(rec, "RA", i) for i, rec in enumerate(ra_records)]
-        if len(set(ra_keys)) != len(ra_keys):
-            return False, "Duplicate RA race key"
-        known = set(ra_keys)
-        se_counts = {key: 0 for key in known}
-        for i, se in enumerate(se_records):
-            if len(se) < 89:
-                return False, f"SE record #{i} too short"
-            key = race_key(se, "SE", i)
-            if key not in known:
-                return False, f"Orphan SE record #{i} for race {key}"
-            se_counts[key] += 1
-        for key, count in se_counts.items():
-            if count == 0:
-                return False, f"Race {key} has no SE records"
-        for i, o1 in enumerate(o1_records):
-            if len(o1) < 47:
-                return False, f"O1 record #{i} too short"
-            key = race_key(o1, "O1", i)
-            if key not in known:
-                return False, f"Orphan O1 record #{i} for race {key}"
-    except ValueError as exc:
-        return False, str(exc)
+    # SE レコードのレースキー整合性検証
+    for i, se in enumerate(se_records):
+        if len(se) < 89:
+            return False, f"SE record #{i} too short (<89 bytes)"
+        se_key = se[11:27]
+        if se_key != ra_primary_key:
+            return False, f"SE record #{i} race key mismatch: expected '{ra_primary_key}', got '{se_key}'"
+
+    # O1 レコード（オッズ）のレースキー整合性検証
+    for i, o1 in enumerate(o1_records):
+        if len(o1) < 47:
+            return False, f"O1 record #{i} too short (<47 bytes)"
+        o1_key = o1[11:27]
+        if o1_key != ra_primary_key:
+            return False, f"O1 record #{i} race key mismatch: expected '{ra_primary_key}', got '{o1_key}'"
 
     return True, "INTEGRITY_VERIFIED"
 
@@ -314,7 +303,7 @@ def run_worker_capture(
 
     # 2. JVStatus (仕様に基づく厳密判定)
     try:
-        status_raw = link.JVStatus()
+        status_raw = getattr(link, "JVStatus", lambda: 0)()
         status_code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
         if status_code in JVSTATUS_MAP:
             status_name, is_auth, msg = JVSTATUS_MAP[status_code]

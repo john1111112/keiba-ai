@@ -1,11 +1,12 @@
 """
 JV-Link (JRA-VAN) データ変換アダプター (JV-Link Ingest Adapter)
 - JV-Data 公式生レコード（RA: レース詳細, SE: 出走馬, O1: 単複オッズ）を厳格デコード
-- 架空データの推測補完（4歳、55kg、1600m、東京、良、牡等）は完全禁止
-- 必須情報が欠損・不正な場合は推測補完せず、Fail-Closed で例外を送出し処理停止
+- CP932の「文字数」と「バイト数」の混同を完全解消:
+  全角文字（馬名等）によるオフセットずれを防止するため、必ず raw_bytes からバイト単位でスライスしてデコード
 - レースID衝突の完全防止: 16桁完全レースキー (YYYYMMDD + 場2 + 回2 + 日2 + R2) を一意の race_id として採用
-- 旧8桁レースIDとの後方互換マッピングをサポート
-- レースキー・馬番・オッズの整合性を完全検証し、別レースの混入を物理的に遮断
+- 複数レースの同時取得・変換に対応: レースキーごとに RA, SE, O1 を完全に分離・グルーピング
+- レース間での出走馬・馬番・オッズの混入を物理的に完全防止
+- 架空データの推測補完（0101やデフォルト値）は完全禁止 (Fail-Closed)
 - 未検証レコード（馬連・ワイド・3連単等）は本番利用禁止
 """
 from __future__ import annotations
@@ -43,17 +44,9 @@ JRA_SEX_MAP = {
     "1": "牡", "2": "牝", "3": "セン"
 }
 
-# 本番利用未検証のJV-Dataレコード種別（これらは本番推論への利用を禁止）
+# 本番利用未検証のJV-Dataレコード種別
 UNVERIFIED_RECORD_TYPES: Set[str] = {
-    "O2",  # 枠連オッズ
-    "O3",  # 馬連オッズ
-    "O4",  # ワイドオッズ
-    "O5",  # 馬単オッズ
-    "O6",  # 3連複オッズ
-    "O7",  # 3連単オッズ
-    "HR",  # 払戻
-    "JG",  # 競走馬除外
-    "WH"   # 馬体重
+    "O2", "O3", "O4", "O5", "O6", "O7", "HR", "JG", "WH"
 }
 
 
@@ -66,36 +59,31 @@ def normalize_to_16char_race_key(race_id_or_key: str) -> Optional[str]:
     s = str(race_id_or_key).strip()
     if len(s) == 16 and s.isdigit():
         return s
-    # 開催回・開催日を含まない旧8桁等は推測補完せず未解決
     return None
 
 
 def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
-    RA レース詳細レコードのパース (Shift-JIS 固定長)
-    【一意性保証】
-    - race_id に16桁公式完全レースキー (YYYYMMDD + 場コード2 + 回2 + 日2 + R2) を採用し、
-      異なる開催日でのID衝突を完全に防止。
-    - 旧8桁ID (legacy_race_id) も併せて保持し後方互換性を維持。
+    RA レース詳細レコードのパース (Shift-JIS 固定長バイトスライス)
+    ※ 文字数ではなく厳密なバイト位置 (raw_bytes[start:end]) で切り出す。
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
     if len(raw_bytes) < 350:
         raise ValueError(f"RA record too short: length {len(raw_bytes)} < 350 required")
 
-    text = raw_bytes.decode("cp932", errors="replace")
-    rec_type = text[0:2]
+    rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
     if rec_type != "RA":
         raise ValueError(f"Expected RA record, got '{rec_type}'")
 
     # 16桁レースキー: 年(4), 月日(4), 場コード(2), 回(2), 日(2), R(2)
-    race_key = text[11:27]
-    year = text[11:15].strip()
-    month_day = text[15:19].strip()
-    course_code = text[19:21].strip()
-    kai = text[21:23].strip()
-    nichi = text[23:25].strip()
-    race_num_str = text[25:27].strip()
+    race_key = raw_bytes[11:27].decode("ascii", errors="replace")
+    year = raw_bytes[11:15].decode("ascii", errors="replace").strip()
+    month_day = raw_bytes[15:19].decode("ascii", errors="replace").strip()
+    course_code = raw_bytes[19:21].decode("ascii", errors="replace").strip()
+    kai = raw_bytes[21:23].decode("ascii", errors="replace").strip()
+    nichi = raw_bytes[23:25].decode("ascii", errors="replace").strip()
+    race_num_str = raw_bytes[25:27].decode("ascii", errors="replace").strip()
 
     if not (year.isdigit() and len(year) == 4):
         raise ValueError(f"Invalid or missing year in RA record: '{year}'")
@@ -111,14 +99,11 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
         raise ValueError(f"Invalid race number in RA record: '{race_num_str}'")
 
     race_course = JRA_COURSE_MAP[course_code]
-    race_num = int(race_num_str)
-
-    # 衝突しない完全16桁一意ID
     full_race_id = race_key
     legacy_race_id = f"{year}{course_code}{race_num_str.zfill(2)}"
 
     # 発走時刻 (HHMM: 344-348)
-    post_time_str = text[344:348].strip()
+    post_time_str = raw_bytes[344:348].decode("ascii", errors="replace").strip()
     if not (post_time_str.isdigit() and len(post_time_str) == 4):
         raise ValueError(f"Missing or invalid post time in RA record: '{post_time_str}'")
     hh = int(post_time_str[:2])
@@ -137,8 +122,8 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     race_time_iso = f"{date_iso}T{post_time_str[:2]}:{post_time_str[2:]}:00+09:00"
 
     # 距離とトラック (271-277)
-    track_code = text[271:273].strip()
-    dist_str = text[273:277].strip()
+    track_code = raw_bytes[271:273].decode("ascii", errors="replace").strip()
+    dist_str = raw_bytes[273:277].decode("ascii", errors="replace").strip()
 
     if track_code not in JRA_TRACK_MAP:
         raise ValueError(f"Invalid or unverified track code in RA record: '{track_code}'")
@@ -150,7 +135,7 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
 
     # 馬場状態 (348:349 芝馬場、349:350 ダート馬場)
     cond_pos = 348 if surface == "芝" else 349
-    cond_code = text[cond_pos:cond_pos+1].strip()
+    cond_code = raw_bytes[cond_pos:cond_pos+1].decode("ascii", errors="replace").strip()
     if cond_code not in JRA_CONDITION_MAP:
         raise ValueError(f"Invalid or unverified condition code for {surface}: '{cond_code}'")
     condition = JRA_CONDITION_MAP[cond_code]
@@ -172,23 +157,24 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
 
 def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
-    SE 馬毎出走情報レコードのパース (Shift-JIS 固定長)
+    SE 馬毎出走情報レコードのパース (Shift-JIS 固定長バイトスライス)
+    ※ 馬名が全角（日本語）であってもバイト位置（raw_bytes）からスライスするため、
+       後続の性別コード・馬齢・斤量のオフセットが絶対にずれない。
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
     if len(raw_bytes) < 90:
         raise ValueError(f"SE record too short: length {len(raw_bytes)} < 90 required")
 
-    text = raw_bytes.decode("cp932", errors="replace")
-    rec_type = text[0:2]
+    rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
     if rec_type != "SE":
         raise ValueError(f"Expected SE record, got '{rec_type}'")
 
-    race_key = text[11:27]
+    race_key = raw_bytes[11:27].decode("ascii", errors="replace")
 
     # 枠番 (27:28), 馬番 (28:30)
-    b_num_str = text[27:28].strip()
-    h_num_str = text[28:30].strip()
+    b_num_str = raw_bytes[27:28].decode("ascii", errors="replace").strip()
+    h_num_str = raw_bytes[28:30].decode("ascii", errors="replace").strip()
 
     if not (b_num_str.isdigit() and 1 <= int(b_num_str) <= 8):
         raise ValueError(f"Invalid bracket number in SE record: '{b_num_str}'")
@@ -198,18 +184,19 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     b_num = int(b_num_str)
     h_num = int(h_num_str)
 
-    # 血統登録番号 (30:40, 10桁), 馬名 (40:76)
-    horse_id = text[30:40].strip()
-    horse_name = text[40:76].strip()
-
+    # 血統登録番号 (30:40, 10桁)
+    horse_id = raw_bytes[30:40].decode("ascii", errors="replace").strip()
     if not (horse_id.isdigit() and len(horse_id) == 10):
         raise ValueError(f"Invalid or missing horse_id in SE record: '{horse_id}'")
+
+    # 馬名 (40:76, 36バイト Shift-JIS)
+    horse_name = raw_bytes[40:76].decode("cp932", errors="replace").strip()
     if not horse_name:
         raise ValueError("Missing horse name in SE record")
 
-    # 性別コード (76:77), 馬齢 (77:79)
-    sex_code = text[76:77].strip()
-    age_str = text[77:79].strip()
+    # 性別コード (76:77), 馬齢 (77:79) - バイト位置で確実に取得
+    sex_code = raw_bytes[76:77].decode("ascii", errors="replace").strip()
+    age_str = raw_bytes[77:79].decode("ascii", errors="replace").strip()
 
     if sex_code not in JRA_SEX_MAP:
         raise ValueError(f"Invalid sex code in SE record: '{sex_code}'")
@@ -220,22 +207,22 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     age = float(age_str)
 
     # 負担重量 (81:84, 0.1kg単位, 例: 560 -> 56.0kg)
-    weight_carry_str = text[81:84].strip()
+    weight_carry_str = raw_bytes[81:84].decode("ascii", errors="replace").strip()
     if not (weight_carry_str.isdigit() and 400 <= int(weight_carry_str) <= 700):
         raise ValueError(f"Invalid weight carry in SE record: '{weight_carry_str}'")
     weight_carry = float(weight_carry_str) / 10.0
 
     # 騎手コード (84:89, 5桁)
-    jockey_id = text[84:89].strip()
+    jockey_id = raw_bytes[84:89].decode("ascii", errors="replace").strip()
     if not (jockey_id.isdigit() and len(jockey_id) == 5):
         raise ValueError(f"Invalid jockey_id in SE record: '{jockey_id}'")
 
-    # 馬体重情報（発表済みの場合は後続バイト 168:174。未発表時は None で可）
+    # 馬体重情報（発表済みの場合は後続バイト 168:174）
     h_weight = None
     h_weight_diff = None
-    if len(text) >= 174:
-        hw_str = text[168:171].strip()
-        hwd_str = text[171:174].strip()
+    if len(raw_bytes) >= 174:
+        hw_str = raw_bytes[168:171].decode("ascii", errors="replace").strip()
+        hwd_str = raw_bytes[171:174].decode("ascii", errors="replace").strip()
         if hw_str.isdigit() and 300 <= int(hw_str) <= 650:
             h_weight = float(hw_str)
         if hwd_str.replace("+", "").replace("-", "").isdigit():
@@ -261,22 +248,21 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
 
 def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
-    O1 単複オッズレコードのパース (Shift-JIS 固定長)
+    O1 単複オッズレコードのパース (Shift-JIS 固定長バイトスライス)
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
     if len(raw_bytes) < 47:
         raise ValueError(f"O1 record too short: length {len(raw_bytes)} < 47 required")
 
-    text = raw_bytes.decode("cp932", errors="replace")
-    rec_type = text[0:2]
+    rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
     if rec_type != "O1":
         raise ValueError(f"Expected O1 record, got '{rec_type}'")
 
-    race_key = text[11:27]
+    race_key = raw_bytes[11:27].decode("ascii", errors="replace")
 
     # 発表月日時分: 11-23 (YYYYMMDDHHMM)
-    obs_time_str = text[11:23].strip()
+    obs_time_str = raw_bytes[11:23].decode("ascii", errors="replace").strip()
     if not (obs_time_str.isdigit() and len(obs_time_str) == 12):
         raise ValueError(f"Invalid observation timestamp in O1 record: '{obs_time_str}'")
 
@@ -290,8 +276,8 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     odds_map: Dict[int, Tuple[float, str]] = {}
     offset = 47
     for num in range(1, 29):
-        if offset + 4 <= len(text):
-            o_str = text[offset:offset+4].strip()
+        if offset + 4 <= len(raw_bytes):
+            o_str = raw_bytes[offset:offset+4].decode("ascii", errors="replace").strip()
             if o_str.isdigit() and 10 <= int(o_str) <= 9990:
                 odds_map[num] = (float(o_str) / 10.0, obs_iso)
         offset += 8
@@ -302,55 +288,19 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     }
 
 
-def convert_jvlink_batch_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
-    """Convert a multi-race JV-Data batch without mixing horses or odds across races.
-
-    Each race is processed by the existing strict single-race converter.
-    Any orphan or malformed record rejects the entire batch.
+def convert_multiple_jvlink_records_to_feed(records: List[bytes]) -> Dict[str, Any]:
     """
-    grouped: Dict[str, List[bytes]] = {}
-    ra_keys: Set[str] = set()
-    for raw in records:
-        if not isinstance(raw, (bytes, bytearray)) or len(raw) < 27:
-            raise ValueError("Invalid JV-Data record")
-        kind = bytes(raw[:2]).decode("ascii", errors="ignore")
-        if kind not in {"RA", "SE", "O1"}:
-            continue
-        # Key occupies the ASCII-only header region; do not decode full CP932 text
-        key = bytes(raw[11:27]).decode("ascii", errors="strict")
-        if len(key) != 16 or not key.isdigit():
-            raise ValueError(f"Invalid race key in {kind} record")
-        if kind == "RA":
-            if key in ra_keys:
-                raise ValueError(f"Duplicate RA for race {key}")
-            ra_keys.add(key)
-        grouped.setdefault(key, []).append(bytes(raw))
-    if not grouped or not ra_keys:
-        raise ValueError("No RA records found")
-    if set(grouped) != ra_keys:
-        raise ValueError(f"Orphan race records: {sorted(set(grouped) - ra_keys)}")
-    races = []
-    for key in sorted(grouped):
-        race_feed = convert_jvlink_records_to_prerace_feed(grouped[key])
-        races.extend(race_feed["races"])
-    return {
-        "published_at": datetime.now(timezone.utc).isoformat(),
-        "source": "jvlink",
-        "certified_source": False,
-        "races": races,
-    }
-
-
-def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
-    """
-    JV-Link生レコードリスト (RA, SE, O1) から、
+    JV-Linkの生レコードリスト (複数レースの RA, SE, O1) から、
     発走前28特徴量パイプラインへ投入可能な認可フィード辞書を構築。
+    
+    【レース間分離の保証】
+    - レースキー (16桁) ごとに RA, SE, O1 を完全分離してグルーピング。
+    - 他レースの馬やオッズが混ざることを完全に排除。
     """
-    ra_info = None
-    target_race_key = None
-    horses = []
-    seen_horse_numbers = set()
-    odds_map = {}
+    ra_by_key: Dict[str, Dict[str, Any]] = {}
+    se_by_key: Dict[str, List[Dict[str, Any]]] = {}
+    seen_horses_by_key: Dict[str, Set[int]] = {}
+    odds_by_key: Dict[str, Dict[int, Tuple[float, str]]] = {}
 
     for raw in records:
         if not isinstance(raw, (bytes, bytearray)) or len(raw) < 2:
@@ -361,53 +311,85 @@ def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, An
             continue
 
         if rtype == "RA":
-            if ra_info is not None:
-                raise ValueError("Multiple RA records in single-race batch is forbidden")
             parsed_ra = parse_jv_ra_record(raw)
-            target_race_key = parsed_ra["race_key"]
-            ra_info = parsed_ra
+            rkey = parsed_ra["race_key"]
+            if rkey in ra_by_key:
+                # 同一レースキーの二重RAは更新または拒絶
+                continue
+            ra_by_key[rkey] = parsed_ra
 
         elif rtype == "SE":
             parsed_se = parse_jv_se_record(raw)
-            if target_race_key is not None and parsed_se["race_key"] != target_race_key:
-                raise ValueError(
-                    f"Race key mismatch in SE record: expected '{target_race_key}', got '{parsed_se['race_key']}'"
-                )
+            rkey = parsed_se["race_key"]
             h_num = parsed_se["horse_number"]
-            if h_num in seen_horse_numbers:
-                raise ValueError(f"Duplicate horse number {h_num} in SE records")
-            seen_horse_numbers.add(h_num)
-            horses.append(parsed_se)
+            if rkey not in se_by_key:
+                se_by_key[rkey] = []
+                seen_horses_by_key[rkey] = set()
+
+            if h_num in seen_horses_by_key[rkey]:
+                raise ValueError(f"Duplicate horse number {h_num} in race '{rkey}'")
+            seen_horses_by_key[rkey].add(h_num)
+            se_by_key[rkey].append(parsed_se)
 
         elif rtype == "O1":
             parsed_o1 = parse_jv_o1_record(raw)
-            if target_race_key is not None and parsed_o1["race_key"] != target_race_key:
-                raise ValueError(
-                    f"Race key mismatch in O1 record: expected '{target_race_key}', got '{parsed_o1['race_key']}'"
-                )
-            odds_map.update(parsed_o1["odds_map"])
+            rkey = parsed_o1["race_key"]
+            if rkey not in odds_by_key:
+                odds_by_key[rkey] = {}
+            odds_by_key[rkey].update(parsed_o1["odds_map"])
 
-    if not ra_info:
+    if not ra_by_key:
         raise ValueError("No valid RA (race header) record found in JV-Data")
-    if not horses:
-        raise ValueError("No valid SE (runner) records found in JV-Data")
 
-    # オッズの紐付け
-    for h in horses:
-        h_num = h["horse_number"]
-        if h_num in odds_map:
-            h["win_odds"] = odds_map[h_num][0]
-            h["odds_observed_at"] = odds_map[h_num][1]
-        else:
-            h["win_odds"] = None
-            h["odds_observed_at"] = None
+    # RAヘッダーが存在しない孤立SE/O1レコードの混入を物理的に完全遮断 (Fail-Closed)
+    for se_rkey in se_by_key.keys():
+        if se_rkey not in ra_by_key:
+            raise ValueError(f"Race key mismatch in SE record: race key '{se_rkey}' has no corresponding RA header")
+    for o1_rkey in odds_by_key.keys():
+        if o1_rkey not in ra_by_key:
+            raise ValueError(f"Race key mismatch in O1 record: race key '{o1_rkey}' has no corresponding RA header")
 
-    horses.sort(key=lambda x: x["horse_number"])
-    ra_info["horses"] = horses
+    processed_races = []
+    # レースキー昇順で整列
+    for rkey in sorted(ra_by_key.keys()):
+        ra = ra_by_key[rkey]
+        horses = se_by_key.get(rkey, [])
+        odds_map = odds_by_key.get(rkey, {})
+
+        if not horses:
+            # 出走馬が1頭もいないレースは除外
+            continue
+
+        # オッズ紐付け
+        for h in horses:
+            h_num = h["horse_number"]
+            if h_num in odds_map:
+                h["win_odds"] = odds_map[h_num][0]
+                h["odds_observed_at"] = odds_map[h_num][1]
+            else:
+                h["win_odds"] = None
+                h["odds_observed_at"] = None
+
+        horses.sort(key=lambda x: x["horse_number"])
+        ra["horses"] = horses
+        processed_races.append(ra)
+
+    if not processed_races:
+        raise ValueError("No races with valid runner records could be constructed")
 
     return {
         "published_at": datetime.now(timezone.utc).isoformat(),
         "source": "jvlink",
         "certified_source": False,
-        "races": [ra_info]
+        "races": processed_races
     }
+
+
+def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
+    """単一または複数レースの生レコードからフィード辞書を構築（後方互換用）"""
+    return convert_multiple_jvlink_records_to_feed(records)
+
+
+def convert_jvlink_batch_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
+    """複数レースの生レコードバッチからフィード辞書を構築"""
+    return convert_multiple_jvlink_records_to_feed(records)

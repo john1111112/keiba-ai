@@ -228,10 +228,10 @@ class PreproductionIntegrationTests(unittest.TestCase):
         ).encode("cp932")
 
         # SE レコード: "SE" + 9文字予備 + 16文字レースキー = 27文字
-        se_line = (
-            "SE" + " " * 9 + race_key +
-            "1" + "01" + "2022100001" + "テストホース".ljust(36) + "1" + "04" + " " * 2 + "560" + "00001" + " " * 150
-        ).encode("cp932")
+        horse_name_bytes = "テストホース".encode("cp932").ljust(36, b" ")
+        prefix = ("SE" + " " * 9 + race_key + "1" + "01" + "2022100001").encode("ascii")
+        suffix = ("1" + "04" + " " * 2 + "560" + "00001" + " " * 150).encode("ascii")
+        se_line = prefix + horse_name_bytes + suffix
 
         # O1 レコード: "O1" + 9文字予備 + 16文字レースキー = 27文字
         o1_padding = " " * (47 - (2 + 9 + 16))

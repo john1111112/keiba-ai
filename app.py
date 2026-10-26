@@ -182,6 +182,73 @@ cache_key = _get_cache_key()
 with tab0:
     st.subheader("🏁 本日開催レース・リアルタイムAI単勝勝率 ＆ 期待値分析")
     st.caption("公式認可データおよび単勝1着モデル（28特徴量）に基づく期待回収倍率ランキング")
+
+    # --- JV-Link 接続・実運用準備 8段階診断マトリクス (Expander) ---
+    with st.expander("📡 JV-Link (JRA-VAN) 接続・実運用準備ステータス（8段階診断マトリクス）", expanded=False):
+        try:
+            from scripts.check_jvlink_readiness import run_full_readiness_check
+            chk = run_full_readiness_check()
+            m = chk["matrix"]
+            
+            c_dia1, c_dia2, c_dia3, c_dia4 = st.columns(4)
+            with c_dia1:
+                st.write("**1. Python環境 (32bit共存)**")
+                if m["python_env"] == "READY":
+                    st.success("✅ READY (32bit配備済)")
+                else:
+                    st.error("❌ NOT_READY")
+                    
+                st.write("**5. 利用権限 (JRA-VAN)**")
+                if m["subscription_auth"] == "AUTHORIZED":
+                    st.success("✅ AUTHORIZED")
+                else:
+                    st.info("ℹ️ NOT_AUTHORIZED (体験開始前)")
+
+            with c_dia2:
+                st.write("**2. SDK導入 (JRA-VAN)**")
+                if m["sdk_installation"] == "READY":
+                    st.success("✅ READY (登録済)")
+                else:
+                    st.warning("⚠️ NOT_READY (未インストール)")
+
+                st.write("**6. 実データ取得 (JRA-VAN)**")
+                if m["live_data_fetch"] == "SUCCESS":
+                    st.success("✅ SUCCESS")
+                elif m["live_data_fetch"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED (実データ0件・待機中)")
+                else:
+                    st.error("❌ FAILED")
+
+            with c_dia3:
+                st.write("**3. COM接続 (jvdg.JVLink)**")
+                if m["com_connection"] == "READY":
+                    st.success("✅ READY")
+                else:
+                    st.warning("⚠️ NOT_READY (SDK導入後稼働)")
+
+                st.write("**7. AI予測パイプライン**")
+                if m["ai_prediction"] == "SUCCESS":
+                    st.success("✅ SUCCESS (28特徴量検証済)")
+                else:
+                    st.error("❌ FAILED")
+
+            with c_dia4:
+                st.write("**4. API仕様検証 (SDK照合)**")
+                if m["api_specification"] == "VERIFIED":
+                    st.success("✅ VERIFIED (公式照合済)")
+                else:
+                    st.warning("⚠️ UNVERIFIED")
+
+                st.write("**8. 通知システム (重複抑止)**")
+                if m["notification"] == "SUCCESS":
+                    st.success("✅ SUCCESS (安全ロック稼働)")
+                else:
+                    st.error("❌ FAILED")
+
+            if chk["action_required"]:
+                st.info("💡 **実運用開始へのステップ**: " + " / ".join(chk["action_required"]))
+        except Exception as e:
+            st.caption(f"診断情報取得ステータス: {e}")
     
     col_t1, col_t2 = st.columns([3, 1])
     with col_t1:
