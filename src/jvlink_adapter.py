@@ -24,13 +24,13 @@ JRA_COURSE_MAP = {
 
 # JRA公式トラックコード (芝・ダート・障害 / 回り)
 JRA_TRACK_MAP = {
-    "10": ("芝", "右"), "11": ("芝", "左"), "12": ("芝", "直線"),
-    "13": ("芝", "右"), "14": ("芝", "左"), "15": ("芝", "右"),
-    "16": ("芝", "左"), "17": ("芝", "右"), "18": ("芝", "左"),
-    "19": ("芝", "直線"), "20": ("芝", "右"), "21": ("芝", "左"),
-    "22": ("芝", "右"),
-    "23": ("ダート", "右"), "24": ("ダート", "左"), "25": ("ダート", "右"),
-    "26": ("ダート", "左"), "27": ("ダート", "右"), "28": ("ダート", "左"),
+    "10": ("芝", "直線"), "11": ("芝", "左"), "12": ("芝", "左"),
+    "13": ("芝", "左"), "14": ("芝", "左"), "15": ("芝", "左"),
+    "16": ("芝", "左"), "17": ("芝", "右"), "18": ("芝", "右"),
+    "19": ("芝", "右"), "20": ("芝", "右"), "21": ("芝", "右"),
+    "22": ("芝", "右"), "23": ("ダート", "左"), "24": ("ダート", "右"),
+    "25": ("ダート", "左"), "26": ("ダート", "右"),
+    "27": ("ダート", "左"), "28": ("ダート", "右"),
     "29": ("ダート", "直線")
 }
 
@@ -69,10 +69,12 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
-    if len(raw_bytes) < 350:
-        raise ValueError(f"RA record too short: length {len(raw_bytes)} < 350 required")
+    if len(raw_bytes) != 1272:
+        raise ValueError(f"RA record too short: length {len(raw_bytes)} != 1272 required")
 
     rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
+    if raw_bytes[2:3] not in (b"1", b"2"):
+        raise ValueError("RA record is not pre-race (DataKubun 1 or 2)")
     if rec_type != "RA":
         raise ValueError(f"Expected RA record, got '{rec_type}'")
 
@@ -102,8 +104,8 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     full_race_id = race_key
     legacy_race_id = f"{year}{course_code}{race_num_str.zfill(2)}"
 
-    # 発走時刻 (HHMM: 344-348)
-    post_time_str = raw_bytes[344:348].decode("ascii", errors="replace").strip()
+    # 発走時刻 (JV-Data spec: 1-based 874-877)
+    post_time_str = raw_bytes[873:877].decode("ascii", errors="replace").strip()
     if not (post_time_str.isdigit() and len(post_time_str) == 4):
         raise ValueError(f"Missing or invalid post time in RA record: '{post_time_str}'")
     hh = int(post_time_str[:2])
@@ -121,9 +123,9 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     date_iso = f"{year}-{month_day[:2]}-{month_day[2:]}"
     race_time_iso = f"{date_iso}T{post_time_str[:2]}:{post_time_str[2:]}:00+09:00"
 
-    # 距離とトラック (271-277)
-    track_code = raw_bytes[271:273].decode("ascii", errors="replace").strip()
-    dist_str = raw_bytes[273:277].decode("ascii", errors="replace").strip()
+    # 距離(698..701) とトラック(706..707): 1-based byte positions
+    track_code = raw_bytes[705:707].decode("ascii", errors="replace").strip()
+    dist_str = raw_bytes[697:701].decode("ascii", errors="replace").strip()
 
     if track_code not in JRA_TRACK_MAP:
         raise ValueError(f"Invalid or unverified track code in RA record: '{track_code}'")
@@ -133,12 +135,12 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     distance = float(dist_str)
     surface, direction = JRA_TRACK_MAP[track_code]
 
-    # 馬場状態 (348:349 芝馬場、349:350 ダート馬場)
-    cond_pos = 348 if surface == "芝" else 349
+    # 馬場状態は速報成績以前の RA1/RA2 で未設定 (0) が正常
+    cond_pos = 888 if surface == "芝" else 889
     cond_code = raw_bytes[cond_pos:cond_pos+1].decode("ascii", errors="replace").strip()
-    if cond_code not in JRA_CONDITION_MAP:
-        raise ValueError(f"Invalid or unverified condition code for {surface}: '{cond_code}'")
-    condition = JRA_CONDITION_MAP[cond_code]
+    if cond_code not in JRA_CONDITION_MAP and cond_code not in ("0", " "):
+        raise ValueError(f"Invalid condition code for {surface}: '{cond_code}'")
+    condition = JRA_CONDITION_MAP.get(cond_code)
 
     return {
         "race_key": race_key,
@@ -163,10 +165,12 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
-    if len(raw_bytes) < 90:
-        raise ValueError(f"SE record too short: length {len(raw_bytes)} < 90 required")
+    if len(raw_bytes) != 555:
+        raise ValueError(f"SE record too short: length {len(raw_bytes)} != 555 required")
 
     rec_type = raw_bytes[0:2].decode("ascii", errors="replace")
+    if raw_bytes[2:3] != b"2":
+        raise ValueError("SE horse numbers unavailable before DataKubun 2 or race already finished")
     if rec_type != "SE":
         raise ValueError(f"Expected SE record, got '{rec_type}'")
 
@@ -190,13 +194,13 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
         raise ValueError(f"Invalid or missing horse_id in SE record: '{horse_id}'")
 
     # 馬名 (40:76, 36バイト Shift-JIS)
-    horse_name = raw_bytes[40:76].decode("cp932", errors="replace").strip()
+    horse_name = raw_bytes[40:76].decode("cp932", errors="strict").strip()
     if not horse_name:
         raise ValueError("Missing horse name in SE record")
 
     # 性別コード (76:77), 馬齢 (77:79) - バイト位置で確実に取得
-    sex_code = raw_bytes[76:77].decode("ascii", errors="replace").strip()
-    age_str = raw_bytes[77:79].decode("ascii", errors="replace").strip()
+    sex_code = raw_bytes[78:79].decode("ascii", errors="replace").strip()
+    age_str = raw_bytes[82:84].decode("ascii", errors="replace").strip()
 
     if sex_code not in JRA_SEX_MAP:
         raise ValueError(f"Invalid sex code in SE record: '{sex_code}'")
@@ -207,22 +211,22 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     age = float(age_str)
 
     # 負担重量 (81:84, 0.1kg単位, 例: 560 -> 56.0kg)
-    weight_carry_str = raw_bytes[81:84].decode("ascii", errors="replace").strip()
+    weight_carry_str = raw_bytes[288:291].decode("ascii", errors="replace").strip()
     if not (weight_carry_str.isdigit() and 400 <= int(weight_carry_str) <= 700):
         raise ValueError(f"Invalid weight carry in SE record: '{weight_carry_str}'")
     weight_carry = float(weight_carry_str) / 10.0
 
     # 騎手コード (84:89, 5桁)
-    jockey_id = raw_bytes[84:89].decode("ascii", errors="replace").strip()
+    jockey_id = raw_bytes[296:301].decode("ascii", errors="replace").strip()
     if not (jockey_id.isdigit() and len(jockey_id) == 5):
         raise ValueError(f"Invalid jockey_id in SE record: '{jockey_id}'")
 
-    # 馬体重情報（発表済みの場合は後続バイト 168:174）
+    # 馬体重と増減 (325..330, one-based; unknown pre-race values remain None)
     h_weight = None
     h_weight_diff = None
-    if len(raw_bytes) >= 174:
-        hw_str = raw_bytes[168:171].decode("ascii", errors="replace").strip()
-        hwd_str = raw_bytes[171:174].decode("ascii", errors="replace").strip()
+    if len(raw_bytes) >= 331:
+        hw_str = raw_bytes[324:327].decode("ascii", errors="replace").strip()
+        hwd_str = raw_bytes[328:331].decode("ascii", errors="replace").strip()
         if hw_str.isdigit() and 300 <= int(hw_str) <= 650:
             h_weight = float(hw_str)
         if hwd_str.replace("+", "").replace("-", "").isdigit():
