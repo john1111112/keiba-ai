@@ -202,7 +202,7 @@ with tab0:
                 if m["subscription_auth"] == "AUTHORIZED":
                     st.success("✅ AUTHORIZED")
                 else:
-                    st.info("ℹ️ NOT_AUTHORIZED (体験開始前)")
+                    st.info("ℹ️ 未検証（接続結果に基づき確認）")
 
             with c_dia2:
                 st.write("**2. SDK導入 (JRA-VAN)**")
@@ -220,7 +220,7 @@ with tab0:
                     st.error("❌ FAILED")
 
             with c_dia3:
-                st.write("**3. COM接続 (jvdg.JVLink)**")
+                st.write("**3. COM接続 (JVDTLab.JVLink)**")
                 if m["com_connection"] == "READY":
                     st.success("✅ READY")
                 else:
@@ -229,6 +229,8 @@ with tab0:
                 st.write("**7. AI予測パイプライン**")
                 if m["ai_prediction"] == "SUCCESS":
                     st.success("✅ SUCCESS (28特徴量検証済)")
+                elif m["ai_prediction"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED（実データ推論前）")
                 else:
                     st.error("❌ FAILED")
 
@@ -242,6 +244,8 @@ with tab0:
                 st.write("**8. 通知システム (重複抑止)**")
                 if m["notification"] == "SUCCESS":
                     st.success("✅ SUCCESS (安全ロック稼働)")
+                elif m["notification"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED（本番通知未検証）")
                 else:
                     st.error("❌ FAILED")
 
