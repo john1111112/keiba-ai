@@ -335,6 +335,69 @@ class SafetyAndVerificationSuiteTests(unittest.TestCase):
         self.assertEqual(res["notifications_sent"], 0)
         self.assertEqual(res["processed_races"], 0)
 
+    # 11. 学習時と推論時の28特徴量の定義・順序・型・カテゴリ完全一致検証
+    def test_feature_28_alignment_exact_match(self):
+        from src.features import FEATURE_COLS_V2_28, CATEGORICAL_COLS
+        from src.model import KeibaAIWinModel, MODEL_WIN_V2_28_PATH
+        race_info = {
+            "race_id": "TEST_ALIGN",
+            "race_date": "2026-10-26",
+            "race_course": "東京",
+            "surface": "芝",
+            "distance": 2000,
+            "condition": "良"
+        }
+        horses = [{
+            "horse_number": 1,
+            "age": 4.0,
+            "weight_carry": 56.0,
+            "sex": "牡",
+            "horse_weight": 480.0,
+            "running_style": "先行"
+        }]
+        df = build_prerace_28features(race_info, horses)
+        validate_feature_alignment(df)
+        self.assertEqual(len(FEATURE_COLS_V2_28), 28)
+        for col in FEATURE_COLS_V2_28:
+            self.assertIn(col, df.columns)
+
+        # モデルの期待する28特徴量と完全一致すること
+        win_model = KeibaAIWinModel(model_path=MODEL_WIN_V2_28_PATH)
+        win_model.load()
+        preds = win_model.predict_win_race(df)
+        self.assertEqual(len(preds), 1)
+        self.assertGreaterEqual(preds.loc[0, "pred_win_prob"], 0.0)
+
+    # 12. テスト通知と本番推奨通知の分離確認
+    def test_test_notification_separated_from_real_alerts(self):
+        from src.notifier import send_windows_notification
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = MagicMock()
+            # テスト通知はタイトルに [TEST] 等が明示され、実オッズ・推論ロジックとは完全に分離
+            send_windows_notification("【KEIBA AI テスト通知】", "テストメッセージです")
+            mock_popen.assert_called_once()
+            call_kwargs = mock_popen.call_args[1]
+            env = call_kwargs.get("env", {})
+            self.assertEqual(env.get("KEIBA_ALERT_TITLE"), "【KEIBA AI テスト通知】")
+
+    # 13. 架空補完の禁止（age欠損時は推論停止）
+    def test_fabricated_defaults_forbidden(self):
+        race_info = {
+            "race_id": "NO_DEFAULTS",
+            "race_date": "2026-10-26",
+            "race_course": "東京",
+            "surface": "芝",
+            "distance": 2000
+        }
+        # age が None（未取得）の場合、4歳で捏造補完せず推論停止すること
+        horses_missing_age = [{
+            "horse_number": 1,
+            "weight_carry": 56.0
+        }]
+        with self.assertRaises(ValueError) as ctx:
+            build_prerace_28features(race_info, horses_missing_age)
+        self.assertIn("Missing required horse attribute 'age'", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

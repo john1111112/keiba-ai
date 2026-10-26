@@ -87,6 +87,23 @@ def validate_clean_prerace_input(race_info: Dict[str, Any], horses: List[Dict[st
         )
 
 
+def validate_horse_jockey_identifiers(horses: List[Dict[str, Any]]) -> None:
+    """馬ID・騎手IDの欠損状況および推論に必要な特徴量の生成可否を検証"""
+    for idx, h in enumerate(horses):
+        h_num = h.get("horse_number")
+        horse_id = str(h.get("horse_id", "")).strip()
+        jockey_id = str(h.get("jockey_id", "")).strip()
+        if not horse_id:
+            logger.info(f"馬番 {h_num}: horse_id欠損（初出走または未登録）。過去走集計は欠損(NaN)として安全に処理")
+        if not jockey_id:
+            logger.info(f"馬番 {h_num}: jockey_id欠損。騎手実績集計は欠損(NaN)として安全に処理")
+        # 必須属性（年齢、斤量）の検証: 根拠なき架空補完を禁止しているため、これらが取得できなければ推論停止
+        if h.get("age") is None or (isinstance(h.get("age"), (int, float)) and np.isnan(float(h["age"]))):
+            raise ValueError(f"INSUFFICIENT_FEATURES: Missing required horse attribute 'age' for horse {h_num}")
+        if h.get("weight_carry") is None or (isinstance(h.get("weight_carry"), (int, float)) and np.isnan(float(h["weight_carry"]))):
+            raise ValueError(f"INSUFFICIENT_FEATURES: Missing required horse attribute 'weight_carry' for horse {h_num}")
+
+
 def validate_feature_alignment(df: pd.DataFrame) -> None:
     """学習時と推論時の28特徴量の定義・順序・型の整合性を検証"""
     missing_cols = [c for c in FEATURE_COLS_V2_28 if c not in df.columns]
@@ -125,6 +142,7 @@ def build_prerace_28features(
     race_info_with_date["race_date"] = r_date
 
     validate_clean_prerace_input(race_info_with_date, horses)
+    validate_horse_jockey_identifiers(horses)
 
     race_id = str(race_info_with_date["race_id"])
     race_course = str(race_info_with_date["race_course"])
