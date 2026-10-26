@@ -26,6 +26,17 @@ class BackgroundScanTests(unittest.TestCase):
             self.assertEqual(result["bet_status"], "NO_BET")
             self.assertFalse(result["model_inference_allowed"])
 
+    def test_malformed_manifest_returns_blocked_without_db(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "bad.json"
+            manifest.write_text("{broken", encoding="utf-8")
+            db = Path(folder) / "odds.db"
+            result = run_cycle(manifest, db)
+            self.assertEqual(result["status"], "SCAN_BLOCKED")
+            self.assertEqual(result["bet_status"], "NO_BET")
+            self.assertFalse(result["model_inference_allowed"])
+            self.assertFalse(db.exists())
+
     def test_main_writes_status_without_manifest(self):
         with tempfile.TemporaryDirectory() as folder:
             report = Path(folder) / "status.json"
