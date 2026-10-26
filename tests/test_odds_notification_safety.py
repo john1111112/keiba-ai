@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from src.automated_monitor import validate_fresh_race_odds
+from src.automated_monitor import validate_fresh_race_odds, collect_fresh_win_odds
 
 NOW = datetime(2026, 10, 27, 4, 26, tzinfo=timezone.utc)
 
@@ -38,6 +38,22 @@ class OddsNotificationSafetyTest(unittest.TestCase):
             {"horse_number": 2, "win_odds": None, "odds_observed_at": None}
         ]
         self.assertFalse(validate_fresh_race_odds(horses, NOW, 120)[0])
+
+    def test_missing_unrelated_horse_does_not_block_quoted_buy_candidate(self):
+        horses = [
+            runner(4.2, "2026-10-27T13:25:00+09:00"),
+            {"horse_number": 2, "win_odds": None, "odds_observed_at": None},
+        ]
+        current = collect_fresh_win_odds(horses, NOW, 120)
+        self.assertEqual(current, {1: 4.2})
+
+    def test_only_stale_quotes_are_not_eligible(self):
+        horses = [
+            runner(4.2, "2026-10-27T13:20:00+09:00"),
+            {"horse_number": 2, "win_odds": 10.0,
+             "odds_observed_at": "2026-10-27T13:20:00+09:00"},
+        ]
+        self.assertEqual(collect_fresh_win_odds(horses, NOW, 120), {})
 
     def test_invalid_number_and_invalid_time_are_not_eligible(self):
         for quote, stamp in [
