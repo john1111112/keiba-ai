@@ -31,7 +31,7 @@ def validate_snapshot(data):
                                 ("race_start_time", "observed_at", "fetched_at"))
     if not all((start, observed, fetched)) or not (observed <= fetched < start):
         raise ValueError("Require timezone-aware observed <= fetched < race start")
-    if str(data["source"]).strip().lower() in {"unknown", "final", "post_race"}:
+    if str(data["source"]).strip().lower() in {"unknown", "final", "post_race", "none"} or not str(data["source"]).strip():
         raise ValueError("Explicit non-final source is required")
     if not isinstance(data["odds"], list) or not data["odds"]:
         raise ValueError("Odds must be a nonempty list")
@@ -41,7 +41,10 @@ def validate_snapshot(data):
         if not isinstance(item, dict):
             raise ValueError("Each odds entry must be an object")
         try:
-            horse = int(item["horse_number"])
+            raw_horse = item["horse_number"]
+            if isinstance(raw_horse, bool) or str(raw_horse).strip() != str(int(raw_horse)):
+                raise ValueError("Horse number must be an integer")
+            horse = int(raw_horse)
             price = float(item["odds_value"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Invalid horse number or odds") from exc
