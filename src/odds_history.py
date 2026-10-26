@@ -7,6 +7,7 @@ Phase 3D: 発走前時系列オッズ履歴保存基盤
 - 発走前オッズおよびAI予測スナップショットの時系列管理（実時刻付き）
 """
 import sqlite3
+import math
 import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -133,11 +134,11 @@ def record_odds_snapshot(
             continue
 
         observed_at = r.get("observed_at")
-        fetched_at = r.get("fetched_at") or datetime.datetime.now().isoformat()
+        fetched_at = r.get("fetched_at")  # Never invent a fetch timestamp
         try:
             observed_dt = datetime.datetime.fromisoformat(str(observed_at))
             fetched_dt = datetime.datetime.fromisoformat(str(fetched_at))
-            if (observed_dt.tzinfo is None) != (fetched_dt.tzinfo is None):
+            if observed_dt.tzinfo is None or fetched_dt.tzinfo is None:
                 continue
             if observed_dt > fetched_dt:
                 continue
@@ -192,39 +193,50 @@ def get_latest_odds_as_of(
     if not target_path.exists():
         return pd.DataFrame()
 
+    cutoff = _parse_aware_utc(as_of_time)
+    if cutoff is None:
+        raise ValueError("as_of_time must have an explicit timezone")
     conn = sqlite3.connect(target_path)
-    query = """
-    SELECT 
-        t.horse_number,
-        t.horse_id,
-        t.odds_value,
-        t.popularity,
-        t.observed_at,
-        t.fetched_at,
-        t.source,
-        t.data_status,
-        t.timing_tag
-    FROM odds_timeline t
-    INNER JOIN (
-        SELECT horse_number, MAX(observed_at) AS max_obs
-        FROM odds_timeline
-        WHERE race_id = ?
-          AND odds_type = ?
-          AND observed_at <= ?
-          AND fetched_at <= ?
-          AND LOWER(data_status) NOT IN ('final_settled', 'final', 'post_race', 'settled')
-        GROUP BY horse_number
-    ) latest ON t.horse_number = latest.horse_number AND t.observed_at = latest.max_obs
-    WHERE t.race_id = ?
-      AND t.odds_type = ?
-      AND t.fetched_at <= ?
-      AND LOWER(t.data_status) NOT IN ('final_settled', 'final', 'post_race', 'settled')
-    ORDER BY t.horse_number ASC
-    """
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=(race_id, odds_type, as_of_time, as_of_time, race_id, odds_type, as_of_time)
-    )
-    conn.close()
-    return df
+    try:
+        rows = conn.execute("""
+            SELECT horse_number, horse_id, odds_value, popularity, observed_at,
+                   fetched_at, source, data_status, timing_tag, id
+            FROM odds_timeline
+            WHERE race_id = ? AND odds_type = ?
+        """, (race_id, odds_type)).fetchall()
+    finally:
+        conn.close()
+    latest = {}
+    for horse, horse_id, odds, popularity, observed, fetched, source, status, tag, row_id in rows:
+        obs, got = _parse_aware_utc(observed), _parse_aware_utc(fetched)
+        if (obs is None or got is None or obs > got or obs > cutoff or got > cutoff
+                or str(status).lower() in PROHIBITED_STATUSES):
+            continue
+        try:
+            price = float(odds)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(price) or price < 1:
+            continue
+        # Stable tie-breaker: publication time, fetch time, insertion id.
+        key = (obs, got, row_id)
+        if horse not in latest or key > latest[horse][0]:
+            latest[horse] = (key, {
+                "horse_number": horse, "horse_id": horse_id, "odds_value": price,
+                "popularity": popularity, "observed_at": observed,
+                "fetched_at": fetched, "source": source, "data_status": status,
+                "timing_tag": tag
+            })
+    return pd.DataFrame([entry[1] for _, entry in sorted(latest.items())])
+
+
+def _parse_aware_utc(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return parsed.astimezone(datetime.timezone.utc)
+    except (ValueError, TypeError, OverflowError):
+        return None
