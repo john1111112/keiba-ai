@@ -34,3 +34,5 @@ python -m scripts.run_beta_dashboard
 ```
 
 スキャン結果は `data/last_background_scan.json` に保存されます。開催予定表がなければ `NO_UPCOMING_MANIFEST`、実オッズ提供元が未接続なら取得なしとして記録します。**このタスクは通知・予測・購入を実行しません。** Windowsへのログイン中のみ実行する構成で、Windows実機検証は未実施です。自動通知については `WINDOWS_UNATTENDED_ALERTS.md` を参照してください。現在は出所を独立認証できないため通知は停止中です。
+
+画面の「バックグラウンド確認」欄では、`data/last_background_scan.json` の最終スキャン状態（例：`COMPLETED`、`SCAN_BLOCKED`）を確認できます。これは実行処理の状態であり、オッズや予測の真偽・精度を証明するものではありません。予定表が壊れている場合もタスクは `SCAN_BLOCKED` として結果を保存し、架空のレースや購入推奨を生成しません。
