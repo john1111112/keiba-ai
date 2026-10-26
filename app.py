@@ -428,6 +428,14 @@ with tab0:
             in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
             in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", False)))
             
+        in_discord_user = st.text_input(
+            "スマホ通知先のDiscordユーザーID（任意）",
+            value=str(cfg.get("discord_user_id", "")),
+            help="自分のDiscordユーザーIDを入れると買い候補通知で自分宛にメンションします。未入力なら通常のWebhook投稿です。",
+        )
+        if in_discord and not in_discord_user.strip():
+            st.caption("通知が鳴らない場合はDiscordの通知設定を確認するか、自分のユーザーIDを指定してください。")
+
         st.caption("本番通知は初期状態では無効。公式データの検証後にのみ通知できます。")
         in_alerts_enabled = st.checkbox(
             "🔔 公式データの検証が成功したら自動通知を許可",
@@ -440,9 +448,17 @@ with tab0:
             cfg["min_win_prob"] = round(in_min_p, 2)
             cfg["windows_toast_enabled"] = in_win_toast
             cfg["discord_enabled"] = in_discord
+            user_id = in_discord_user.strip()
+            cfg["discord_user_id"] = user_id
             cfg["safety_lock_enabled"] = not in_alerts_enabled
-            save_alert_config(cfg)
-            st.success("通知条件を保存しました！次回監視サイクルから適用されます。")
+            if user_id and (
+                not user_id.isascii() or not user_id.isdigit()
+                or not 17 <= len(user_id) <= 20
+            ):
+                st.error("DiscordユーザーIDは17〜20桁の数字で入力してください。")
+            else:
+                save_alert_config(cfg)
+                st.success("通知条件を保存しました！次回監視サイクルから適用されます。")
 
     # --- 通知履歴テーブル ---
     st.markdown("#### 📜 通知配信履歴（SQLite: data/alert_state.db）")
