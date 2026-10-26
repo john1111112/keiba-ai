@@ -9,7 +9,7 @@ echo =========================================================
 echo    🏇 KEIBA AI - Windowsタスクスケジューラ登録マネージャー
 echo =========================================================
 echo.
-echo 1: タスク登録 (5分ごとに自動スキャン実行)
+echo 1: タスク登録 (1分ごとにアプリ不要で全レース監視)
 echo 2: タスク解除 (定期実行を停止)
 echo 3: タスク状態確認
 echo 4: 今すぐ実行テスト
@@ -18,7 +18,7 @@ echo.
 set /p CHOICE="番号を入力してください (1-4): "
 
 if "%CHOICE%"=="1" (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_windows_task.ps1" -Action register -IntervalMinutes 5
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_windows_task.ps1" -Action register -IntervalMinutes 1
 ) else if "%CHOICE%"=="2" (
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_windows_task.ps1" -Action unregister
 ) else if "%CHOICE%"=="3" (
