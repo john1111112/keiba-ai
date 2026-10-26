@@ -64,6 +64,9 @@ class ResearchModelTests(unittest.TestCase):
         self.assertNotIn("finish_order", result["features"])
         self.assertNotIn("odds", result["features"])
         self.assertGreaterEqual(result["brier_score"], 0)
+        self.assertGreaterEqual(result["race_normalized_brier_research_only"], 0)
+        self.assertAlmostEqual(result["uniform_race_winner_nll"], __import__("math").log(2))
+        self.assertGreaterEqual(result["race_winner_nll_research_only"], 0)
         self.assertLessEqual(result["brier_score"], 1)
 
     def test_sealed_2026_bundle_rejected(self):
