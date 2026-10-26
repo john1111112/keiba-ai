@@ -40,6 +40,8 @@ def walk_forward(bundles_dir, labels_path, *, boundaries, min_races=20):
             "train_horses": fold["train_horses"],
             "validation_horses": fold["validation_horses"],
             "brier_score": fold["brier_score"],
+            "uniform_race_baseline_brier": fold["uniform_race_baseline_brier"],
+            "uniform_race_baseline_log_loss": fold["uniform_race_baseline_log_loss"],
             "log_loss": fold["log_loss"],
             "roc_auc": fold["roc_auc"],
             "input_sha256": fold["input_sha256"],
@@ -55,6 +57,8 @@ def walk_forward(bundles_dir, labels_path, *, boundaries, min_races=20):
         "total_validation_horses": total,
         "weighted_mean_brier": sum(f["brier_score"] * f["validation_horses"] for f in folds) / total,
         "weighted_mean_log_loss": sum(f["log_loss"] * f["validation_horses"] for f in folds) / total,
+        "weighted_uniform_baseline_brier": sum(f["uniform_race_baseline_brier"] * f["validation_horses"] for f in folds) / total,
+        "weighted_uniform_baseline_log_loss": sum(f["uniform_race_baseline_log_loss"] * f["validation_horses"] for f in folds) / total,
         "warning": "Overlapping expanding training windows; validation windows disjoint. Manual provenance not certified. No betting EV.",
     }
 
