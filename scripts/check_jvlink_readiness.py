@@ -127,7 +127,7 @@ def run_full_readiness_check() -> dict:
 
     # 5. 8段階独立判定マトリクス (要求仕様厳密準拠)
     # 1. Python環境
-    m_python = "READY" if (compat["is_windows"] and compat["win32com_available"] and compat["python32_available"]) else "NOT_READY"
+    m_python = "READY" if (compat["is_windows"] and compat["python32_available"] and probe_details.get("pywin32_available", False)) else "NOT_READY"
     # 2. SDK導入
     m_sdk = "READY" if compat["sdk_registered"] else "NOT_READY"
     # 3. COM接続
