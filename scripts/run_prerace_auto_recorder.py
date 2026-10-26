@@ -95,6 +95,22 @@ def run_schedule_scan(
     now_dt = datetime.datetime.fromisoformat(as_of_time) if as_of_time else datetime.datetime.now(datetime.timezone.utc)
     if now_dt.tzinfo is None or now_dt.utcoffset() is None:
         raise ValueError("--as-of-time must include an explicit timezone")
+    if "race_id" not in upcoming.columns:
+        raise ValueError("Upcoming manifest requires race_id")
+    if upcoming["race_id"].isna().any() or (upcoming["race_id"].astype(str).str.strip() == "").any():
+        raise ValueError("Upcoming manifest contains empty race_id")
+    # One scheduled start per race; conflicting rows must not choose an
+    # arbitrary first row and accidentally capture the wrong race.
+    for race_id, group in upcoming.groupby("race_id"):
+        starts = set()
+        for _, row in group.iterrows():
+            raw = row.get("race_time")
+            if pd.isna(raw) or not raw:
+                raw = row.get("start_time")
+            if pd.notna(raw) and raw:
+                starts.add(str(raw))
+        if len(starts) > 1:
+            raise ValueError(f"Conflicting start times for race {race_id}")
     races_grouped = upcoming.groupby("race_id")
     results = []
 
