@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def store_records(db_path, records, *, data_spec, fetched_at=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
     inserted = 0
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS jv_raw_records (
             sha256 TEXT NOT NULL, data_spec TEXT NOT NULL,
             record_type TEXT NOT NULL, fetched_at TEXT NOT NULL,
