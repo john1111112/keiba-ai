@@ -168,7 +168,8 @@ def main(argv=None):
                 "ERROR_RECOVERING" if result.get("status") in {
                     "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
                     "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST",
-                    "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND"
+                    "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
+                    "INFERENCE_BLOCKED"
                 } else "RUNNING"
             ),
             "run_mode": "WINDOWS_TASK_SCHEDULER",
@@ -190,6 +191,7 @@ def main(argv=None):
         "SCAN_BLOCKED", "FEED_VALIDATION_REJECTED",
         "FEED_PARSE_ERROR", "MODEL_LOAD_ERROR",
         "MODEL_FILE_NOT_FOUND", "NO_FEED_FILE",
+        "INFERENCE_BLOCKED",
     }
     # Historical schedule-only CLI treats missing manifests as a no-op;
     # live scheduled tasks must still report missing/failed data as errors.
