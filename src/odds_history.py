@@ -118,9 +118,6 @@ def record_odds_snapshot(
     target_path = Path(db_path or ODDS_HISTORY_DB_PATH)
     init_odds_history_db(target_path)
 
-    conn = sqlite3.connect(target_path)
-    cur = conn.cursor()
-
     valid_rows = []
     for r in odds_records:
         # 最低限の必須項目バリデーション
@@ -175,16 +172,17 @@ def record_odds_snapshot(
             str(row_timing),
         ))
 
-    cur.executemany("""
+    if not valid_rows:
+        return 0
+    # One atomic write: never leave a partial snapshot on failure.
+    with sqlite3.connect(target_path) as conn:
+        conn.executemany("""
     INSERT INTO odds_timeline (
         race_id, horse_id, horse_number, odds_type, odds_value,
         popularity, observed_at, fetched_at, source, data_status, timing_tag
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, valid_rows)
-
-    conn.commit()
     inserted_count = len(valid_rows)
-    conn.close()
     return inserted_count
 
 
