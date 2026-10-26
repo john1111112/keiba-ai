@@ -23,6 +23,7 @@ def store_records(db_path, records, *, data_spec, fetched_at=None):
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
+    inserted = 0
     with sqlite3.connect(path) as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS jv_raw_records (
             sha256 TEXT NOT NULL, data_spec TEXT NOT NULL,
@@ -37,12 +38,14 @@ def store_records(db_path, records, *, data_spec, fetched_at=None):
             if not record_type.isalnum():
                 raise ValueError("Invalid record type")
             digest = hashlib.sha256(raw).hexdigest()
-            conn.execute("""INSERT OR IGNORE INTO jv_raw_records
+            cursor = conn.execute("""INSERT OR IGNORE INTO jv_raw_records
                 (sha256, data_spec, record_type, fetched_at, payload)
                 VALUES (?, ?, ?, ?, ?)""",
                 (digest, data_spec, record_type, received, raw))
             count += 1
+            inserted += cursor.rowcount
     return {"status": "RAW_RECORDS_STORED_UNPARSED", "received": count,
+            "inserted": inserted, "duplicates": count - inserted,
             "data_spec": data_spec, "bet_status": "NO_BET"}
 
 
