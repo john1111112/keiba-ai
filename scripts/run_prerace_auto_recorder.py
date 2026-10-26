@@ -88,7 +88,10 @@ def run_schedule_scan(
             "processed_races": 0, "captured_count": 0, "missing_count": 0,
             "snapshots": []
         }
-    upcoming = df_feat[df_feat["race_status"].astype(str).str.lower() == "upcoming"].copy()
+    statuses = df_feat["race_status"].astype(str).str.strip().str.lower()
+    if not statuses.isin({"upcoming", "cancelled", "postponed"}).all():
+        raise ValueError("Race manifest contains an unknown status")
+    upcoming = df_feat[statuses == "upcoming"].copy()
     if len(upcoming) == 0:
         return {
             "status": "NO_UPCOMING_RACES",
@@ -208,7 +211,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--race-time", help="Scheduled race start time (ISO or YYYY-MM-DD HH:MM:SS)")
     parser.add_argument("--timing", choices=["pre_30m", "pre_10m", "pre_5m", "auto"], default="auto")
     parser.add_argument("--odds-json", help="Path to explicit odds snapshot JSON")
-    parser.add_argument("--features", default=str(repo_root / "data" / "features.parquet"))
+    parser.add_argument("--features", default=str(repo_root / "data" / "upcoming_races.json"))
     parser.add_argument("--db", default=str(ODDS_HISTORY_DB_PATH))
     parser.add_argument("--as-of-time", help="Simulated current time for scan testing (ISO)")
     parser.add_argument("--max-retries", type=int, default=3, help="Max retry attempts for odds fetch")
