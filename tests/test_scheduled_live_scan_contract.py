@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.run_background_scan import run_cycle, main
+from scripts.enable_personal_monitor import enable_monitor_config
 
 
 class ScheduledLiveScanTest(unittest.TestCase):
@@ -19,6 +20,61 @@ class ScheduledLiveScanTest(unittest.TestCase):
         self.assertIn("latest_jvlink_feed.json", content)
         self.assertNotIn("authorized_feed\\latest.json", content)
         self.assertIn("exit /b %ERRORLEVEL%", content)
+
+    def test_registration_is_independent_of_opening_the_dashboard(self):
+        repo = Path(__file__).resolve().parents[1]
+        installer = (repo / "INSTALL_AUTO_MONITOR.bat").read_text(encoding="utf-8")
+        scheduler = (repo / "scripts" / "setup_windows_task.ps1").read_text(encoding="utf-8")
+        self.assertIn("setup_windows_task.ps1", installer)
+        self.assertIn("-IntervalMinutes 1", installer)
+        self.assertIn("enable_personal_monitor.py", installer)
+        self.assertIn("/SC MINUTE", scheduler)
+        self.assertIn("/MO $IntervalMinutes", scheduler)
+        self.assertIn("run_scheduled_task.bat", scheduler)
+        self.assertNotIn("-File \"app.py\"", installer)
+
+    def test_one_time_install_enables_buy_candidate_discord_without_losing_thresholds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(
+                json.dumps({
+                    "min_ev": 1.35, "min_win_prob": 0.3,
+                    "discord_enabled": False, "safety_lock_enabled": True
+                }), encoding="utf-8"
+            )
+            config = enable_monitor_config(path)
+            self.assertEqual(config["min_ev"], 1.35)
+            self.assertEqual(config["min_win_prob"], 0.3)
+            self.assertTrue(config["discord_enabled"])
+            self.assertFalse(config["safety_lock_enabled"])
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), config)
+
+    def test_scheduled_scan_records_heartbeat_for_ui_without_ui_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "last_background_scan.json"
+            with patch("scripts.run_background_scan.run_cycle", return_value={
+                "status": "COMPLETED",
+                "processed_races": 12, "eligible_candidates": 2,
+                "notifications_sent": 1, "model_inference_allowed": True
+            }):
+                rc = main(["--out", str(out), "--use-jvlink"])
+            self.assertEqual(rc, 0)
+            beat = json.loads((Path(tmp) / "monitor_daemon_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(beat["run_mode"], "WINDOWS_TASK_SCHEDULER")
+            self.assertEqual(beat["daemon_status"], "RUNNING")
+            self.assertEqual(beat["last_scan_result"]["processed_races"], 12)
+            self.assertEqual(beat["last_scan_result"]["notifications_sent"], 1)
+
+    def test_scheduled_failed_acquisition_heartbeat_is_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("scripts.run_background_scan.run_cycle", return_value={
+                "status": "JVLINK_FETCH_FAILED", "reason": "provider down"
+            }):
+                rc = main(["--out", str(Path(tmp) / "last_background_scan.json"), "--use-jvlink"])
+            self.assertEqual(rc, 1)
+            beat = json.loads((Path(tmp) / "monitor_daemon_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(beat["daemon_status"], "ERROR_RECOVERING")
+            self.assertEqual(beat["last_scan_result"]["status"], "JVLINK_FETCH_FAILED")
 
     def test_live_cycle_reads_just_acquired_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
