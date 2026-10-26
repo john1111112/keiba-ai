@@ -392,7 +392,8 @@ class JVLinkClient:
                 try:
                     odds_result = self.fetch_via_32bit_worker(
                         data_spec="0B31", from_time=from_time,
-                        output_path=worker_out, mode="rt", key=race_key
+                        output_path=worker_out, mode="rt",
+                        key=race_key[:10] + race_key[-2:]
                     )
                     if (not odds_result.get("success")
                             or odds_result.get("auth_status") != "AUTHENTICATED"
