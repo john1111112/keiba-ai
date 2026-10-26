@@ -20,14 +20,16 @@ class OddsAsOfTests(unittest.TestCase):
         }], db_path=self.db)
 
     def test_no_naive_timestamps(self):
-        self.assertEqual(self.record(4, "2026-10-25T06:00:00", "2026-10-25T06:01:00"), 0)
+        with self.assertRaises(ValueError):
+            self.record(4, "2026-10-25T06:00:00", "2026-10-25T06:01:00")
 
     def test_no_fabricated_fetch_time(self):
-        self.assertEqual(record_odds_snapshot([{
+        with self.assertRaises(ValueError):
+            record_odds_snapshot([{
             "race_id": "r1", "horse_number": 1, "odds_value": 3,
             "observed_at": "2026-10-25T06:00:00+00:00",
             "source": "test"
-        }], db_path=self.db), 0)
+        }], db_path=self.db)
 
     def test_mixed_offsets_and_asof(self):
         self.record(5, "2026-10-25T15:00:00+09:00", "2026-10-25T15:01:00+09:00")
@@ -39,7 +41,8 @@ class OddsAsOfTests(unittest.TestCase):
 
     def test_final_excluded(self):
         self.record(5, "2026-10-25T06:00:00+00:00", "2026-10-25T06:01:00+00:00")
-        self.record(2, "2026-10-25T06:02:00+00:00", "2026-10-25T06:03:00+00:00", "final")
+        with self.assertRaises(ValueError):
+            self.record(2, "2026-10-25T06:02:00+00:00", "2026-10-25T06:03:00+00:00", "final")
         rows = get_latest_odds_as_of("r1", "2026-10-25T06:04:00+00:00", db_path=self.db)
         self.assertEqual(rows.iloc[0]["odds_value"], 5)
 
