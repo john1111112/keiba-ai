@@ -80,6 +80,23 @@ class OddsDropTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             detect_drops(self.db, as_of_time="2026-10-25T06:05:00")
 
+    def test_relative_drop_compares_same_window_peers(self):
+        self.add(10, "2026-10-25T06:00:00+00:00", horse=1)
+        self.add(5, "2026-10-25T06:05:00+00:00", horse=1)
+        self.add(8, "2026-10-25T06:00:00+00:00", horse=2)
+        self.add(7.2, "2026-10-25T06:05:00+00:00", horse=2)
+        alert = detect_drops(self.db)["alerts"][0]
+        self.assertEqual(alert["peer_count"], 1)
+        self.assertAlmostEqual(alert["peer_avg_drop_pct"], 10)
+        self.assertAlmostEqual(alert["relative_drop_pct_points"], 40)
+
+    def test_relative_drop_unavailable_without_peer(self):
+        self.add(10, "2026-10-25T06:00:00+00:00")
+        self.add(5, "2026-10-25T06:05:00+00:00")
+        alert = detect_drops(self.db)["alerts"][0]
+        self.assertEqual(alert["peer_count"], 0)
+        self.assertIsNone(alert["relative_drop_pct_points"])
+
     def test_no_db(self):
         self.assertEqual(detect_drops(self.db.parent / "absent.db")["status"], "NO_ODDS_DB")
 
