@@ -9,6 +9,18 @@ from scripts.run_prerace_auto_recorder import run_schedule_scan
 
 
 class ScheduleScanSafetyTests(unittest.TestCase):
+    def test_unknown_manifest_status_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{
+                "race_id": "r1", "race_status": "finish_order_zero",
+                "race_time": "2026-10-25T15:40:00+09:00"
+            }]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                with self.assertRaises(ValueError):
+                    run_schedule_scan(manifest, Path(folder) / "odds.db")
+            record.assert_not_called()
+
     def test_unbounded_tolerance_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             manifest = Path(folder) / "upcoming.json"
