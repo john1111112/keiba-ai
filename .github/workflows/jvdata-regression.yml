@@ -60,3 +60,24 @@ jobs:
           python -m unittest discover -s tests -p test_live_jvlink_dashboard.py -v
           python -m unittest discover -s tests -p test_odds_notification_safety.py -v
           python -m unittest discover -s tests -p test_scheduled_live_scan_contract.py -v
+
+  windows-offline-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime dependencies (no JRA SDK required)
+        run: python -m pip install -r requirements.txt
+      - name: Validate Streamlit app and Windows launcher syntax assumptions
+        run: |
+          python -m compileall -q app.py src/jvlink_worker.py src/jvlink_client.py scripts/run_background_scan.py scripts/run_background_monitor.py scripts/build_live_jvlink_dashboard.py
+          python -m unittest discover -s tests -p test_scheduled_live_scan_contract.py -v
+      - name: Run offline worker, odds and user-interface smoke tests
+        run: |
+          python -m unittest discover -s tests -p test_jvlink_transport_contract.py -v
+          python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
+          python -m unittest discover -s tests -p test_live_jvlink_dashboard.py -v
+          python -m unittest discover -s tests -p test_odds_notification_safety.py -v
