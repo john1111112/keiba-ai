@@ -57,23 +57,17 @@ UNVERIFIED_RECORD_TYPES: Set[str] = {
 }
 
 
-def normalize_to_16char_race_key(race_id_or_key: str, default_date: Optional[str] = None) -> str:
+def normalize_to_16char_race_key(race_id_or_key: str) -> Optional[str]:
     """
-    旧8桁レースID (YYYY+場2+R2) と 16桁公式レースキー (YYYYMMDD+場2+回2+日2+R2) の
-    互換性を保ち、内部処理および履歴照合のための一意性を正規化する。
+    16桁公式レースキー (YYYYMMDD + 場2 + 回2 + 日2 + R2) の検証と正規化。
+    ※ 開催回・開催日を推測（'0101'等）で補完することは完全禁止。
+       16桁完全キーでない場合、自動補完せず None（未解決）を返す (Fail-Closed)。
     """
     s = str(race_id_or_key).strip()
     if len(s) == 16 and s.isdigit():
         return s
-    # 旧形式 (8桁: 例 20260501 -> 年2026, 場05, R01)
-    if len(s) == 8 and s.isdigit():
-        # 日付情報が補足可能な場合
-        if default_date and len(default_date.replace("-", "")) == 8:
-            ymd = default_date.replace("-", "")
-            course = s[4:6]
-            race_num = s[6:8]
-            return f"{ymd}{course}0101{race_num}"
-    return s
+    # 開催回・開催日を含まない旧8桁等は推測補完せず未解決
+    return None
 
 
 def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:

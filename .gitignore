@@ -22,4 +22,5 @@ data/last_background_scan.json
 .acquisition_session.json
 data/**/.acquisition_session.json
 data/.secure_key.dat
+vendor/
 

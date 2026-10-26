@@ -4,9 +4,8 @@ JV-Link 統合クライアント & 実接続オーケストレーター (JV-Link
 - SDK初期化 (JVInit) 戻り値の厳密検証
 - 認証状態確認 (JVStatus) 仕様準拠判定（推測による成功扱いを完全禁止）
 - 32bit COM / 64bit Python 互換性ブリッジ (32bitワーカー連携)
-- RA, SE, O1 レコードの取得とオッズ紐付け
-- 発走前28特徴量パイプラインへの変換
-- 真正性セッション署名の自動発行 (driver_status 連動)
+- 32bitワーカーによる実データ取得から64bit側でのレコード完全性検証・28特徴量パイプライン結合
+- 外部引数による認証偽装の完全廃止（実際の取得結果に基づく証跡発行）
 ※ 契約や無料体験は一切勝手に開始しない（費用0円）。
 """
 from __future__ import annotations
@@ -65,7 +64,7 @@ def find_32bit_python() -> Optional[str]:
     """
     32bit Python 実行可能ファイルのパスを探索する。
     1. 環境変数 KEIBA_PYTHON32_PATH
-    2. リポジトリ内 vendor/python32/python.exe
+    2. リポジトリ内 vendor/python32/python.exe (スタンドアロン独立環境)
     3. Windows py ランチャー (py -0p) での 32bit インストール
     """
     env_path = os.getenv("KEIBA_PYTHON32_PATH")
@@ -76,7 +75,6 @@ def find_32bit_python() -> Optional[str]:
     if vendor_path.is_file():
         return str(vendor_path)
 
-    # py ランチャー経由の探索
     if platform.system() == "Windows":
         try:
             res = subprocess.run(
@@ -117,7 +115,6 @@ def check_environment_compatibility() -> Dict[str, Any]:
     if is_windows:
         try:
             import winreg
-            # 64bit/32bit レジストリキー探索
             for root in [winreg.HKEY_CLASSES_ROOT]:
                 for subkey in ["jvdg.JVLink\\CLSID", "WOW6432Node\\CLSID\\jvdg.JVLink"]:
                     try:
@@ -148,9 +145,6 @@ def check_environment_compatibility() -> Dict[str, Any]:
     elif not sdk_registered:
         overall_status = "SETUP_REQUIRED"
         issues.append("JV-Link SDK (jvdg.JVLink) is not registered in Windows registry.")
-    elif python_arch == "64bit" and not python32_path:
-        # 64bit Python で 32bit COM を利用する場合のブリッジ確認
-        issues.append("Note: JV-Link is 32-bit COM. If 64-bit Python fails to instantiate, 32-bit Python worker is recommended.")
 
     if not jra_van_authorized:
         overall_status = "SETUP_REQUIRED"
@@ -214,6 +208,8 @@ class JVLinkClient:
                 self._driver_status = f"INIT_FAILED_CODE_{code}"
                 raise JVLinkError(f"JVInit failed with return code {code}")
             self._initialized = True
+            # 初期化直後はステータス確認を実施
+            self.check_service_status()
         except Exception as exc:
             self._initialized = False
             self._driver_status = "INIT_EXCEPTION"
@@ -225,6 +221,7 @@ class JVLinkClient:
         戻り値コードを厳密に解析し、未認証・異常値は connected: False とする。
         """
         if not self._initialized:
+            self._driver_status = "NOT_INITIALIZED"
             return {
                 "status_code": None,
                 "driver_status": "NOT_INITIALIZED",
@@ -248,7 +245,6 @@ class JVLinkClient:
         if code in JVSTATUS_MAP:
             driver_status, connected, desc = JVSTATUS_MAP[code]
         else:
-            # 未知のコードは推測で成功扱いせず UNVERIFIED とする
             driver_status = f"UNVERIFIED_STATUS_{code}"
             connected = False
             desc = f"Unverified status code: {code}"
@@ -263,7 +259,14 @@ class JVLinkClient:
             "sid": self.sid
         }
 
-    def fetch_via_32bit_worker(self, data_spec: str, from_time: str, output_path: Path) -> Dict[str, Any]:
+    def fetch_via_32bit_worker(
+        self,
+        data_spec: str,
+        from_time: str,
+        output_path: Path,
+        mode: str = "rt",
+        key: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         64bit Python から 32bit Python サブプロセスを介してデータを安全に取得するブリッジ
         """
@@ -278,27 +281,77 @@ class JVLinkClient:
             "--sid", self.sid,
             "--spec", data_spec,
             "--from-time", from_time,
+            "--mode", mode,
             "--out", str(output_path)
         ]
+        if key:
+            cmd.extend(["--key", key])
 
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if res.returncode != 0:
-                raise JVLinkBridgeError(f"Worker exited with code {res.returncode}: {res.stderr}")
-            return json.loads(res.stdout)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if not output_path.is_file():
+                raise JVLinkBridgeError(f"Worker did not produce output file. Return code: {res.returncode}, Stderr: {res.stderr}")
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            return payload
         except Exception as exc:
             raise JVLinkBridgeError(f"32-bit worker execution error: {exc}") from exc
+
+    def fetch_and_build_live_feed(
+        self,
+        data_spec: str = "0B15",
+        from_time: str = "20261026000000",
+        mode: str = "rt",
+        key: Optional[str] = None,
+        output_dir: Optional[Path] = None
+    ) -> Dict[str, Any]:
+        """
+        32bit ワーカーを介して実レースデータを取得し、完全性検証を経て
+        発走前28特徴量パイプライン用フィードを構築。
+        実データ取得成功（records_count > 0 かつ AUTHENTICATED）時のみ認証証跡を発行。
+        """
+        target_dir = Path(output_dir or (REPO_ROOT / "data" / "authorized_feed"))
+        target_dir.mkdir(parents=True, exist_ok=True)
+        worker_out = target_dir / "worker_output.json"
+
+        worker_res = self.fetch_via_32bit_worker(
+            data_spec=data_spec,
+            from_time=from_time,
+            output_path=worker_out,
+            mode=mode,
+            key=key
+        )
+
+        if not worker_res.get("success"):
+            status = worker_res.get("driver_status", "FETCH_FAILED")
+            err = worker_res.get("error", "Unknown worker error")
+            self._driver_status = status
+            raise JVLinkError(f"JV-Link acquisition failed ({status}): {err}")
+
+        # レコードの抽出とバイト変換
+        ra_list = [r.encode("cp932") for r in worker_res.get("ra_records", [])]
+        se_list = [r.encode("cp932") for r in worker_res.get("se_records", [])]
+        o1_list = [r.encode("cp932") for r in worker_res.get("o1_records", [])]
+        all_records = ra_list + se_list + o1_list
+
+        if not all_records:
+            self._driver_status = "NO_RECORDS_FETCHED"
+            raise JVLinkError("Worker reported success but returned 0 valid records (Fail-Closed)")
+
+        self._driver_status = "AUTHENTICATED"
+        return self.process_records_to_feed(all_records, output_dir=target_dir)
 
     def process_records_to_feed(
         self,
         raw_records: List[bytes],
-        output_dir: Optional[Path] = None,
-        driver_status: Optional[str] = None
+        output_dir: Optional[Path] = None
     ) -> Dict[str, Any]:
         """
         生レコード群 (RA, SE, O1) を変換し、正規フィード辞書を構築。
-        真正性セッション署名（driver_status 連動）を発行して返却する。
+        外部引数による driver_status 偽装は禁止し、内部検証結果からのみ証跡発行。
         """
+        if not raw_records:
+            raise ValueError("raw_records must not be empty")
+
         feed = convert_jvlink_records_to_prerace_feed(raw_records)
         target_dir = Path(output_dir or (REPO_ROOT / "data" / "authorized_feed"))
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -306,8 +359,8 @@ class JVLinkClient:
 
         feed_file.write_text(json.dumps(feed, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # ドライバー状態の決定（指定がなければ自身の状態を使用）
-        actual_driver_status = driver_status or self._driver_status
+        # 内部検証ステータス（self._driver_status）のみを使用
+        verified_driver_status = self._driver_status
 
         create_acquisition_signature(
             feed_payload=feed,
@@ -316,7 +369,7 @@ class JVLinkClient:
             provider="jra_van",
             output_path=target_dir / ".acquisition_session.json",
             test_mode=self._test_mode,
-            driver_status=actual_driver_status
+            driver_status=verified_driver_status
         )
 
         return feed

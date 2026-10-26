@@ -19,9 +19,26 @@ from scripts.run_prerace_auto_recorder import run_schedule_scan
 from src.automated_monitor import run_monitor_scan, resolve_latest_authorized_feed
 
 
-def run_cycle(manifest, db, *, now=None, dry_run=False, config_path=None):
+def run_cycle(manifest, db, *, now=None, dry_run=False, config_path=None, use_jvlink=False):
     """Run one cycle of unattended pre-race scan and notification."""
     path = Path(manifest)
+
+    # JV-Link 取得オプションが有効な場合、最新フィードの自動取得・構築を試行
+    if use_jvlink:
+        try:
+            from src.jvlink_client import JVLinkClient
+            client = JVLinkClient()
+            out_feed = client.fetch_and_build_live_feed(output_dir=path if path.is_dir() else path.parent)
+            path = (path if path.is_dir() else path.parent) / "latest_jvlink_feed.json"
+        except Exception as exc:
+            return {
+                "status": "JVLINK_FETCH_FAILED",
+                "reason": str(exc),
+                "processed_races": 0,
+                "captured_count": 0,
+                "bet_status": "NO_BET",
+                "model_inference_allowed": False
+            }
 
     # パスがディレクトリまたは未存在の場合、認可スナップショット解決を試行
     target_feed = path
@@ -121,8 +138,9 @@ def main(argv=None):
     parser.add_argument("--out", default="data/last_background_scan.json")
     parser.add_argument("--now", help="Timezone-aware timestamp (default: now)")
     parser.add_argument("--dry-run", action="store_true", help="Do not send actual notifications")
+    parser.add_argument("--use-jvlink", action="store_true", help="Fetch live data directly via JV-Link worker before scan")
     args = parser.parse_args(argv)
-    result = run_cycle(args.manifest, args.db, now=args.now, dry_run=args.dry_run, config_path=args.config)
+    result = run_cycle(args.manifest, args.db, now=args.now, dry_run=args.dry_run, config_path=args.config, use_jvlink=args.use_jvlink)
     result["checked_at"] = datetime.now(timezone.utc).isoformat()
     payload = json.dumps(result, ensure_ascii=False, indent=2, default=str)
     print(payload)

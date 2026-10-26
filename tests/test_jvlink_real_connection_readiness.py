@@ -275,11 +275,10 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
 
         # 旧8桁形式の比較（旧形式では 20260501 で衝突していた）
         self.assertEqual(parsed1["legacy_race_id"], parsed2["legacy_race_id"])
-        # 正規化ヘルパーで衝突回避
-        self.assertNotEqual(
-            normalize_to_16char_race_key(parsed1["legacy_race_id"], default_date="2026-10-24"),
-            normalize_to_16char_race_key(parsed2["legacy_race_id"], default_date="2026-10-25")
-        )
+        # 架空補完撤去の検証: 旧8桁は 0101 を捏造せず None（未解決）を返す
+        self.assertIsNone(normalize_to_16char_race_key(parsed1["legacy_race_id"]))
+        # 16桁正規キーはそのまま返却
+        self.assertEqual(normalize_to_16char_race_key(parsed1["race_id"]), "2026102405010101")
 
     # -------------------------------------------------------------
     # 8. RA・SE・O1のレースキー不一致を拒絶する
@@ -349,6 +348,60 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
         )
         self.assertEqual(res["notifications_sent"], 0)
         self.assertTrue(res["safety_lock_enabled"])
+
+
+    # -------------------------------------------------------------
+    # 13. 取得件数0件のワーカーを成功扱いしない (Fail-Closed)
+    # -------------------------------------------------------------
+    def test_zero_records_worker_fails_closed(self):
+        client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        # ワーカーが 0 件のレコードを返したシチュエーション
+        empty_worker_res = {
+            "success": True,  # 形式上 success と返ってきても
+            "driver_status": "AUTHENTICATED",
+            "records_count": 0,
+            "ra_records": [],
+            "se_records": [],
+            "o1_records": []
+        }
+        with patch.object(client, "fetch_via_32bit_worker", return_value=empty_worker_res):
+            with self.assertRaises(JVLinkError) as ctx:
+                client.fetch_and_build_live_feed(output_dir=self.feed_dir)
+            self.assertIn("0 valid records", str(ctx.exception))
+
+    # -------------------------------------------------------------
+    # 14. 32bitワーカーから64bitパイプラインへの正常データ転送・推論
+    # -------------------------------------------------------------
+    def test_32bit_worker_to_64bit_pipeline_transfer(self):
+        client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        ra_text = self._build_valid_ra().decode("cp932")
+        se_text = self._build_valid_se().decode("cp932")
+        o1_text = self._build_valid_o1().decode("cp932")
+
+        valid_worker_res = {
+            "success": True,
+            "driver_status": "AUTHENTICATED",
+            "records_count": 3,
+            "ra_records": [ra_text],
+            "se_records": [se_text],
+            "o1_records": [o1_text]
+        }
+        with patch.object(client, "fetch_via_32bit_worker", return_value=valid_worker_res):
+            feed = client.fetch_and_build_live_feed(output_dir=self.feed_dir)
+            self.assertEqual(len(feed["races"]), 1)
+            self.assertEqual(feed["races"][0]["race_id"], "2026102605010101")
+            self.assertEqual(feed["races"][0]["horses"][0]["win_odds"], 5.2)
+
+        # 真正性セッション署名も AUTHENTICATED として発行されていること
+        is_cert, reason = verify_feed_provenance(
+            self.feed_dir / "latest_jvlink_feed.json",
+            feed,
+            self.provider_config,
+            self.feed_dir,
+            test_mode=True
+        )
+        self.assertTrue(is_cert)
+        self.assertEqual(reason, "PROVENANCE_VERIFIED")
 
 
 if __name__ == "__main__":
