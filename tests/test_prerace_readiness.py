@@ -63,6 +63,23 @@ class ReadinessTests(unittest.TestCase):
             self.assertEqual(result["eligible_prediction_rows"], 0)
             self.assertEqual(result["status"], "NO_BET")
 
+    def test_unknown_status_not_counted_even_if_timestamps_look_valid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "odds.db"
+            with sqlite3.connect(db) as conn:
+                conn.execute("""CREATE TABLE odds_timeline (
+                    race_id TEXT, horse_number INTEGER, odds_type TEXT,
+                    odds_value REAL, observed_at TEXT, fetched_at TEXT,
+                    source TEXT, data_status TEXT)""")
+                conn.execute("""INSERT INTO odds_timeline VALUES
+                    ('r1', 1, 'win', 3.0, '2026-10-25T15:30:00+09:00',
+                     '2026-10-25T15:31:00+09:00', 'manual', 'unverified_result')""")
+            result = race_readiness(db, "r1",
+                                    as_of_time="2026-10-25T15:35:00+09:00",
+                                    race_start_time="2026-10-25T15:40:00+09:00")
+            self.assertEqual(result["eligible_odds_horses"], 0)
+            self.assertEqual(result["status"], "NO_BET")
+
     def test_after_start_rejected(self):
         with self.assertRaises(ValueError):
             race_readiness("missing.db", "r1",
