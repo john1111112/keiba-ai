@@ -42,6 +42,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.confirm_trial_active:
         parser.error("Will call JVInit; trial must already be deliberately active")
+    # Reject invalid arguments before constructing a COM object or initiating SDK use.
+    from src.jvlink_ingest import validate_capture_args
+    validate_capture_args(sid=args.sid, data_spec=SPECS[0], from_time=args.from_time)
     report = collect(open_jvlink, args.db, sid=args.sid, from_time=args.from_time)
     save_status(args.status_out, build_status(report))
     print(json.dumps(report, ensure_ascii=False, indent=2))
