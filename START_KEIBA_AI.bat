@@ -35,15 +35,15 @@ if "%PY_CMD%"=="" (
 
 echo [1/3] Python環境の確認完了: %PY_CMD%
 
-:: 2. 常駐バックグラウンド監視デーモンの起動（アプリ画面を閉じても監視・通知が継続）
-echo [2/3] 常駐バックグラウンド監視サービスを開始中...
-:: 既に稼働中の監視プロセスがないか確認し、無ければ起動
-tasklist /FI "WINDOWTITLE eq KEIBA_AI_BACKGROUND_MONITOR*" 2>NUL | find /I /N "python" >NUL
+:: 2. Background monitoring is independently owned by Windows Task Scheduler.
+:: Do not start a second monitoring daemon from the dashboard launcher.
+:: Double-acquiring JV-Link records may collide with the scheduled worker.
+echo [2/3] 自動監視はWindowsタスクスケジューラで独立稼働します。
+schtasks.exe /Query /TN "KeibaAI_BackgroundMonitor" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    start "KEIBA_AI_BACKGROUND_MONITOR" /min %PY_CMD% scripts\run_background_monitor.py --manifest data\authorized_feed\latest_jvlink_feed.json --db data\alert_state.db --interval 60 --use-jvlink
-    echo       -> 監視プロセスを開始しました（60秒間隔で自動分析＆通知）
+    echo       [INFO] 初回だけ INSTALL_AUTO_MONITOR.bat を実行すると自動監視を登録できます。
 ) else (
-    echo       -> 監視プロセスは既に稼働中です
+    echo       [OK] 自動監視タスクは登録されています。
 )
 
 :: 3. Streamlit Webダッシュボード起動
