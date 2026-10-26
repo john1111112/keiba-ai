@@ -26,9 +26,9 @@ def validate_capture_args(*, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Unsupported data spec")
     if not isinstance(sid, str) or not sid or len(sid) > 32:
         raise ValueError("Invalid JV-Link software ID")
-    if max_records < 1 or max_records > 1000000:
+    if not isinstance(max_records, int) or max_records < 1 or max_records > 1000000:
         raise ValueError("Invalid record limit")
-    if buffer_size < 4096 or buffer_size > 1000000:
+    if not isinstance(buffer_size, int) or buffer_size < 4096 or buffer_size > 1000000:
         raise ValueError("Invalid buffer size")
     if not isinstance(from_time, str) or len(from_time) != 12 or not from_time.isdigit():
         raise ValueError("from_time must be YYYYMMDDHHMM")
@@ -36,7 +36,7 @@ def validate_capture_args(*, sid, data_spec, from_time, max_records=100000,
         datetime.strptime(from_time, "%Y%m%d%H%M")
     except ValueError as exc:
         raise ValueError("Invalid JV-Link calendar timestamp") from exc
-    if max_wait_seconds < 0 or max_wait_seconds > 600:
+    if not isinstance(max_wait_seconds, (int, float)) or max_wait_seconds < 0 or max_wait_seconds > 600:
         raise ValueError("Invalid wait timeout")
     if not isinstance(max_total_bytes, int) or not 4096 <= max_total_bytes <= 1024 * 1024 * 1024:
         raise ValueError("Invalid capture byte budget")
