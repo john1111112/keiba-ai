@@ -49,7 +49,7 @@ def run_schedule_scan(
     all_timings: bool = False
 ) -> Dict[str, Any]:
     """
-    出走予定レース（finish_order == 0）をスキャンし、発走30分前・10分前・5分前の
+    明示的に race_status=upcoming と指定されたレースをスキャンし、発走30分前・10分前・5分前の
     該当レースに対して二重記録防止・再試行付きスナップショットを実行する。
     """
     if not features_path.exists():
