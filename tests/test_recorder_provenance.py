@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 from pathlib import Path
+import sqlite3
 from datetime import datetime
 
 from src.prerace_recorder import validate_odds_records, record_prerace_snapshot
@@ -55,6 +56,34 @@ class RecorderProvenanceTests(unittest.TestCase):
                     executed_at="2026-10-25T15:30:00+09:00",
                     db_path=db)
             self.assertFalse(db.exists())
+
+    def test_fractional_horse_rejected(self):
+        self.assertEqual(self.check([odds(horse_number=1.5)]), [])
+
+    def test_non_win_odds_rejected(self):
+        self.assertEqual(self.check([odds(odds_type="place")]), [])
+
+    def test_mixed_race_snapshot_not_partially_saved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "odds.db"
+            result = record_prerace_snapshot(
+                "r1", "2026-10-25T15:40:00+09:00", "pre_5m",
+                odds_records=[odds(), odds(race_id="r2", horse_number=2)],
+                executed_at="2026-10-25T15:35:00+09:00", db_path=db)
+            self.assertEqual(result["odds_status"], "error")
+            with sqlite3.connect(db) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 0)
+
+    def test_duplicate_horse_snapshot_not_partially_saved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "odds.db"
+            result = record_prerace_snapshot(
+                "r1", "2026-10-25T15:40:00+09:00", "pre_5m",
+                odds_records=[odds(), odds(odds_value=5.0)],
+                executed_at="2026-10-25T15:35:00+09:00", db_path=db)
+            self.assertEqual(result["odds_status"], "error")
+            with sqlite3.connect(db) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 0)
 
     def test_valid_record_kept(self):
         self.assertEqual(len(self.check([odds()])), 1)
