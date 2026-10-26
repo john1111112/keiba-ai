@@ -1,0 +1,53 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.import_manual_odds import validate_snapshot, import_snapshot
+
+
+def sample():
+    return {
+        "race_id": "race1",
+        "race_start_time": "2026-10-25T15:40:00+09:00",
+        "observed_at": "2026-10-25T15:35:00+09:00",
+        "fetched_at": "2026-10-25T15:35:05+09:00",
+        "source": "manual_screen",
+        "odds": [{"horse_number": 1, "odds_value": 5.0}]
+    }
+
+
+class ManualOddsTests(unittest.TestCase):
+    def test_valid(self):
+        self.assertEqual(validate_snapshot(sample()), [(1, 5.0)])
+
+    def test_post_start_rejected(self):
+        data = sample()
+        data["fetched_at"] = data["race_start_time"]
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_unverified_timezone_rejected(self):
+        data = sample()
+        data["observed_at"] = "2026-10-25T15:35:00"
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_duplicate_horse_rejected(self):
+        data = sample()
+        data["odds"].append(dict(data["odds"][0]))
+        with self.assertRaises(ValueError):
+            validate_snapshot(data)
+
+    def test_dry_run_no_db_created(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "snapshot.json"
+            target = Path(folder) / "odds.db"
+            source.write_text(json.dumps(sample()), encoding="utf-8")
+            result = import_snapshot(source, target, dry_run=True)
+            self.assertEqual(result["status"], "VALIDATED")
+            self.assertFalse(target.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
