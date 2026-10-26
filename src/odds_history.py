@@ -185,19 +185,19 @@ def record_odds_snapshot(
         raise ValueError("Duplicate horse at same fetched time")
     # Reject contradictory replays instead of silently appending a different
     # price for the same horse and exact fetch timestamp.
-    if target_path.exists():
-        with sqlite3.connect(f"file:{target_path.resolve()}?mode=ro", uri=True) as existing:
-            for row in valid_rows:
-                prior = existing.execute(
-                    "SELECT odds_value, observed_at, source, data_status FROM odds_timeline "
-                    "WHERE race_id=? AND horse_number=? AND fetched_at=?",
-                    (row[0], row[2], row[7])
-                ).fetchall()
-                if prior:
-                    raise ValueError("Duplicate existing odds timestamp; immutable append-only history")
     init_odds_history_db(target_path)
-    # One atomic write: never leave a partial snapshot on failure.
-    with sqlite3.connect(target_path) as conn:
+    # BEGIN IMMEDIATE serializes competing writers. The conflict check and
+    # insertion share the same transaction, so two recorder processes cannot
+    # both pass the check before either inserts.
+    with sqlite3.connect(target_path, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for row in valid_rows:
+            if conn.execute(
+                "SELECT 1 FROM odds_timeline "
+                "WHERE race_id=? AND horse_number=? AND fetched_at=? LIMIT 1",
+                (row[0], row[2], row[7])
+            ).fetchone():
+                raise ValueError("Duplicate existing odds timestamp; immutable append-only history")
         conn.executemany("""
     INSERT INTO odds_timeline (
         race_id, horse_id, horse_number, odds_type, odds_value,
