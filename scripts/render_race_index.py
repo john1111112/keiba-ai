@@ -17,9 +17,18 @@ def render_index(workflow_result):
         filename = path.name
         if not filename.startswith("race_") or not filename.endswith(".html") or filename != path.name:
             continue
+        movement = item.get("movement")
+        movement_link = ""
+        if movement:
+            movement_name = Path(movement).name
+            if (movement_name.startswith("race_")
+                    and movement_name.endswith("_movement.json")
+                    and movement_name == Path(movement).name):
+                movement_link = ' ｜ <a href="' + escape(movement_name) + '">オッズ変動</a>'
         cards.append(
             "<tr><td>" + escape(item["race_id"]) + "</td><td>NO BET</td>"
-            "<td><a href=\"" + escape(filename) + "\">監査を見る</a></td></tr>"
+            "<td><a href=\"" + escape(filename) + "\">監査を見る</a>"
+            + movement_link + "</td></tr>"
         )
     rows = "".join(cards) or "<tr><td colspan=\"3\">有効なレースなし</td></tr>"
     batch = workflow_result.get("batch", {})
