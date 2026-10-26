@@ -1,7 +1,9 @@
 import unittest
+import tempfile
+from pathlib import Path
 from datetime import datetime
 
-from src.prerace_recorder import validate_odds_records
+from src.prerace_recorder import validate_odds_records, record_prerace_snapshot
 
 
 def odds(**updates):
@@ -33,6 +35,16 @@ class RecorderProvenanceTests(unittest.TestCase):
 
     def test_missing_horse_rejected(self):
         self.assertEqual(self.check([odds(horse_number=None)]), [])
+
+    def test_post_start_execution_cannot_write_db(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "odds.db"
+            with self.assertRaises(ValueError):
+                record_prerace_snapshot(
+                    "r1", "2026-10-25T15:40:00+09:00", "pre_5m",
+                    executed_at="2026-10-25T15:41:00+09:00",
+                    db_path=db)
+            self.assertFalse(db.exists())
 
     def test_valid_record_kept(self):
         self.assertEqual(len(self.check([odds()])), 1)
