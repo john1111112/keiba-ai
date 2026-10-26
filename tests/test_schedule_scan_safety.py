@@ -9,6 +9,14 @@ from scripts.run_prerace_auto_recorder import run_schedule_scan
 
 
 class ScheduleScanSafetyTests(unittest.TestCase):
+    def test_unbounded_tolerance_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text("[]", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                run_schedule_scan(manifest, Path(folder) / "odds.db",
+                                  tolerance_minutes=1440)
+
     def test_historical_parquet_is_blocked(self):
         with tempfile.TemporaryDirectory() as folder:
             historical = Path(folder) / "features.parquet"
