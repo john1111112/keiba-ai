@@ -62,7 +62,16 @@ def run_schedule_scan(
         }
 
     df_feat = pd.read_parquet(features_path)
-    # Race result fields cannot certify upcoming status; require a separate\n    # explicit upcoming race manifest before scanning.\n    if "race_status" not in df_feat.columns:\n        return {\n            "status": "BLOCKED_NO_UPCOMING_MANIFEST",\n            "message": "race_status field missing; finish_order cannot prove a race is upcoming.",\n            "processed_races": 0, "captured_count": 0, "missing_count": 0,\n            "snapshots": []\n        }\n    upcoming = df_feat[df_feat["race_status"].astype(str).str.lower() == "upcoming"].copy()
+    # Race result fields cannot certify upcoming status; require a separate
+    # explicit upcoming race manifest before scanning.
+    if "race_status" not in df_feat.columns:
+        return {
+            "status": "BLOCKED_NO_UPCOMING_MANIFEST",
+            "message": "race_status field missing; finish_order cannot prove a race is upcoming.",
+            "processed_races": 0, "captured_count": 0, "missing_count": 0,
+            "snapshots": []
+        }
+    upcoming = df_feat[df_feat["race_status"].astype(str).str.lower() == "upcoming"].copy()
     if len(upcoming) == 0:
         return {
             "status": "NO_UPCOMING_RACES",
@@ -178,7 +187,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(out_json)
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(out_json + "\n", encoding="utf-8")
+            Path(args.out).write_text(out_json + "
+", encoding="utf-8")
         return 0
 
     # 2. スケジュール自動スキャンモード
@@ -196,7 +206,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(out_json)
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(out_json + "\n", encoding="utf-8")
+            Path(args.out).write_text(out_json + "
+", encoding="utf-8")
         return 0
 
     # 3. 単一レース記録モード
@@ -244,7 +255,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(out_json)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(out_json + "\n", encoding="utf-8")
+        Path(args.out).write_text(out_json + "
+", encoding="utf-8")
 
     return 0
 
