@@ -357,7 +357,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="JV-Link 32-bit Acquisition Worker")
     parser.add_argument("--sid", default="UNKNOWN", help="Software ID")
     parser.add_argument("--spec", default="0B15", help="Data Spec (0B15, 0B30, etc.)")
-    parser.add_argument("--from-time", default="20261026000000", help="From timestamp")
+    parser.add_argument("--from-time", default=datetime.now().strftime("%Y%m%d000000"), help="From timestamp")
     parser.add_argument("--mode", choices=["rt", "stored"], default="rt", help="RT or Stored mode")
     parser.add_argument("--key", help="Key for JVRTOpen")
     parser.add_argument("--out", required=True, help="Output JSON path")
