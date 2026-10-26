@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 import tempfile
 import time
 import urllib.error
@@ -94,6 +93,11 @@ def atomic_json(path, payload):
             os.unlink(temp)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("Redirected feed endpoints are not allowed")
+
+
 def fetch_feed(url, token, *, attempts=3, timeout=10, sleep=time.sleep, opener=None):
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
@@ -102,7 +106,7 @@ def fetch_feed(url, token, *, attempts=3, timeout=10, sleep=time.sleep, opener=N
         raise ValueError("Missing feed API token")
     if not 1 <= attempts <= 5 or not 1 <= timeout <= 30:
         raise ValueError("Invalid retry/timeout configuration")
-    opener = opener or urllib.request.urlopen
+    opener = opener or urllib.request.build_opener(_NoRedirect()).open
     request = urllib.request.Request(url, headers={
         "Authorization": "Bearer " + token,
         "Accept": "application/json", "User-Agent": "KEIBA-AI-AuthorizedFeed/1.0"})
