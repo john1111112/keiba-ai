@@ -23,6 +23,8 @@ def build_dashboard(snapshot_path, *, now=None, predictions=None):
     if timestamp(raw["feed"]["published_at"]) > received:
         raise ValueError("Feed publication after receipt")
     predictions = predictions or {}
+    if not isinstance(predictions, dict):
+        raise ValueError("Predictions must be keyed by race and horse")
     rows = []
     for race in raw["feed"]["races"]:
         if race["race_status"] != "upcoming":
@@ -52,8 +54,25 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Read-only licensed-feed race dashboard")
     parser.add_argument("--snapshot", required=True)
     parser.add_argument("--out")
+    parser.add_argument("--predictions", help="Locally generated win-probability JSON; not a certification")
     args = parser.parse_args(argv)
-    report = build_dashboard(args.snapshot)
+    predictions = None
+    if args.predictions:
+        entries = json.loads(Path(args.predictions).read_text(encoding="utf-8"))
+        if not isinstance(entries, list):
+            raise ValueError("Predictions must be a list")
+        predictions = {}
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != {"race_id", "horse_number", "win_probability"}:
+                raise ValueError("Invalid prediction row")
+            race_id, horse_number = entry["race_id"], entry["horse_number"]
+            if not isinstance(race_id, str) or not race_id.strip() or type(horse_number) is not int:
+                raise ValueError("Invalid prediction key")
+            key = (race_id, horse_number)
+            if key in predictions:
+                raise ValueError("Duplicate prediction")
+            predictions[key] = entry["win_probability"]
+    report = build_dashboard(args.snapshot, predictions=predictions)
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         target = Path(args.out)
