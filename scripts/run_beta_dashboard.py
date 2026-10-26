@@ -42,6 +42,11 @@ def _upcoming_rows(manifest_path, *, now=None):
         for item in payload:
             if not isinstance(item, dict) or item.get("race_status") != "upcoming":
                 continue
+            if not set(item).issubset({"race_id", "race_status", "race_time", "start_time"}):
+                return []  # Schedule-only contract; reject result/odds columns
+            if ("race_time" in item and "start_time" in item and
+                    item["race_time"] != item["start_time"]):
+                return []
             race = item.get("race_id")
             raw = item.get("race_time") or item.get("start_time")
             if not isinstance(race, str) or not race.strip() or not isinstance(raw, str):
