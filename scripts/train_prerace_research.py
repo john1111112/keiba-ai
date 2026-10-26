@@ -30,6 +30,23 @@ REQUIRED_LABEL_KEYS = {"race_id", "horse_number", "won"}
 
 
 def _load_dataset(bundles_dir, labels_path):
+    # Preflight ALL bundles before even opening the labels file. A sealed
+    # 2026+ bundle must never cause its corresponding outcomes to be read.
+    paths = sorted(Path(bundles_dir).glob("*.json"))
+    if not paths:
+        raise ValueError("No feature bundles found")
+    if "2026" in Path(labels_path).name or "2026" in str(Path(labels_path).parent):
+        raise ValueError("2026+ labels path is sealed; refusing to open")
+    bundles = []
+    for path in paths:
+        if "2026" in path.name:
+            raise ValueError("2026+ feature path is sealed; refusing to open")
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        start = aware_time(bundle["race_start_time"])
+        if start >= aware_time("2026-01-01T00:00:00+09:00"):
+            raise ValueError("2026+ data is sealed and prohibited for model development")
+        validate_feature_bundle(bundle, as_of_time=bundle["received_at"])
+        bundles.append((start, bundle))
     labels = json.loads(Path(labels_path).read_text(encoding="utf-8"))
     if not isinstance(labels, list) or not labels:
         raise ValueError("Labels must be a nonempty list")
@@ -45,15 +62,7 @@ def _load_dataset(bundles_dir, labels_path):
             raise ValueError("Duplicate label")
         by_key[key] = int(won)
     dataset, seen_races, used_labels = [], set(), set()
-    paths = sorted(Path(bundles_dir).glob("*.json"))
-    if not paths:
-        raise ValueError("No feature bundles found")
-    for path in paths:
-        bundle = json.loads(path.read_text(encoding="utf-8"))
-        start = aware_time(bundle["race_start_time"])
-        if start.year >= 2026:
-            raise ValueError("2026+ data is sealed and prohibited for model development")
-        validate_feature_bundle(bundle, as_of_time=bundle["received_at"])
+    for start, bundle in bundles:
         race = bundle["race_id"]
         if race in seen_races:
             raise ValueError("Duplicate race bundle")
