@@ -232,7 +232,7 @@ class JVLinkClient:
             }
 
         try:
-            status_raw = getattr(self._link, "JVStatus", lambda: 0)()
+            status_raw = self._link.JVStatus()
             code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
         except Exception as exc:
             self._driver_status = "STATUS_CALL_FAILED"
