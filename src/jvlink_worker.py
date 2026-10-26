@@ -52,35 +52,55 @@ def normalize_fromtime(from_time: str) -> str:
     raise ValueError(f"Invalid fromtime format: '{from_time}' (expected 8, 12, or 14 digits)")
 
 
-def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_records: List[str]) -> Tuple[bool, str]:
-    """
-    取得された RA・SE・O1 レコードの完全性とレースキー整合性を検証。
+def validate_records_integrity(
+    ra_records, se_records, o1_records
+) -> Tuple[bool, str]:
+    """Validate byte-exact fixed-width RA/SE/O1 records grouped by full race ID.
+
+    Accept decoded strings for compatibility with older synthetic tests but
+    validate the exact JVGets bytes on the production acquisition path.
     """
     if not ra_records:
         return False, "No RA (race header) record found"
     if not se_records:
         return False, "No SE (runner) record found"
 
+    def validate(record, expected_type: bytes, expected_length: int):
+        try:
+            raw = (
+                bytes(record) if isinstance(record, (bytes, bytearray))
+                else record.encode("cp932", errors="strict")
+            )
+            if (len(raw) != expected_length or raw[:2] != expected_type
+                    or raw[-2:] != b"\r\n"):
+                return None
+            key = raw[11:27].decode("ascii")
+            if len(key) != 16 or not key.isascii() or not key.isdigit():
+                return None
+            return key
+        except (UnicodeError, ValueError, AttributeError, TypeError):
+            return None
+
     ra_keys = set()
-    for i, ra in enumerate(ra_records):
-        key = ra[11:27]
-        if len(key) != 16 or not key.isascii() or not key.isdigit():
-            return False, f"Invalid RA race key at index {i}"
-        ra_keys.add(key)
+    for index, record in enumerate(ra_records):
+        race_key = validate(record, b"RA", 1272)
+        if race_key is None:
+            return False, f"Invalid RA record at index {index}"
+        ra_keys.add(race_key)
 
     se_keys = set()
-    for i, se in enumerate(se_records):
-        key = se[11:27]
-        if len(se.encode("cp932")) != 555 or key not in ra_keys:
-            return False, f"Invalid SE record or unmatched race at index {i}: {key}"
-        se_keys.add(key)
+    for index, record in enumerate(se_records):
+        race_key = validate(record, b"SE", 555)
+        if race_key not in ra_keys:
+            return False, f"Invalid or orphan SE record at index {index}"
+        se_keys.add(race_key)
     if se_keys != ra_keys:
         return False, f"Races without runners: {sorted(ra_keys - se_keys)}"
 
-    for i, o1 in enumerate(o1_records):
-        key = o1[11:27]
-        if len(o1.encode("cp932")) != 962 or key not in ra_keys:
-            return False, f"Invalid O1 record or unmatched race at index {i}: {key}"
+    for index, record in enumerate(o1_records):
+        race_key = validate(record, b"O1", 962)
+        if race_key not in ra_keys:
+            return False, f"Invalid or orphan O1 record at index {index}"
 
     return True, "INTEGRITY_VERIFIED"
 
@@ -236,14 +256,16 @@ def execute_jvlink_fetch(
     else:
         if data_spec in ("0B31", "0B30"):
             is_valid = bool(o1_records) and all(
-                len(o1.encode("cp932")) == 962 for o1 in o1_records
+                len(base64.b64decode(o1)) == 962 for o1 in o1_records_b64
             )
             validation_msg = (
                 "ODDS_ONLY_RECORDS_PRESENT" if is_valid else "O1 records missing or malformed"
             )
         else:
             is_valid, validation_msg = validate_records_integrity(
-                ra_records, se_records, o1_records
+                [base64.b64decode(x) for x in ra_records_b64],
+                [base64.b64decode(x) for x in se_records_b64],
+                [base64.b64decode(x) for x in o1_records_b64]
             )
         if not is_valid:
             fetch_status = "RECORD_INTEGRITY_FAILED"
