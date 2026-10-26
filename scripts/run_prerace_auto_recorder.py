@@ -73,6 +73,14 @@ def run_schedule_scan(
                     "captured_count": 0, "missing_count": 0, "snapshots": []}
         if any(not isinstance(entry, dict) for entry in manifest):
             raise ValueError("Every race manifest entry must be an object")
+        # Schedule-only input: prohibit any horse/result/odds/prediction payload.
+        # Extra keys are rejected, not silently passed through as metadata.
+        allowed_schedule_keys = {"race_id", "race_status", "race_time", "start_time"}
+        if any(not set(entry).issubset(allowed_schedule_keys) for entry in manifest):
+            raise ValueError("Race manifest must contain schedule-only fields")
+        if any("race_time" in entry and "start_time" in entry and
+               entry["race_time"] != entry["start_time"] for entry in manifest):
+            raise ValueError("Conflicting race_time and start_time in race manifest")
         df_feat = pd.DataFrame(manifest)
     else:
         return {"status": "BLOCKED_NOT_RACE_MANIFEST",
