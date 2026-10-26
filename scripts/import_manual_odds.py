@@ -63,17 +63,22 @@ def import_snapshot(json_path, db_path, *, dry_run=False):
     # Separate DB; never modify historical results database.
     from src.odds_history import init_odds_history_db
     init_odds_history_db(Path(db_path))
+    inserted = 0
+    skipped = 0
     with sqlite3.connect(db_path) as conn:
+        # Atomic batch: any conflicting revision rolls back the whole snapshot.
         for horse, price in odds:
-            # Idempotent exact duplicate guard, without overwriting any records.
-            exists = conn.execute("""
-                SELECT 1 FROM odds_timeline WHERE race_id = ? AND horse_number = ?
-                AND odds_type = 'win' AND observed_at = ? AND fetched_at = ?
-                AND source = ? AND odds_value = ? LIMIT 1
-            """, (str(data["race_id"]), horse, data["observed_at"],
-                  data["fetched_at"], data["source"], price)).fetchone()
-            if exists:
-                continue
+            existing = conn.execute("""
+                SELECT odds_value, source, fetched_at FROM odds_timeline
+                WHERE race_id = ? AND horse_number = ? AND odds_type = 'win'
+                AND observed_at = ? AND data_status = 'manual_prerace'
+            """, (str(data["race_id"]), horse, data["observed_at"])).fetchall()
+            if existing:
+                if all(float(row[0]) == price and row[1] == data["source"]
+                       and row[2] == data["fetched_at"] for row in existing):
+                    skipped += 1
+                    continue
+                raise ValueError("Conflicting manual odds at same race, horse and observed_at")
             conn.execute("""
                 INSERT INTO odds_timeline
                 (race_id, horse_number, odds_type, odds_value, observed_at,
@@ -81,6 +86,9 @@ def import_snapshot(json_path, db_path, *, dry_run=False):
                 VALUES (?, ?, 'win', ?, ?, ?, ?, 'manual_prerace', 'manual')
             """, (str(data["race_id"]), horse, price, data["observed_at"],
                   data["fetched_at"], data["source"]))
+            inserted += 1
+    result["inserted_count"] = inserted
+    result["skipped_duplicate_count"] = skipped
     return result
 
 
