@@ -167,8 +167,13 @@ def validate_odds_records(
 
         if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:
             continue
+        if str(r.get("odds_type", "win")) != "win":
+            continue
+        if not str(r.get("race_id", "")).strip():
+            continue
         try:
-            if int(r.get("horse_number", 0)) < 1:
+            horse_value = float(r.get("horse_number", 0))
+            if not np.isfinite(horse_value) or horse_value < 1 or not horse_value.is_integer():
                 continue
         except (TypeError, ValueError, OverflowError):
             continue
@@ -276,6 +281,11 @@ def record_prerace_snapshot(
     if odds_records:
         try:
             valid_odds = validate_odds_records(odds_records, race_dt, cutoff_dt)
+            # A single bad row or wrong race invalidates the entire snapshot.
+            if len(valid_odds) != len(odds_records) or any(
+                str(row.get("race_id")) != str(race_id) for row in valid_odds
+            ) or len({int(row["horse_number"]) for row in valid_odds}) != len(valid_odds):
+                raise PreRaceRecordingError("Incomplete, duplicate-horse, or mismatched-race odds snapshot")
             if valid_odds:
                 odds_status = "captured"
                 # odds_timeline への追記保存
