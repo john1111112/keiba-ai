@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.train_prerace_research import train_research_model
 
@@ -73,6 +74,29 @@ class ResearchModelTests(unittest.TestCase):
         (self.bundles / "sealed.json").write_text(json.dumps(make_bundle(90, 2026)), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "sealed"):
             self.run_model()
+
+    def test_sealed_bundle_rejected_before_opening_labels(self):
+        (self.bundles / "sealed.json").write_text(
+            json.dumps(make_bundle(90, 2026)), encoding="utf-8")
+        original = Path.read_text
+        opened_labels = []
+        def audited_read(path, *args, **kwargs):
+            if path == self.labels:
+                opened_labels.append(True)
+                raise AssertionError("Sealed outcomes must never be read")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "read_text", audited_read):
+            with self.assertRaisesRegex(ValueError, "sealed"):
+                self.run_model()
+        self.assertEqual(opened_labels, [])
+
+    def test_2026_named_label_file_refused_before_read(self):
+        forbidden = self.root / "results_2026.json"
+        with self.assertRaisesRegex(ValueError, "sealed"):
+            train_research_model(self.bundles, forbidden,
+                                 train_before="2024-01-07T00:00:00+00:00",
+                                 validate_before="2024-01-13T00:00:00+00:00",
+                                 min_races=5)
 
     def test_missing_label_rejected(self):
         labels = json.loads(self.labels.read_text(encoding="utf-8"))
