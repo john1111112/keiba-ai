@@ -40,6 +40,15 @@ class JVLinkIngestTests(unittest.TestCase):
                              max_records=1)
             self.assertEqual(result["received"], 1)
 
+    def test_control_markers_do_not_consume_record_limit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            link = FakeLink(replies=[(-1, b""), (-3, b""), (4, b"RA12"), (-1, b""), (0, b"")])
+            result = capture(link, Path(folder)/"db", sid="TEST",
+                             data_spec="0B15", from_time="202610270000",
+                             max_records=1, sleep=lambda _: None)
+            self.assertEqual(result["received"], 1)
+            self.assertEqual(link.closed, 1)
+
     def test_limit_rejects_second_record(self):
         with tempfile.TemporaryDirectory() as folder:
             db = Path(folder)/"db"
