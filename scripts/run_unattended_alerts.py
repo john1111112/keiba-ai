@@ -55,6 +55,10 @@ $icon.Dispose()
 
 def run_alert_cycle(candidates_path, state_db, *, now=None, deliver=False):
     current = now or datetime.now(timezone.utc).isoformat()
+    if not Path(candidates_path).is_file():
+        return {"status": "NO_CANDIDATE_DATA", "evaluated": 0,
+                "eligible": 0, "delivered": 0, "blocked": 0,
+                "bet_status": "NO_BET"}
     raw = json.loads(Path(candidates_path).read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError("Candidates file must be a list")
