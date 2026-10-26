@@ -36,6 +36,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid wait timeout")
     opened = False
     records = []
+    wait_count = 0
     try:
         init_result = _code(link.JVInit(sid))
         if init_result != 0:
@@ -59,6 +60,9 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             if rc == -1:
                 continue  # Skip file switch marker.
             if rc == -3:
+                wait_count += 1
+                if wait_count > 1200:
+                    raise JVLinkError("JVRead exceeded maximum wait responses")
                 if waiting_since is None:
                     waiting_since = time.monotonic()
                 if time.monotonic() - waiting_since >= max_wait_seconds:
@@ -66,6 +70,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 sleep(0.5)
                 continue
             waiting_since = None
+            wait_count = 0
             if rc < 0:
                 raise JVLinkError("JVRead failed: " + str(rc))
             raw = response[1]
