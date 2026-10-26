@@ -1,8 +1,9 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_beta_dashboard import dashboard_html, _safe_reports, make_handler
+from scripts.run_beta_dashboard import dashboard_html, _safe_reports, _upcoming_rows, make_handler
 
 
 class BetaDashboardTests(unittest.TestCase):
@@ -28,6 +29,36 @@ class BetaDashboardTests(unittest.TestCase):
         page = dashboard_html(self.root)
         self.assertIn("/reports/" + good, page)
         self.assertNotIn("race_bad", page)
+
+    def test_upcoming_manifest_excludes_past_and_unverified_status(self):
+        manifest = self.root / "upcoming.json"
+        manifest.write_text(json.dumps([
+            {"race_id": "future<race>", "race_status": "upcoming",
+             "race_time": "2026-10-27T15:00:00+09:00"},
+            {"race_id": "past", "race_status": "upcoming",
+             "race_time": "2026-10-25T15:00:00+09:00"},
+            {"race_id": "result", "race_status": "finished",
+             "race_time": "2026-10-27T15:00:00+09:00"}
+        ]), encoding="utf-8")
+        from datetime import datetime, timezone
+        now = datetime(2026, 10, 26, tzinfo=timezone.utc)
+        rows = _upcoming_rows(manifest, now=now)
+        self.assertEqual([race for race, _ in rows], ["future<race>"])
+        page = dashboard_html(self.root, manifest_path=manifest, now=now)
+        self.assertIn("future&lt;race&gt;", page)
+        self.assertNotIn("future<race>", page)
+        self.assertNotIn("<td>past</td>", page)
+        self.assertIn("NO BET", page)
+
+    def test_manifest_conflicting_start_fails_closed(self):
+        manifest = self.root / "upcoming.json"
+        manifest.write_text(json.dumps([
+            {"race_id": "r1", "race_status": "upcoming",
+             "race_time": "2099-01-01T15:00:00+09:00"},
+            {"race_id": "r1", "race_status": "upcoming",
+             "race_time": "2099-01-01T15:10:00+09:00"}
+        ]), encoding="utf-8")
+        self.assertEqual(_upcoming_rows(manifest), [])
 
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
