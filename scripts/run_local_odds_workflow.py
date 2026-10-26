@@ -15,6 +15,7 @@ from scripts.prerace_readiness import race_readiness
 from scripts.render_prerace_dashboard import render_dashboard
 from scripts.render_race_index import write_index
 from scripts.race_odds_timeline import race_odds_timeline
+from scripts.compare_prerace_odds import compare_odds
 
 
 def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
@@ -72,8 +73,23 @@ def run_local_workflow(folder, db_path, output_dir, *, dry_run=False):
         timeline_target = output_dir / ("race_" + safe_name + "_timeline.json")
         timeline_target.write_text(json.dumps(timeline, ensure_ascii=False, indent=2) + "\n",
                                    encoding="utf-8")
+        # Produce an odds movement report only when two distinct publication
+        # times are available. Never synthesize a baseline from missing odds.
+        movement_path = None
+        observations = timeline.get("observations", [])
+        if len(observations) >= 2:
+            first = observations[0]["observed_at"]
+            last = fetched.isoformat()
+            movement = compare_odds(db_path, race, earlier=first, later=last,
+                                    race_start_time=starts[race].isoformat())
+            movement_target = output_dir / ("race_" + safe_name + "_movement.json")
+            movement_target.write_text(
+                json.dumps(movement, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+            movement_path = str(movement_target)
         dashboards.append({"race_id": race, "html": str(target),
-                           "timeline": str(timeline_target), "bet_status": "NO_BET"})
+                           "timeline": str(timeline_target),
+                           "movement": movement_path, "bet_status": "NO_BET"})
     output_dir.mkdir(parents=True, exist_ok=True)
     audit_path = output_dir / "quality_audit.json"
     audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n",
