@@ -1,0 +1,30 @@
+name: Offline odds drop tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/detect_odds_drops.py"
+      - "tests/test_odds_drops.py"
+      - ".github/workflows/odds-drop-tests.yml"
+  push:
+    branches:
+      - "feature/prerace-odds-prediction-recorder"
+    paths:
+      - "scripts/detect_odds_drops.py"
+      - "tests/test_odds_drops.py"
+      - ".github/workflows/odds-drop-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  offline-odds-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run offline odds-drop tests
+        run: python -m unittest discover -s tests -p 'test_odds_drops.py' -v
