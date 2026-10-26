@@ -139,9 +139,12 @@ def execute_jvlink_fetch(
             open_res = link.JVOpen(data_spec, normalized_time, 1, 0, 0, "")
 
         rc = int(open_res[0]) if isinstance(open_res, (tuple, list)) else int(open_res)
+        # Official JV-Link return -1 means that no matching data is currently
+        # provided (common on non-racing days and before a market opens).
+        # It does NOT mean the connection is broken or a race was missed.
         if rc < 0:
             return {
-                "fetch_status": f"OPEN_FAILED_CODE_{rc}",
+                "fetch_status": "NO_DATA_AVAILABLE" if rc == -1 else f"OPEN_FAILED_CODE_{rc}",
                 "error": f"JVOpen/JVRTOpen failed with return code {rc}",
                 "records_count": 0,
                 "ra_count": 0,
