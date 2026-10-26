@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 def store_records(db_path, records, *, data_spec, fetched_at=None):
-    if data_spec not in {"0B15", "0B30", "0B41"}:
+    if data_spec not in {"0B15", "0B30", "0B31", "0B41"}:
         raise ValueError("Unsupported JV-Data spec")
     received = fetched_at or datetime.now(timezone.utc).isoformat()
     stamp = datetime.fromisoformat(received.replace("Z", "+00:00"))
