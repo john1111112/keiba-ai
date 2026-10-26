@@ -68,26 +68,28 @@ def validate_records_integrity(ra_records: List[str], se_records: List[str], o1_
     if not se_records:
         return False, "No SE (runner) record found"
 
-    # 主レースキーの抽出 (11:27)
-    ra_primary_key = ra_records[0][11:27]
-    if len(ra_primary_key) != 16 or not ra_primary_key.isdigit():
-        return False, f"Invalid RA race key: '{ra_primary_key}'"
+    ra_keys = set()
+    for i, ra in enumerate(ra_records):
+        key = ra[11:27]
+        if len(key) != 16 or not key.isascii() or not key.isdigit():
+            return False, f"Invalid RA race key at index {i}"
+        if key in ra_keys:
+            return False, f"Duplicate RA race key: {key}"
+        ra_keys.add(key)
 
-    # SE レコードのレースキー整合性検証
+    se_keys = set()
     for i, se in enumerate(se_records):
-        if len(se) < 89:
-            return False, f"SE record #{i} too short (<89 bytes)"
-        se_key = se[11:27]
-        if se_key != ra_primary_key:
-            return False, f"SE record #{i} race key mismatch: expected '{ra_primary_key}', got '{se_key}'"
+        key = se[11:27]
+        if len(se) < 89 or key not in ra_keys:
+            return False, f"Invalid SE record or unmatched race at index {i}: {key}"
+        se_keys.add(key)
+    if se_keys != ra_keys:
+        return False, f"Races without runners: {sorted(ra_keys - se_keys)}"
 
-    # O1 レコード（オッズ）のレースキー整合性検証
     for i, o1 in enumerate(o1_records):
-        if len(o1) < 47:
-            return False, f"O1 record #{i} too short (<47 bytes)"
-        o1_key = o1[11:27]
-        if o1_key != ra_primary_key:
-            return False, f"O1 record #{i} race key mismatch: expected '{ra_primary_key}', got '{o1_key}'"
+        key = o1[11:27]
+        if len(o1) < 47 or key not in ra_keys:
+            return False, f"Invalid O1 record or unmatched race at index {i}: {key}"
 
     return True, "INTEGRITY_VERIFIED"
 
