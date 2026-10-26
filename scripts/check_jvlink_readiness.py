@@ -62,11 +62,13 @@ def run_full_readiness_check() -> dict:
     # 2. JV-Link SDK & COM 独立診断
     com_creatable = False
     com_error = None
-    if compat["win32com_available"] and compat["sdk_registered"]:
+    probe_details = {}
+    if compat["python32_path"]:
         try:
-            import win32com.client
-            _link = win32com.client.Dispatch("jvdg.JVLink")
-            com_creatable = True
+            probe = subprocess.run([compat["python32_path"], str(REPO_ROOT / "scripts" / "probe_jvlink_com.py")], capture_output=True, text=True, timeout=12)
+            probe_details = json.loads(probe.stdout)
+            com_creatable = probe.returncode == 0 and probe_details.get("com_creatable") is True
+            com_error = probe_details.get("error")
         except Exception as exc:
             com_error = str(exc)
 
