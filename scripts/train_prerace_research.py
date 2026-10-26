@@ -108,6 +108,12 @@ def train_research_model(bundles_dir, labels_path, *, train_before, validate_bef
     ])
     model.fit(X_train, y_train)
     prob = model.predict_proba(X_valid)[:, 1]
+    # Fair pre-race reference: assign each runner an equal share of the
+    # race's win probability, without using market odds or results.
+    runners_per_race = {}
+    for item in valid:
+        runners_per_race[item[1]] = runners_per_race.get(item[1], 0) + 1
+    baseline = np.asarray([1.0 / runners_per_race[item[1]] for item in valid])
     if not np.all(np.isfinite(prob)):
         raise ValueError("Nonfinite probabilities")
     # Each horse's output is a binary win score, NOT a calibrated race-level
@@ -132,6 +138,8 @@ def train_research_model(bundles_dir, labels_path, *, train_before, validate_bef
         "validate_before": val_cutoff.isoformat(),
         "features": fields,
         "brier_score": float(brier_score_loss(y_valid, prob)),
+        "uniform_race_baseline_brier": float(brier_score_loss(y_valid, baseline)),
+        "uniform_race_baseline_log_loss": float(log_loss(y_valid, baseline, labels=[0, 1])),
         "log_loss": float(log_loss(y_valid, prob, labels=[0, 1])),
         "roc_auc": float(roc_auc_score(y_valid, prob)),
         "input_sha256": digest.hexdigest(),
