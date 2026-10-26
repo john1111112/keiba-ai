@@ -31,6 +31,13 @@ def store_records(db_path, records, *, data_spec, fetched_at=None):
             payload BLOB NOT NULL,
             PRIMARY KEY (sha256, data_spec)
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS jv_raw_observations (
+            sha256 TEXT NOT NULL, data_spec TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (sha256, data_spec, fetched_at),
+            FOREIGN KEY (sha256, data_spec) REFERENCES jv_raw_records(sha256, data_spec)
+        )""")
+        observed = 0
         for raw in records:
             if not isinstance(raw, bytes) or len(raw) < 2:
                 raise ValueError("Expected raw JV-Data bytes")
@@ -44,8 +51,13 @@ def store_records(db_path, records, *, data_spec, fetched_at=None):
                 (digest, data_spec, record_type, received, raw))
             count += 1
             inserted += cursor.rowcount
+            obs = conn.execute("""INSERT OR IGNORE INTO jv_raw_observations
+                (sha256, data_spec, fetched_at) VALUES (?, ?, ?)""",
+                (digest, data_spec, received))
+            observed += obs.rowcount
     return {"status": "RAW_RECORDS_STORED_UNPARSED", "received": count,
             "inserted": inserted, "duplicates": count - inserted,
+            "observations_inserted": observed,
             "data_spec": data_spec, "bet_status": "NO_BET"}
 
 
