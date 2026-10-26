@@ -121,7 +121,7 @@ def check_environment_compatibility() -> Dict[str, Any]:
         try:
             import winreg
             for root in [winreg.HKEY_CLASSES_ROOT]:
-                for subkey in ["jvdg.JVLink\\CLSID", "WOW6432Node\\CLSID\\jvdg.JVLink"]:
+                for subkey in ["JVDTLab.JVLink\\CLSID", "WOW6432Node\\CLSID\\JVDTLab.JVLink"]:
                     try:
                         with winreg.OpenKey(root, subkey) as key:
                             sdk_clsid = winreg.QueryValue(key, "")
@@ -149,7 +149,7 @@ def check_environment_compatibility() -> Dict[str, Any]:
         issues.append("pywin32 (win32com) is not installed in current Python environment.")
     elif not sdk_registered:
         overall_status = "SETUP_REQUIRED"
-        issues.append("JV-Link SDK (jvdg.JVLink) is not registered in Windows registry.")
+        issues.append("JV-Link SDK (JVDTLab.JVLink) is not registered in Windows registry.")
 
     if not jra_van_authorized:
         overall_status = "SETUP_REQUIRED"
@@ -202,9 +202,9 @@ class JVLinkClient:
 
             try:
                 import win32com.client
-                self._link = win32com.client.Dispatch("jvdg.JVLink")
+                self._link = win32com.client.Dispatch("JVDTLab.JVLink")
             except Exception as exc:
-                raise JVLinkError(f"Failed to instantiate jvdg.JVLink: {exc}") from exc
+                raise JVLinkError(f"Failed to instantiate JVDTLab.JVLink: {exc}") from exc
 
         # JVInit 呼び出しと戻り値検証
         try:
@@ -393,7 +393,7 @@ class JVLinkClient:
                     odds_result = self.fetch_via_32bit_worker(
                         data_spec="0B31", from_time=from_time,
                         output_path=worker_out, mode="rt",
-                        key=race_key[:10] + race_key[-2:]
+                        key=race_key
                     )
                     if (not odds_result.get("success")
                             or odds_result.get("auth_status") != "AUTHENTICATED"
