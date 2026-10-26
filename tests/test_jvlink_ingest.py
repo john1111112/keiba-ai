@@ -57,6 +57,19 @@ class JVLinkIngestTests(unittest.TestCase):
                         data_spec="0B30", from_time="202610270000")
             self.assertEqual(link.closed, 0)
 
+    def test_invalid_calendar_date_rejected(self):
+        with self.assertRaises(ValueError):
+            capture(FakeLink(), "db", sid="TEST",
+                    data_spec="0B41", from_time="202613990000")
+
+    def test_text_buffers_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            link = FakeLink(replies=[(4, "RA12"), (0, b"")])
+            with self.assertRaises(JVLinkError):
+                capture(link, Path(folder)/"db", sid="TEST",
+                        data_spec="0B41", from_time="202610270000")
+            self.assertEqual(link.closed, 1)
+
     def test_invalid_timestamp_does_not_call_sdk(self):
         with self.assertRaises(ValueError):
             capture(FakeLink(), "db", sid="TEST",
