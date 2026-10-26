@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "scripts/detect_odds_drops.py"
+      - "scripts/validate_prerace_features.py"
+      - "tests/test_prerace_feature_contract.py"
       - "scripts/import_manual_odds.py"
       - "scripts/import_prerace_csv.py"
       - "scripts/audit_prerace_history.py"
@@ -60,6 +62,7 @@ jobs:
           set +e
           failed=0
           python -m unittest discover -s tests -p 'test_odds_drops.py' -v || failed=1
+          python -m unittest discover -s tests -p 'test_prerace_feature_contract.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_manual_odds.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_prerace_csv.py' -v || failed=1
           python -m unittest discover -s tests -p 'test_history_audit.py' -v || failed=1
