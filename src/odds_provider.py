@@ -149,71 +149,14 @@ class NetkeibaLiveOddsProvider(BaseOddsProvider):
         }
 
     def check_connection(self, race_id: Optional[str] = None) -> Dict[str, Any]:
-        # 1. 利用許諾チェック (Terms of Service / Licensing Check)
-        contract_file = repo_root / "config" / "netkeiba_license.json"
-        has_license = self.license_confirmed or contract_file.exists()
-        if not has_license:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "reason": "利用許諾未確認: Netkeiba利用規約に基づくAPI許諾契約が未設定です (config/netkeiba_license.json 不在)。HTTP 200疎通のみでの接続認可は禁止されています。"
-            }
-
-        # 2. 実データおよび時刻情報チェック
-        if not race_id:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "reason": "実データ・時刻情報未確認: 対象レース未指定のため、発走前オッズ表および公式発表時刻が検証されていません。"
-            }
-
-        url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
-        try:
-            resp = requests.get(url, headers=self.headers, timeout=self.timeout_sec)
-            if resp.status_code != 200:
-                return {
-                    "provider": self.name,
-                    "connected": False,
-                    "status": "DISCONNECTED",
-                    "reason": f"HTTPステータス異常: {resp.status_code}"
-                }
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            table = soup.find("table", id="odds_tan_block") or soup.find("table", class_=re.compile("Odds_Table"))
-            if not table:
-                return {
-                    "provider": self.name,
-                    "connected": False,
-                    "status": "DISCONNECTED",
-                    "reason": "実データ欠落: 該当レースの発走前単勝オッズテーブルが見つかりません（非開催日または未発表）。"
-                }
-
-            # 3. 公式発表時刻情報の確認
-            time_el = soup.find(class_=re.compile(r"Update|Time|Date|odds_update")) or soup.find(string=re.compile(r"\d{1,2}:\d{2}更新"))
-            if not time_el:
-                return {
-                    "provider": self.name,
-                    "connected": False,
-                    "status": "DISCONNECTED",
-                    "reason": "公式発表時刻情報(observed_at)欠落: 提供元の発表時刻を特定・検証できません。"
-                }
-
-            return {
-                "provider": self.name,
-                "connected": True,
-                "status": "READY",
-                "note": "利用許諾・実オッズデータ・公式発表時刻のすべてを確認完了。"
-            }
-
-        except Exception as e:
-            return {
-                "provider": self.name,
-                "connected": False,
-                "status": "DISCONNECTED",
-                "reason": f"疎通・解析失敗: {e}"
-            }
+        # No verified publication-time parser or redistribution contract is implemented.
+        # Never probe the site or claim a valid data connection.
+        return {
+            "provider": self.name,
+            "connected": False,
+            "status": "DISCONNECTED",
+            "reason": "Verified licensed publication timestamps are not implemented."
+        }
 
     def fetch_prerace_odds(
         self,
@@ -221,62 +164,8 @@ class NetkeibaLiveOddsProvider(BaseOddsProvider):
         scheduled_race_time: str,
         timing_tag: str
     ) -> Optional[List[Dict[str, Any]]]:
-        diag = self.check_connection(race_id)
-        if not diag["connected"]:
-            return None
-
-        # 接続が認可されている場合のみ実データ解析を実施
-        url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
-        # Never fabricate a publication timestamp from local fetch time.
-        # This provider has no verified publication-time parser; fail closed.
+        # Deliberately unavailable: local fetch time is NOT publication time.
         return None
-
-        # Unreachable until a licensed, verified timestamp parser is implemented.
-        now_iso = datetime.datetime.now().isoformat()
-        try:
-            resp = requests.get(url, headers=self.headers, timeout=self.timeout_sec)
-            if resp.status_code != 200:
-                return None
-            soup = BeautifulSoup(resp.text, "html.parser")
-            table = soup.find("table", id="odds_tan_block") or soup.find("table", class_=re.compile("Odds_Table"))
-            if not table:
-                return None
-
-            records = []
-            for tr in table.find_all("tr"):
-                tds = tr.find_all("td")
-                if len(tds) < 3:
-                    continue
-                hn_txt = tds[1].get_text(strip=True) if len(tds) > 1 else ""
-                if not hn_txt.isdigit():
-                    continue
-                hn = int(hn_txt)
-
-                odds_txt = tds[2].get_text(strip=True) if len(tds) > 2 else ""
-                try:
-                    odds_val = float(odds_txt)
-                    if odds_val < 1.0:
-                        continue
-                except ValueError:
-                    continue
-
-                pop_txt = tds[3].get_text(strip=True) if len(tds) > 3 and tds[3].get_text(strip=True).isdigit() else "0"
-                pop = int(pop_txt) if pop_txt.isdigit() else 0
-
-                records.append({
-                    "race_id": str(race_id),
-                    "horse_number": hn,
-                    "odds_value": odds_val,
-                    "popularity": pop,
-                    "observed_at": now_iso,
-                    "fetched_at": now_iso,
-                    "source": "NetkeibaLive",
-                    "data_status": timing_tag,
-                    "timing_tag": timing_tag
-                })
-            return records if records else None
-        except Exception:
-            return None
 
 
 class FileSnapshotOddsProvider(BaseOddsProvider):
