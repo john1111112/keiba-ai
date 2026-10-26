@@ -21,7 +21,8 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_jvlink*.py" -v
           python -m unittest discover -s tests -p "test_run_jvlink_collection.py" -v
+          python -m unittest discover -s tests -p "test_jvlink_capture_status.py" -v
       - name: Compile SDK boundary
         shell: pwsh
         run: |
-          python -m py_compile src/jvlink_raw_store.py src/jvlink_ingest.py scripts/capture_jvlink.py scripts/run_jvlink_collection.py scripts/audit_jvlink_raw.py
+          python -m py_compile src/jvlink_raw_store.py src/jvlink_ingest.py src/jvlink_capture_status.py scripts/capture_jvlink.py scripts/run_jvlink_collection.py scripts/audit_jvlink_raw.py
