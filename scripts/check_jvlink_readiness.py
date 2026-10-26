@@ -130,15 +130,15 @@ def run_full_readiness_check() -> dict:
     # 3. COM接続
     m_com = "READY" if com_creatable else "NOT_READY"
     # 4. API仕様検証 (JVRTOpen, JVRead, 16桁キー、固定長仕様の照合完了状態)
-    m_api = "VERIFIED"
+    m_api = "UNVERIFIED"  # Official SDK/API behavior has not been validated on a real connection
     # 5. 利用権限
     m_auth = "AUTHORIZED" if compat["jra_van_authorized"] else "NOT_AUTHORIZED"
     # 6. 実データ取得 (無料体験・実回線未接続のため NOT_TESTED)
     m_fetch = "NOT_TESTED"
     # 7. AI予測 (モデルとパイプラインがロード可能でテスト済みのため SUCCESS)
-    m_ai = "SUCCESS" if (model_ok and model_sha_match) else "FAILED"
+    m_ai = "NOT_TESTED" if (model_ok and model_sha_match) else "FAILED"  # Loading a model is not live inference
     # 8. 通知 (安全ロック下でDB整合性・ハンドラ検証済みのため SUCCESS)
-    m_notif = "SUCCESS"
+    m_notif = "NOT_TESTED"  # Notification configuration does not prove delivery
 
     results["matrix"] = {
         "python_env": m_python,
@@ -169,7 +169,8 @@ def run_full_readiness_check() -> dict:
             "Activate JRA-VAN free trial / subscription and set 'jra_van_authorized: true' in data/provider_config.json."
         )
     else:
-        results["overall_status"] = "READY"
+        results["overall_status"] = "SETUP_REQUIRED"
+        results["action_required"].append("Live JV-Link acquisition, inference, and notifications remain unverified.")
 
     return results
 
