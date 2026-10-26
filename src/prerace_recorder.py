@@ -215,6 +215,8 @@ def record_prerace_snapshot(
         raise ValueError("Race and execution timestamps require explicit timezone")
     if exec_dt >= race_dt:
         raise ValueError("Post-start execution cannot be recorded as a pre-race snapshot")
+    if exec_dt < cutoff_dt:
+        raise ValueError("Cannot record a future target snapshot before its scheduled cutoff")
     init_odds_history_db(target_db)
     exec_iso = format_iso(exec_dt)
     race_iso = format_iso(race_dt)
