@@ -60,6 +60,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "max_seconds_to_start": 1800,
         "windows_toast_enabled": True,
         "discord_enabled": False,
+        "discord_user_id": "",
         "safety_lock_enabled": True,  # 安全第一：正規データ検証完了まで本番通知をロック（デフォルトTrue）
         "max_retries": 3,
     }
@@ -426,6 +427,34 @@ def collect_fresh_win_odds(
     return quotes
 
 
+def build_discord_buy_alert_payload(
+    race_id: str, body: str, user_id: str = ""
+) -> Dict[str, Any]:
+    """Optionally mention one selected Discord account to trigger a phone push.
+
+    No implicit @everyone/@here; a mention is used only for a valid numeric
+    Discord snowflake explicitly set by the owner.
+    """
+    mention = str(user_id or "").strip()
+    if mention and (not mention.isascii() or not mention.isdigit()
+                    or not 17 <= len(mention) <= 20):
+        raise ValueError("Discord user ID must be 17-20 ASCII digits")
+    payload = {
+        "username": "KEIBA AI Monitor",
+        "embeds": [{
+            "title": f"🚨 【AI期待値勝負候補】レース {race_id}",
+            "description": body,
+            "color": 3066993,
+            "footer": {"text": "KEIBA AI Unattended Background Monitor"},
+        }],
+        "allowed_mentions": {"parse": []},
+    }
+    if mention:
+        payload["content"] = f"<@{mention}>"
+        payload["allowed_mentions"] = {"parse": [], "users": [mention]}
+    return payload
+
+
 def classify_notification_delivery(
     windows_enabled: bool, discord_enabled: bool,
     windows_status: str, discord_status: str
@@ -708,15 +737,9 @@ def run_monitor_scan(
                     if webhook_url:
                         try:
                             import requests
-                            payload = {
-                                "username": "KEIBA AI Monitor",
-                                "embeds": [{
-                                    "title": f"🚨 【AI期待値勝負候補】レース {race_id}",
-                                    "description": body,
-                                    "color": 3066993,
-                                    "footer": {"text": "KEIBA AI Unattended Background Monitor"}
-                                }]
-                            }
+                            payload = build_discord_buy_alert_payload(
+                                race_id, body, config.get("discord_user_id", "")
+                            )
                             resp = requests.post(webhook_url, json=payload, timeout=8)
                             if resp.status_code in (200, 204):
                                 d_status = "DELIVERED"
