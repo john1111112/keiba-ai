@@ -82,20 +82,45 @@ def validate_records_integrity(
             return None
 
     ra_keys = set()
+    registered_by_race = {}
     for index, record in enumerate(ra_records):
         race_key = validate(record, b"RA", 1272)
         if race_key is None:
             return False, f"Invalid RA record at index {index}"
         ra_keys.add(race_key)
+        raw = (bytes(record) if isinstance(record, (bytes, bytearray))
+               else record.encode("cp932", errors="strict"))
+        if raw[2:3] == b"2":
+            headcount_bytes = raw[881:883]
+            if headcount_bytes.isdigit():
+                expected_count = int(headcount_bytes)
+                if expected_count > 0:
+                    registered_by_race[race_key] = expected_count
 
+    se_numbers = {}
     se_keys = set()
     for index, record in enumerate(se_records):
         race_key = validate(record, b"SE", 555)
         if race_key not in ra_keys:
             return False, f"Invalid or orphan SE record at index {index}"
+        raw = (bytes(record) if isinstance(record, (bytes, bytearray))
+               else record.encode("cp932", errors="strict"))
+        horse_num = raw[28:30]
+        if raw[2:3] == b"2" and horse_num.isdigit():
+            se_numbers.setdefault(race_key, set()).add(int(horse_num))
         se_keys.add(race_key)
     if se_keys != ra_keys:
         return False, f"Races without runners: {sorted(ra_keys - se_keys)}"
+    # JRA-VAN recommends comparing RA registered runners with distinct SE
+    # runners at DataKubun=2. During an update boundary a partial feed must be
+    # retried rather than used to issue an incomplete "buy" alert.
+    for race_key, expected_count in registered_by_race.items():
+        found = len(se_numbers.get(race_key, set()))
+        if found != expected_count:
+            return False, (
+                f"Runner count mismatch for {race_key}: "
+                f"RA says {expected_count}, SE contains {found}"
+            )
 
     for index, record in enumerate(o1_records):
         race_key = validate(record, b"O1", 962)
