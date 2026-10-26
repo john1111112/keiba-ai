@@ -66,7 +66,8 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             raise JVLinkError("JVOpen failed: " + str(rc))
         opened = True
         waiting_since = None
-        for _ in range(max_records + 1):
+        control_markers = 0
+        while True:
             response = link.JVRead(buffer_size)
             if not isinstance(response, tuple) or len(response) < 2:
                 raise JVLinkError("Unexpected JVRead result; SDK adapter needs adjustment")
@@ -75,8 +76,14 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 eof = True
                 break
             if rc == -1:
+                control_markers += 1
+                if control_markers > 1200:
+                    raise JVLinkError("JVRead exceeded maximum file switch markers")
                 continue  # Skip file switch marker.
             if rc == -3:
+                control_markers += 1
+                if control_markers > 1200:
+                    raise JVLinkError("JVRead exceeded maximum control markers")
                 wait_count += 1
                 if wait_count > 1200:
                     raise JVLinkError("JVRead exceeded maximum wait responses")
@@ -88,6 +95,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 continue
             waiting_since = None
             wait_count = 0
+            control_markers = 0
             if rc < 0:
                 raise JVLinkError("JVRead failed: " + str(rc))
             raw = response[1]
@@ -103,8 +111,6 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             if total_bytes > max_total_bytes:
                 raise JVLinkError("JVRead capture exceeded byte budget; no partial capture committed")
             records.append(raw[:rc])
-        else:
-            raise JVLinkError("JVRead record limit reached without EOF")
         if not eof:
             raise JVLinkError("JVRead did not reach EOF")
         return store_records(db_path, records, data_spec=data_spec,
