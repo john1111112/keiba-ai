@@ -20,6 +20,7 @@ JV-Link 32bit 専用取得ワーカー (JV-Link 32-bit Acquisition Worker)
 """
 from __future__ import annotations
 import argparse
+import base64
 import json
 import os
 import struct
@@ -194,9 +195,10 @@ def execute_jvlink_fetch(
             control_markers = 0
 
             if isinstance(buff, bytes):
-                text = buff[:read_rc].decode("cp932", errors="replace")
+                text = buff[:read_rc].decode("cp932", errors="strict")
             else:
                 text = str(buff)
+                text.encode("cp932", errors="strict")
 
             record_type = text[:2]
             raw_records.append(text)
