@@ -20,7 +20,9 @@ jobs:
           python -m unittest discover -s tests -p "test_jvlink_capture_status.py" -v
           python -m unittest discover -s tests -p "test_audit_jvlink_raw.py" -v
           python -m unittest discover -s tests -p "test_capture_jvlink_cli.py" -v
+          python -m unittest discover -s tests -p "test_fetch_authorized_races.py" -v
+          python -m unittest discover -s tests -p "test_alert_policy_freshness.py" -v
       - name: Compile SDK boundary
         shell: pwsh
         run: |
-          python -m py_compile src/jvlink_raw_store.py src/jvlink_ingest.py src/jvlink_capture_status.py scripts/capture_jvlink.py scripts/run_jvlink_collection.py scripts/audit_jvlink_raw.py
+          python -m py_compile src/jvlink_raw_store.py src/jvlink_ingest.py src/jvlink_capture_status.py scripts/capture_jvlink.py scripts/run_jvlink_collection.py scripts/audit_jvlink_raw.py scripts/fetch_authorized_races.py src/alert_policy.py
