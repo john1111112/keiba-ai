@@ -1,0 +1,30 @@
+name: JV-Data fixed-width regression
+on:
+  push:
+    branches: [feature/prerace-odds-prediction-recorder]
+  pull_request:
+    paths:
+      - "src/jvlink_adapter.py"
+      - "src/jvlink_worker.py"
+      - "src/jvlink_client.py"
+      - "tests/test_jvdata_spec_regression.py"
+      - ".github/workflows/jvdata-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jvdata-spec-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile JV-Link modules and regression tests
+        run: python -m compileall -q src/jvlink_adapter.py src/jvlink_worker.py src/jvlink_client.py tests/test_jvdata_spec_regression.py
+      - name: Run pure-Python official-layout regression tests
+        run: python -m unittest discover -s tests -p test_jvdata_spec_regression.py -v
