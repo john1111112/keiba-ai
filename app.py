@@ -269,59 +269,69 @@ with tab0:
         custom_p = st.text_input("スナップショットJSONパス", "data/snapshots/sample.json")
         feed_file = Path(custom_p)
 
-    c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-    with c_m1:
-        win_model_loaded = MODEL_WIN_V2_28_PATH.exists()
-        st.metric("単勝勝率AIモデル", "モデルファイルあり（稼働は別途検証）" if win_model_loaded else "未ロード")
-    with c_m2:
-        feed_exists = feed_file.exists()
-        st.metric("データ取得状況", "保存フィードあり（認証別途確認）" if feed_exists else "未接続（架空補完なし）")
-    with c_m3:
-        st.metric("自動通知状態", "待機中（重複抑止稼働）")
-    with c_m4:
-        from datetime import datetime
-        st.metric("最終更新", datetime.now().strftime("%H:%M:%S"))
+    def _render_today_live_summary():
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        with c_m1:
+            win_model_loaded = MODEL_WIN_V2_28_PATH.exists()
+            st.metric("単勝勝率AIモデル", "モデルファイルあり（稼働は別途検証）" if win_model_loaded else "未ロード")
+        with c_m2:
+            feed_exists = feed_file.exists()
+            st.metric("データ取得状況", "保存フィードあり（認証別途確認）" if feed_exists else "未接続（架空補完なし）")
+        with c_m3:
+            st.metric("自動通知状態", "待機中（重複抑止稼働）")
+        with c_m4:
+            from datetime import datetime
+            st.metric("最終更新", datetime.now().strftime("%H:%M:%S"))
 
-    if not feed_file.exists():
-        st.info(f"💡 現在、{feed_file.name} に本日の認可レースデータが存在しません。\n"
-                "※ 安全方針により、架空データや確定オッズによる補完・代用は一切行いません（未接続・欠損扱い）。\n"
-                "公式フィードまたはJV-Linkが接続され次第、自動的に最新オッズと期待値が表示されます。")
-    else:
-        try:
-            # AI予測マニフェストの生成（win_model利用）
-            if feed_file.name == "latest_jvlink_feed.json":
-                from scripts.build_live_jvlink_dashboard import build_live_dashboard
-                dash_report = build_live_dashboard(feed_file)
-            else:
-                dash_report = build_dashboard(feed_file)
-            if dash_report.get("diagnostics"):
-                st.warning(" / ".join(dash_report["diagnostics"][:3]))
-            if dash_report.get("status") not in (
-                "VERIFIED_LIVE_READ_ONLY", "INFERENCE_PARTIAL", "READ_ONLY_UNCERTIFIED"
-            ):
-                st.info(f"取得・解析状態: {dash_report.get('status', 'UNKNOWN')}")
-            rows = dash_report.get("rows", [])
-            if rows:
-                df_dash = pd.DataFrame(rows)
-                df_dash = df_dash.rename(columns={
-                    "race_id": "レースID", "race_time": "発走日時",
-                    "horse_number": "馬番", "horse_name": "馬名",
-                    "win_odds": "単勝オッズ", "odds_observed_at": "オッズ観測日時",
-                    "win_probability": "AI単勝勝率", "expected_value": "期待回収倍率",
-                    "recommendation": "推奨判定"
-                })
-                # ランキング表示
-                st.dataframe(df_dash, hide_index=True, use_container_width=True)
-                
-                # 注目レース・高期待値馬ピックアップ
-                if "期待回収倍率" in df_dash.columns and df_dash["期待回収倍率"].notna().any():
-                    top_ev = df_dash.dropna(subset=["期待回収倍率"]).sort_values("期待回収倍率", ascending=False).head(3)
-                    st.markdown("### 🔥 本日のAI期待値 TOP 3")
-                    st.dataframe(top_ev, hide_index=True, use_container_width=True)
-            else:
-                st.info("現在発走前の対象レースがありません。")
-        except Exception as e:
-            st.warning(f"データ解析ステータス: {e}")
+        if not feed_file.exists():
+            st.info(f"💡 現在、{feed_file.name} に本日の認可レースデータが存在しません。\n"
+                    "※ 安全方針により、架空データや確定オッズによる補完・代用は一切行いません（未接続・欠損扱い）。\n"
+                    "公式フィードまたはJV-Linkが接続され次第、自動的に最新オッズと期待値が表示されます。")
+        else:
+            try:
+                # AI予測マニフェストの生成（win_model利用）
+                if feed_file.name == "latest_jvlink_feed.json":
+                    from scripts.build_live_jvlink_dashboard import build_live_dashboard
+                    dash_report = build_live_dashboard(feed_file)
+                else:
+                    dash_report = build_dashboard(feed_file)
+                if dash_report.get("diagnostics"):
+                    st.warning(" / ".join(dash_report["diagnostics"][:3]))
+                if dash_report.get("status") not in (
+                    "VERIFIED_LIVE_READ_ONLY", "INFERENCE_PARTIAL", "READ_ONLY_UNCERTIFIED"
+                ):
+                    st.info(f"取得・解析状態: {dash_report.get('status', 'UNKNOWN')}")
+                rows = dash_report.get("rows", [])
+                if rows:
+                    df_dash = pd.DataFrame(rows)
+                    df_dash = df_dash.rename(columns={
+                        "race_id": "レースID", "race_time": "発走日時",
+                        "horse_number": "馬番", "horse_name": "馬名",
+                        "win_odds": "単勝オッズ", "odds_observed_at": "オッズ観測日時",
+                        "win_probability": "AI単勝勝率", "expected_value": "期待回収倍率",
+                        "recommendation": "推奨判定"
+                    })
+                    # ランキング表示
+                    st.dataframe(df_dash, hide_index=True, use_container_width=True)
+                    
+                    # 注目レース・高期待値馬ピックアップ
+                    if "期待回収倍率" in df_dash.columns and df_dash["期待回収倍率"].notna().any():
+                        top_ev = df_dash.dropna(subset=["期待回収倍率"]).sort_values("期待回収倍率", ascending=False).head(3)
+                        st.markdown("### 🔥 本日のAI期待値 TOP 3")
+                        st.dataframe(top_ev, hide_index=True, use_container_width=True)
+                else:
+                    st.info("現在発走前の対象レースがありません。")
+            except Exception as e:
+                st.warning(f"データ解析ステータス: {e}")
+
+    # Streamlit 1.37+ refreshes the live grid every minute without user clicks.
+    # On earlier versions the normal widget-triggered rerun still works.
+    _daily_grid = (
+        st.fragment(run_every="60s")(_render_today_live_summary)
+        if hasattr(st, "fragment") else _render_today_live_summary
+    )
+    _daily_grid()
+
     st.divider()
     
     # --- 監視状況・通知設定・履歴セクション ---
