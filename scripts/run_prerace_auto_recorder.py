@@ -121,6 +121,11 @@ def run_schedule_scan(
         for timing in timings_to_run:
             offset = {"pre_30m": 30, "pre_10m": 10, "pre_5m": 5}[timing]
             target = parsed_start - datetime.timedelta(minutes=offset)
+            if now_dt > target + datetime.timedelta(minutes=tolerance_minutes):
+                results.append({"race_id": str(race_id), "timing_tag": timing,
+                                "status": "SKIPPED_STALE_TARGET", "odds_status": "missing",
+                                "message": "Target snapshot window has expired; do not backfill a false T-minus record."})
+                continue
             if now_dt < target:
                 results.append({"race_id": str(race_id), "timing_tag": timing,
                                 "status": "SKIPPED_FUTURE_TARGET", "odds_status": "missing",
