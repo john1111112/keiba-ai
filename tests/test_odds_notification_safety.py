@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from src.automated_monitor import validate_fresh_race_odds, collect_fresh_win_odds
+from src.automated_monitor import validate_fresh_race_odds, collect_fresh_win_odds, classify_notification_delivery
 
 NOW = datetime(2026, 10, 27, 4, 26, tzinfo=timezone.utc)
 
@@ -54,6 +54,31 @@ class OddsNotificationSafetyTest(unittest.TestCase):
              "odds_observed_at": "2026-10-27T13:20:00+09:00"},
         ]
         self.assertEqual(collect_fresh_win_odds(horses, NOW, 120), {})
+
+    def test_pc_toast_does_not_count_as_delivered_phone_notification(self):
+        self.assertEqual(classify_notification_delivery(
+            True, True, "DELIVERED", "FAILED"
+        ), "FAILED")
+        self.assertEqual(classify_notification_delivery(
+            True, True, "DELIVERED", "NO_WEBHOOK"
+        ), "FAILED")
+        self.assertEqual(classify_notification_delivery(
+            True, True, "FAILED", "DELIVERED"
+        ), "PARTIAL_SUCCESS")
+        self.assertEqual(classify_notification_delivery(
+            True, True, "DELIVERED", "DELIVERED"
+        ), "DELIVERED")
+
+    def test_windows_only_is_delivered_only_if_toast_succeeds(self):
+        self.assertEqual(classify_notification_delivery(
+            True, False, "DELIVERED", "NOT_SENT"
+        ), "DELIVERED")
+        self.assertEqual(classify_notification_delivery(
+            True, False, "FAILED", "NOT_SENT"
+        ), "FAILED")
+        self.assertEqual(classify_notification_delivery(
+            False, False, "NOT_SENT", "NOT_SENT"
+        ), "NOT_CONFIGURED")
 
     def test_invalid_number_and_invalid_time_are_not_eligible(self):
         for quote, stamp in [
