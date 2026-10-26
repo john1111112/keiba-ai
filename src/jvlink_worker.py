@@ -305,7 +305,7 @@ def run_worker_capture(
 
     # 2. JVStatus (仕様に基づく厳密判定)
     try:
-        status_raw = getattr(link, "JVStatus", lambda: 0)()
+        status_raw = link.JVStatus()
         status_code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
         if status_code in JVSTATUS_MAP:
             status_name, is_auth, msg = JVSTATUS_MAP[status_code]
