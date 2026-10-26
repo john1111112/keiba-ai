@@ -54,6 +54,8 @@ def run_schedule_scan(
     """
     features_path = Path(features_path)
     db_path = Path(db_path)
+    if tolerance_minutes < 0 or tolerance_minutes > 30:
+        raise ValueError("tolerance_minutes must be between 0 and 30")
     if not features_path.exists():
         return {
             "status": "NO_FEATURES_FILE",
