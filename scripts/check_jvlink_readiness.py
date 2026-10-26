@@ -136,7 +136,7 @@ def run_full_readiness_check() -> dict:
     # 6. 実データ取得 (無料体験・実回線未接続のため NOT_TESTED)
     m_fetch = "NOT_TESTED"
     # 7. AI予測 (モデルとパイプラインがロード可能でテスト済みのため SUCCESS)
-    m_ai = "SUCCESS" if (model_ok and model_sha_match) else "FAILED"
+    m_ai = "NOT_TESTED" if (model_ok and model_sha_match) else "FAILED"
     # 8. 通知 (安全ロック下でDB整合性・ハンドラ検証済みのため SUCCESS)
     m_notif = "NOT_TESTED"
 
@@ -169,7 +169,8 @@ def run_full_readiness_check() -> dict:
             "Activate JRA-VAN free trial / subscription and set 'jra_van_authorized: true' in data/provider_config.json."
         )
     else:
-        results["overall_status"] = "READY"
+        results["overall_status"] = "SETUP_REQUIRED"
+        results["action_required"].append("Live end-to-end operation is not yet verified.")
 
     return results
 
