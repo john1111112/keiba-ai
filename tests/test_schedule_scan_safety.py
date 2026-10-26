@@ -28,7 +28,7 @@ class ScheduleScanSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             features = Path(folder) / "features.parquet"
             features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0,
+            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
                                   "race_time": "2026-10-25 15:40:00"}])
             with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
                 "scripts.run_prerace_auto_recorder.record_prerace_snapshot"
@@ -42,7 +42,7 @@ class ScheduleScanSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             features = Path(folder) / "features.parquet"
             features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0,
+            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
                                   "race_time": "2026-10-25T05:00:00+00:00"}])
             with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
                 "scripts.run_prerace_auto_recorder.record_prerace_snapshot"
@@ -56,7 +56,7 @@ class ScheduleScanSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             features = Path(folder) / "features.parquet"
             features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0,
+            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
                                   "race_time": "2026-10-25T15:40:00+09:00"}])
             with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake), patch(
                 "scripts.run_prerace_auto_recorder.record_prerace_snapshot",
@@ -87,7 +87,7 @@ class ScheduleScanSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             features = Path(folder) / "features.parquet"
             features.touch()
-            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0,
+            fake = pd.DataFrame([{"race_id": "r1", "finish_order": 0, "race_status": "upcoming",
                                   "race_time": "2026-10-25T15:40:00+09:00"}])
             with patch("scripts.run_prerace_auto_recorder.pd.read_parquet", return_value=fake):
                 with self.assertRaises(ValueError):
