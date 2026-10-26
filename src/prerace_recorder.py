@@ -125,7 +125,7 @@ def validate_odds_records(
 
         # 観測時刻・取得時刻の抽出
         obs_raw = r.get("observed_at")
-        fetch_raw = r.get("fetched_at") or r.get("observed_at")
+        fetch_raw = r.get("fetched_at")  # Missing acquisition time is never inferred
         if not obs_raw or not fetch_raw:
             continue
 
@@ -133,7 +133,9 @@ def validate_odds_records(
         fetch_dt = parse_timestamp(fetch_raw)
 
         # タイムゾーン整合性
-        if (obs_dt.tzinfo is None) != (fetch_dt.tzinfo is None):
+        if (obs_dt.tzinfo is None or fetch_dt.tzinfo is None or
+                obs_dt.utcoffset() is None or fetch_dt.utcoffset() is None or
+                race_dt.tzinfo is None or target_cutoff_time.tzinfo is None):
             continue
 
         # 因果律: 観測時刻 <= 取得時刻
@@ -199,6 +201,8 @@ def record_prerace_snapshot(
     cutoff_dt = compute_target_snapshot_time(race_dt, timing_tag)
     exec_dt = parse_timestamp(executed_at) if executed_at is not None else datetime.datetime.now(race_dt.tzinfo)
 
+    if race_dt.tzinfo is None or exec_dt.tzinfo is None or race_dt.utcoffset() is None or exec_dt.utcoffset() is None:
+        raise ValueError("Race and execution timestamps require explicit timezone")
     exec_iso = format_iso(exec_dt)
     race_iso = format_iso(race_dt)
     cutoff_iso = format_iso(cutoff_dt)
@@ -262,7 +266,11 @@ def record_prerace_snapshot(
                 # odds_timeline への追記保存
                 for r in valid_odds:
                     r["timing_tag"] = timing_tag
-                record_odds_snapshot(valid_odds, target_db, timing_tag=timing_tag)
+                inserted_count = record_odds_snapshot(valid_odds, target_db, timing_tag=timing_tag)
+                if inserted_count != len(valid_odds):
+                    odds_status = "error"
+                    error_msg = "Some odds rows failed provenance validation; market data rejected"
+                    valid_odds = []
             else:
                 odds_status = "missing"
         except PostRaceOddsLeakageError as e:
