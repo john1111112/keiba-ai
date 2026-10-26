@@ -132,6 +132,31 @@ class ScheduleScanSafetyTests(unittest.TestCase):
                                       as_of_time="2026-10-25T15:10:00+09:00")
             record.assert_not_called()
 
+    def test_manifest_with_result_fields_rejected_before_recording(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{
+                "race_id": "r1", "race_status": "upcoming",
+                "race_time": "2026-10-25T15:40:00+09:00",
+                "finish_order": 1, "win_probability": 0.9
+            }]), encoding="utf-8")
+            with patch("scripts.run_prerace_auto_recorder.record_prerace_snapshot") as record:
+                with self.assertRaisesRegex(ValueError, "schedule-only"):
+                    run_schedule_scan(manifest, Path(folder) / "odds.db",
+                                      as_of_time="2026-10-25T15:10:00+09:00")
+            record.assert_not_called()
+
+    def test_conflicting_start_fields_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "upcoming.json"
+            manifest.write_text(json.dumps([{
+                "race_id": "r1", "race_status": "upcoming",
+                "race_time": "2026-10-25T15:40:00+09:00",
+                "start_time": "2026-10-25T15:50:00+09:00"
+            }]), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Conflicting"):
+                run_schedule_scan(manifest, Path(folder) / "odds.db")
+
     def test_missing_manifest_blocks_scan(self):
         with tempfile.TemporaryDirectory() as folder:
             manifest = Path(folder) / "upcoming.json"
