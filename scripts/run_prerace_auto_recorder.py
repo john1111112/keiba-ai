@@ -74,7 +74,9 @@ def run_schedule_scan(
             "snapshots": []
         }
 
-    now_dt = datetime.datetime.fromisoformat(as_of_time) if as_of_time else datetime.datetime.now()
+    now_dt = datetime.datetime.fromisoformat(as_of_time) if as_of_time else datetime.datetime.now(datetime.timezone.utc)
+    if now_dt.tzinfo is None or now_dt.utcoffset() is None:
+        raise ValueError("--as-of-time must include an explicit timezone")
     races_grouped = upcoming.groupby("race_id")
     results = []
 
@@ -82,10 +84,10 @@ def run_schedule_scan(
 
     for race_id, group in races_grouped:
         first_row = group.iloc[0]
-        date_val = str(first_row.get("date", ""))[:10]
         race_time_str = first_row.get("race_time") or first_row.get("start_time")
         if not race_time_str:
-            race_time_str = f"{date_val} 15:40:00"
+            results.append({"race_id": str(race_id), "status": "SKIPPED_MISSING_RACE_TIME", "odds_status": "missing", "message": "Race start time is unavailable; never invent a start time."})
+            continue
 
         # all_timings 指定時は pre_30m, pre_10m, pre_5m すべてを順次検証
         timings_to_run = list(TARGET_TIMINGS) if all_timings else []
