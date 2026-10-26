@@ -110,6 +110,28 @@ class TransportContractTest(unittest.TestCase):
         horse = horse_rec(1).decode("cp932")
         self.assertTrue(validate_records_integrity([raw, raw], [horse], [])[0])
 
+    def test_incomplete_two_runner_race_is_rejected_until_retried(self):
+        partial_ra = bytearray(race_rec())
+        partial_ra[881:883] = b"02"
+        result = validate_records_integrity(
+            [bytes(partial_ra)],
+            [horse_rec(1)], []
+        )
+        self.assertFalse(result[0])
+        self.assertIn("Runner count mismatch", result[1])
+        complete = validate_records_integrity(
+            [bytes(partial_ra)],
+            [horse_rec(1), horse_rec(2)], []
+        )
+        self.assertTrue(complete[0])
+
+    def test_updated_same_horse_twice_does_not_falsify_runner_count(self):
+        valid = validate_records_integrity(
+            [race_rec()],
+            [horse_rec(1), horse_rec(1)], []
+        )
+        self.assertTrue(valid[0])
+
     def test_orphan_runner_rejected(self):
         raw = race_rec().decode("cp932")
         horse = horse_rec(1, "2026102706010102").decode("cp932")
