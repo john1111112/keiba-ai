@@ -72,6 +72,7 @@ class OrchestrationTest(unittest.TestCase):
     def test_missing_live_odds_do_not_create_synthetic_prices(self):
         first = worker_result([race_rec()], "RA")
         first["se_records"] = [horse_rec(1).decode("cp932")]
+        first["se_records_b64"] = [base64.b64encode(horse_rec(1)).decode("ascii")]
         first["records_count"] = 2
         client = JVLinkClient()
         client.fetch_via_32bit_worker = MagicMock(
