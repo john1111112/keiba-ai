@@ -85,6 +85,15 @@ class RecorderProvenanceTests(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 0)
 
+    def test_late_target_cannot_write_db(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "odds.db"
+            with self.assertRaises(ValueError):
+                record_prerace_snapshot(
+                    "r1", "2026-10-25T15:40:00+09:00", "pre_30m",
+                    executed_at="2026-10-25T15:35:00+09:00", db_path=db)
+            self.assertFalse(db.exists())
+
     def test_valid_record_kept(self):
         self.assertEqual(len(self.check([odds()])), 1)
 
