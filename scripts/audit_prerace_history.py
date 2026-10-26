@@ -84,6 +84,8 @@ def audit_odds_history(db_path, *, as_of_time=None, race_starts=None):
             stats["manual_rows"] += 1
     result.update({
         "status": "AUDITED",
+        "race_start_coverage": "provided" if starts else "not_provided",
+        "race_start_times_checked": len(starts),
         "total_rows": len(rows),
         "eligible_rows": sum(v["eligible_rows"] for v in race_stats.values()),
         "rejected": dict(sorted(reasons.items())),
