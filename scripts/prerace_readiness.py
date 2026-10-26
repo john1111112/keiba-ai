@@ -42,8 +42,8 @@ def race_readiness(db_path, race_id, *, as_of_time, race_start_time):
         if (not obs or not got or obs > got or got > asof or got >= start
                 or obs >= start or not math.isfinite(price) or price < 1
                 or horse < 1 or str(source).strip().lower() in {"", "unknown", "none"}
-                or str(status).lower() in
-                {"final", "final_settled", "post_race", "settled", "result"}):
+                or str(status).strip().lower() not in
+                {"manual_prerace", "pre_race_flash"}):
             continue
         if horse not in latest or (obs, got) > latest[horse][0]:
             latest[horse] = ((obs, got), price, source, status)
