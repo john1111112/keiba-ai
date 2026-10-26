@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -10,7 +11,7 @@ def audit_raw(db_path):
     path = Path(db_path)
     if not path.is_file():
         return {"status": "NO_JV_RECORDS", "record_count": 0, "bet_status": "NO_BET"}
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         try:
             rows = conn.execute("""SELECT r.data_spec, r.record_type,
                 COUNT(DISTINCT r.sha256), MIN(o.fetched_at), MAX(o.fetched_at),
