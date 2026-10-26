@@ -140,7 +140,9 @@ def record_odds_snapshot(
         except (ValueError, TypeError) as exc:
             raise ValueError("Invalid odds timestamps") from exc
 
-        status_str = str(r.get("data_status", "pre_race_flash")).lower()
+        status_str = str(r.get("data_status", "")).strip().lower()
+        if status_str in {"", "unknown", "none"}:
+            raise ValueError("Odds data status must be explicitly declared")
         if status_str in PROHIBITED_STATUSES:
             raise ValueError("Final or post-race odds prohibited")
 
@@ -171,7 +173,7 @@ def record_odds_snapshot(
             str(observed_at),
             str(fetched_at),
             str(r.get("source", "unknown")),
-            str(r.get("data_status", "pre_race_flash")),
+            str(r["data_status"]),
             str(row_timing),
         ))
 
