@@ -32,14 +32,6 @@ from typing import Dict, Any, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# JRA-VAN JVStatus 公式仕様コード定義
-JVSTATUS_MAP = {
-    0: ("SERVICE_INACTIVE", False, "サービス休止または未初期化"),
-    1: ("AUTHENTICATED", True, "認証成功（正規利用可能）"),
-    2: ("MAINTENANCE", False, "JRA-VAN サーバーメンテナンス中"),
-    3: ("EXPIRED_OR_UNCONTRACTED", False, "利用権限なし（未契約または無料体験期限切れ）")
-}
-
 
 def check_is_32bit() -> bool:
     """現在のプロセスが32bitアーキテクチャか判定"""
@@ -311,37 +303,20 @@ def run_worker_capture(
         _write_output(output_path, result)
         return result
 
-    # 2. JVStatus (仕様に基づく厳密判定)
-    try:
-        status_raw = link.JVStatus()
-        status_code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
-        if status_code in JVSTATUS_MAP:
-            status_name, is_auth, msg = JVSTATUS_MAP[status_code]
-            result["auth_status"] = status_name
-            if not is_auth:
-                result["error"] = f"JVStatus check unauthenticated: {msg} (code: {status_code})"
-                _write_output(output_path, result)
-                return result
-        else:
-            result["auth_status"] = f"UNVERIFIED_STATUS_{status_code}"
-            result["error"] = f"Unverified JVStatus code: {status_code}"
-            _write_output(output_path, result)
-            return result
-    except Exception as exc:
-        result["auth_status"] = "STATUS_CHECK_FAILED"
-        result["error"] = f"JVStatus exception: {exc}"
-        _write_output(output_path, result)
-        return result
-
-    # 3. データ取得ループ実行
-    fetch_result = execute_jvlink_fetch(link, data_spec=data_spec, from_time=from_time, mode=mode, key=key)
+    # JVStatus is a download-progress counter, NOT an authentication API.
+    # JVInit + a successful open/read are the only evidence available here.
+    # Reject the acquisition when the provider returns an error or no data.
+    fetch_result = execute_jvlink_fetch(
+        link, data_spec=data_spec, from_time=from_time, mode=mode, key=key
+    )
     result.update(fetch_result)
-
-    # 成功判定: 認証が AUTHENTICATED かつ 取得が SUCCESS の両方を満たす場合のみ
-    if result["auth_status"] == "AUTHENTICATED" and result["fetch_status"] == "SUCCESS":
-        result["success"] = True
-    else:
-        result["success"] = False
+    result["success"] = (
+        result["fetch_status"] == "SUCCESS"
+        and result.get("records_count", 0) > 0
+    )
+    result["auth_status"] = (
+        "AUTHENTICATED" if result["success"] else "UNVERIFIED"
+    )
 
     _write_output(output_path, result)
     return result
