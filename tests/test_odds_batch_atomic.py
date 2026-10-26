@@ -24,7 +24,8 @@ class OddsBatchAtomicTests(unittest.TestCase):
                             row(fetched_at=None),
                             row(data_status="final_settled"),
                             row(horse_number=1.5),
-                            row(source="unknown")]:
+                            row(source="unknown"),
+                            row(timing_tag="final_settled")]:
                 with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                     record_odds_snapshot([row(), invalid], db_path=db)
                 self.assertFalse(db.exists())
