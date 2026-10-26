@@ -54,6 +54,11 @@ class JVLinkBridgeError(JVLinkError):
     pass
 
 
+class JVLinkNoDataError(JVLinkError):
+    """JV-Link reports no published races/data yet; not a connectivity error."""
+    pass
+
+
 
 def decode_worker_records(payload: Dict[str, Any], kind: str) -> List[bytes]:
     """Prefer byte-exact base64 JV-Data records over decoded CP932 text.
@@ -398,6 +403,8 @@ class JVLinkClient:
         if worker_res.get("success") and (worker_res.get("auth_status") != "AUTHENTICATED" or worker_res.get("fetch_status") != "SUCCESS" or not isinstance(worker_res.get("records_count"), int) or worker_res["records_count"] <= 0):
             raise JVLinkError("Inconsistent worker success metadata")
 
+        if not worker_res.get("success") and worker_res.get("fetch_status") == "NO_DATA_AVAILABLE":
+            raise JVLinkNoDataError("No published JRA-VAN data for requested day")
         if not worker_res.get("success"):
             status = worker_res.get("driver_status", "FETCH_FAILED")
             err = worker_res.get("error", "Unknown worker error")
