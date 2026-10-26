@@ -348,7 +348,7 @@ class JVLinkClient:
     def fetch_and_build_live_feed(
         self,
         data_spec: str = "0B15",
-        from_time: str = "20261026000000",
+        from_time: Optional[str] = None,
         mode: str = "rt",
         key: Optional[str] = None,
         output_dir: Optional[Path] = None
@@ -361,6 +361,10 @@ class JVLinkClient:
         target_dir = Path(output_dir or (REPO_ROOT / "data" / "authorized_feed"))
         target_dir.mkdir(parents=True, exist_ok=True)
         worker_out = target_dir / "worker_output.json"
+
+        if from_time is None:
+            from datetime import timedelta
+            from_time = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d000000")
 
         worker_res = self.fetch_via_32bit_worker(
             data_spec=data_spec,
@@ -394,8 +398,8 @@ class JVLinkClient:
             from src.jvlink_raw_store import store_records
             raw_db = REPO_ROOT / "data" / "jvlink_raw.db"
             store_records(raw_db, all_records, data_spec=data_spec)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise JVLinkError(f"Raw JV-Link record persistence failed: {exc}") from exc
 
         self._driver_status = "AUTHENTICATED"
         return self.process_records_to_feed(all_records, output_dir=target_dir)
