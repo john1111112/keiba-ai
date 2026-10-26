@@ -98,6 +98,40 @@ class TransportContractTest(unittest.TestCase):
             self.assertEqual(result["auth_status"], "SOFTWARE_ID_MISSING")
             self.assertTrue(out.is_file())
 
+    def test_official_unknown_sid_can_initialize_in_development(self):
+        import json
+        import sys
+        import tempfile
+        import types
+        from pathlib import Path
+        from unittest.mock import patch
+
+        fake = FakeJVGetsLink([race_rec(), horse_rec(1)])
+        fake.JVInit = lambda sid: 0 if sid == "UNKNOWN" else -103
+        progids = []
+        win32com = types.ModuleType("win32com")
+        win32com.__path__ = []
+        client_module = types.ModuleType("win32com.client")
+        def dispatch(progid):
+            progids.append(progid)
+            return fake
+        client_module.Dispatch = dispatch
+        win32com.client = client_module
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            sys.modules,
+            {"win32com": win32com, "win32com.client": client_module}
+        ), patch("src.jvlink_worker.check_is_32bit", return_value=True):
+            output_path = Path(tmp) / "worker.json"
+            result = run_worker_capture(
+                sid="UNKNOWN", data_spec="0B15",
+                from_time="20261027000000", output_path=str(output_path)
+            )
+            self.assertTrue(result["success"])
+            self.assertEqual(result["auth_status"], "AUTHENTICATED")
+            self.assertEqual(result["fetch_status"], "SUCCESS")
+            self.assertEqual(json.loads(output_path.read_text())["ra_count"], 1)
+        self.assertEqual(progids, ["JVDTLab.JVLink"])
+
     def test_truncated_jvgets_is_rejected(self):
         raw = race_rec()
         class Truncated(FakeJVGetsLink):
