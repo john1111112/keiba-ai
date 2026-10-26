@@ -16,12 +16,19 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p "test_jvlink*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_run_jvlink_collection.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_jvlink_capture_status.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_audit_jvlink_raw.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_capture_jvlink_cli.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_fetch_authorized_races.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           python -m unittest discover -s tests -p "test_alert_policy_freshness.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Compile SDK boundary
         shell: pwsh
         run: |
