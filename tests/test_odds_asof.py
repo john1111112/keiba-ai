@@ -47,11 +47,12 @@ class OddsAsOfTests(unittest.TestCase):
         self.assertEqual(rows.iloc[0]["odds_value"], 5)
 
     def test_unknown_source_rejected(self):
-        self.assertEqual(record_odds_snapshot([{
+        with self.assertRaises(ValueError):
+            record_odds_snapshot([{
             "race_id": "r1", "horse_number": 1, "odds_value": 3,
             "observed_at": "2026-10-25T06:00:00+00:00",
             "fetched_at": "2026-10-25T06:01:00+00:00"
-        }], db_path=self.db), 0)
+        }], db_path=self.db)
 
     def test_bad_horse_number_rejected(self):
         self.assertEqual(record_odds_snapshot([{
