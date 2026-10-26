@@ -10,6 +10,8 @@ import html
 import json
 import mimetypes
 import re
+import sqlite3
+import math
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -56,7 +58,49 @@ def _upcoming_rows(manifest_path, *, now=None):
         return []
 
 
-def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcoming_races.json", now=None):
+def _manual_odds_rows(db_path, upcoming, *, now=None):
+    """Read only accepted, timestamp-valid pre-race prices; never certify them."""
+    db = Path(db_path)
+    if not db.is_file() or not upcoming:
+        return []
+    current = now or datetime.now(timezone.utc)
+    try:
+        with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
+            raw = conn.execute("""
+                SELECT race_id, horse_number, odds_value, observed_at, fetched_at,
+                       source, data_status FROM odds_timeline
+                WHERE odds_type='win'
+            """).fetchall()
+    except (sqlite3.Error, OSError):
+        return []
+    starts = dict(upcoming)
+    latest = {}
+    for race, horse, odds, observed, fetched, source, status in raw:
+        if race not in starts or str(status).lower() not in {"manual_prerace", "pre_race_flash"}:
+            continue
+        if not isinstance(source, str) or source.strip().lower() in {"", "unknown", "none"}:
+            continue
+        try:
+            if type(horse) is not int or not 1 <= horse <= 99:
+                continue
+            price = float(odds)
+            if not math.isfinite(price) or price < 1:
+                continue
+            obs = datetime.fromisoformat(observed.replace("Z", "+00:00"))
+            got = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
+            if (obs.tzinfo is None or got.tzinfo is None or
+                    obs.utcoffset() is None or got.utcoffset() is None or
+                    not obs <= got <= current < starts[race]):
+                continue
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            continue
+        key = (race, horse)
+        if key not in latest or (obs, got) > latest[key][0]:
+            latest[key] = ((obs, got), (race, horse, price, obs.isoformat(), source))
+    return [v[1] for k, v in sorted(latest.items())]
+
+
+def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db", now=None):
     pages = _safe_reports(reports_dir)
     links = "".join(
         '<li><a href="/reports/' + html.escape(name, quote=True) + '">' +
@@ -71,6 +115,14 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
         for race, start in upcoming)
     if not race_rows:
         race_rows = '<tr><td colspan="3">出走予定レースの入力がありません</td></tr>'
+    odds_rows = _manual_odds_rows(odds_db, upcoming, now=now)
+    odds_html = "".join(
+        "<tr><td>" + html.escape(race) + "</td><td>" + str(horse) +
+        "</td><td>" + html.escape(format(price, ".2f")) +
+        "</td><td>未検証</td><td>—</td><td>—</td><td>NO BET</td></tr>"
+        for race, horse, price, _, _ in odds_rows)
+    if not odds_html:
+        odds_html = '<tr><td colspan="7">有効な発走前オッズはありません</td></tr>'
     now = html.escape((now or datetime.now(timezone.utc)).isoformat())
     return (f'<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
@@ -89,6 +141,11 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '<table><thead><tr><th>レースID</th><th>発走予定</th><th>判定</th></tr></thead>'
             '<tbody>' + race_rows + '</tbody></table>'
             '<small>予定表は外部から明示的に入力された情報です。公式開催情報の自動取得ではありません。</small></div>'
+            '<div class="card"><h2>取得済み発走前オッズ（未認証）</h2>'
+            '<table><thead><tr><th>レース</th><th>馬番</th><th>単勝</th>'
+            '<th>取得元検証</th><th>AI勝率</th><th>期待値</th><th>判定</th></tr></thead>'
+            '<tbody>' + odds_html + '</tbody></table>'
+            '<small>手動入力等の時刻情報を検査して表示。独立認証済みではありません。</small></div>'
             '<div class="card"><h2>レース分析レポート</h2><ul>'
             + links + '</ul></div>'
             '<div class="card"><h2>システム状態</h2>'
@@ -97,13 +154,13 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '</div></body></html>')
 
 
-def make_handler(reports_dir, *, manifest_path="data/upcoming_races.json"):
+def make_handler(reports_dir, *, manifest_path="data/upcoming_races.json", odds_db="data/odds_history.db"):
     root = Path(reports_dir)
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == "/":
-                body = dashboard_html(root, manifest_path=manifest_path).encode("utf-8")
+                body = dashboard_html(root, manifest_path=manifest_path, odds_db=odds_db).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
             elif path == "/health":
@@ -139,10 +196,11 @@ def main():
     parser.add_argument("--reports-dir", default="data/prerace_reports")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--manifest", default="data/upcoming_races.json")
+    parser.add_argument("--odds-db", default="data/odds_history.db")
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.reports_dir, manifest_path=args.manifest))
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.reports_dir, manifest_path=args.manifest, odds_db=args.odds_db))
     print(f"競馬AI β版: http://127.0.0.1:{args.port}/ (Ctrl+C to stop)", flush=True)
     try:
         server.serve_forever()
