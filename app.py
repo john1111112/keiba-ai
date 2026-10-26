@@ -306,7 +306,7 @@ with tab0:
                     last_checked = datetime.fromisoformat(runtime["last_run_at"])
                     if last_checked.tzinfo is not None and (
                         datetime.now(timezone.utc) - last_checked
-                    ).total_seconds() <= 180 and runtime.get("daemon_status") == "RUNNING":
+                    ).total_seconds() <= 180 and runtime.get("daemon_status") in ("RUNNING", "ERROR_RECOVERING"):
                         last_scan = runtime.get("last_scan_result") or {}
                         if last_scan.get("status") in (
                             "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
