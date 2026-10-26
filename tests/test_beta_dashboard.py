@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_beta_dashboard import dashboard_html, _safe_reports, _upcoming_rows, _manual_odds_rows, make_handler
+from scripts.run_beta_dashboard import dashboard_html, _safe_reports, _upcoming_rows, _manual_odds_rows, _background_status, make_handler
 
 
 class BetaDashboardTests(unittest.TestCase):
@@ -109,6 +109,20 @@ class BetaDashboardTests(unittest.TestCase):
             db, upcoming, now=datetime.fromisoformat("2026-10-26T09:12:00+09:00")), [])
         self.assertEqual(len(_manual_odds_rows(
             db, upcoming, now=datetime.fromisoformat("2026-10-26T09:05:00+09:00"))), 1)
+
+    def test_background_status_fail_closed_and_escaped(self):
+        status = self.root / "scan.json"
+        self.assertIn("未実行", _background_status(status))
+        status.write_text(json.dumps({"status": "<script>alert(1)</script>",
+                                      "bet_status": "BET"}), encoding="utf-8")
+        self.assertEqual(_background_status(status), "結果ファイル不正")
+        status.write_text(json.dumps({"status": "SCAN_BLOCKED",
+                                      "bet_status": "BET"}), encoding="utf-8")
+        page = dashboard_html(self.root, scan_status=status)
+        self.assertIn("SCAN_BLOCKED", page)
+        self.assertIn("NO BET", page)
+        self.assertIn("未認証", page)
+        self.assertNotIn("<script>", page)
 
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
