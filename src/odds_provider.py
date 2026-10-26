@@ -227,6 +227,11 @@ class NetkeibaLiveOddsProvider(BaseOddsProvider):
 
         # 接続が認可されている場合のみ実データ解析を実施
         url = f"https://race.netkeiba.com/odds/index.html?race_id={race_id}&type=b1"
+        # Never fabricate a publication timestamp from local fetch time.
+        # This provider has no verified publication-time parser; fail closed.
+        return None
+
+        # Unreachable until a licensed, verified timestamp parser is implemented.
         now_iso = datetime.datetime.now().isoformat()
         try:
             resp = requests.get(url, headers=self.headers, timeout=self.timeout_sec)
