@@ -49,6 +49,16 @@ class JVLinkIngestTests(unittest.TestCase):
             self.assertEqual(result["received"], 1)
             self.assertEqual(link.closed, 1)
 
+    def test_truncated_stream_never_commits_partial_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "db"
+            link = FakeLink(replies=[(4, b"RA12")])
+            with self.assertRaisesRegex(JVLinkError, "without EOF"):
+                capture(link, db, sid="TEST", data_spec="0B15",
+                        from_time="202610270000")
+            self.assertFalse(db.exists())
+            self.assertEqual(link.closed, 1)
+
     def test_limit_rejects_second_record(self):
         with tempfile.TemporaryDirectory() as folder:
             db = Path(folder)/"db"
