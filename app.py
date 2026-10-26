@@ -390,11 +390,19 @@ with tab0:
             in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
             in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", False)))
             
+        st.caption("本番通知は初期状態では無効。公式データの検証後にのみ通知できます。")
+        in_alerts_enabled = st.checkbox(
+            "🔔 公式データの検証が成功したら自動通知を許可",
+            value=not bool(cfg.get("safety_lock_enabled", True)),
+            help="有効にしても、取得元署名が確認できない場合は送信されません。",
+        )
+
         if st.button("💾 条件設定を保存", use_container_width=True):
             cfg["min_ev"] = round(in_min_ev, 2)
             cfg["min_win_prob"] = round(in_min_p, 2)
             cfg["windows_toast_enabled"] = in_win_toast
             cfg["discord_enabled"] = in_discord
+            cfg["safety_lock_enabled"] = not in_alerts_enabled
             save_alert_config(cfg)
             st.success("通知条件を保存しました！次回監視サイクルから適用されます。")
 
