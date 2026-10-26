@@ -266,6 +266,18 @@ with tab0:
         st.write("")
         refresh_btn = st.button("🔄 最新オッズ・予測再計算", use_container_width=True)
 
+    if refresh_btn:
+        # Fetch an actual JV-Link snapshot. A cache-only rerun cannot refresh odds.
+        # This read-only UI action never dispatches alerts or places a bet.
+        try:
+            from src.jvlink_client import JVLinkClient
+            with st.spinner("JRA-VANからレース・オッズを取得中..."):
+                fresh_feed = JVLinkClient().fetch_and_build_live_feed()
+            st.cache_data.clear()
+            st.success(f"JV-Link取得完了: {len(fresh_feed.get('races', []))} レース")
+        except Exception as exc:
+            st.warning(f"JV-Linkからの取得に失敗しました（既存データへの切替なし）: {exc}")
+
     feed_file = Path("data/authorized_feed/latest_jvlink_feed.json")
     if "upcoming_races" in snapshot_source:
         feed_file = Path("data/upcoming_races.json")
