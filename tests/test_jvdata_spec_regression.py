@@ -53,7 +53,7 @@ def odds_rec(race=RACE, kubun="1", created="20261027", announce="10271325"):
     raw[35:37] = b"02"  # registered count
     raw[37:39] = b"02"  # started count
     raw[39:40] = b"7"   # win-bet sale available
-    raw[40:42] = b"7"
+    raw[40:41] = b"7"
     raw[42:43] = b"3"
     raw[43:51] = b"01003201"  # horse 1, 3.2x, rank 01
     raw[51:59] = b"02015002"  # horse 2, 15x
