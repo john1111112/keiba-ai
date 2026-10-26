@@ -59,7 +59,7 @@ class OddsAsOfTests(unittest.TestCase):
             "race_id": "r1", "horse_number": "invalid", "odds_value": 3,
             "observed_at": "2026-10-25T06:00:00+00:00",
             "fetched_at": "2026-10-25T06:01:00+00:00", "source": "test"
-        }], db_path=self.db), 0)
+        }], db_path=self.db))
 
     def test_reject_naive_cutoff(self):
         with self.assertRaises(ValueError):
