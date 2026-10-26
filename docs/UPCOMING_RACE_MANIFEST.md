@@ -24,3 +24,10 @@ python -m scripts.run_prerace_auto_recorder --schedule-scan --features data/upco
 現時点で全自動オッズプロバイダーは未接続のため、オッズは欠損として記録されます。
 実際のオッズは別途 `python -m scripts.run_manual_prerace_pipeline` で本人確認済みのJSONを取り込みます。
 記録だけではAI予測の時刻・特徴量の正当性は認証されません。表示は **NO BET** です。
+
+## 安全上の制約
+
+- `--features` の既定値は `data/upcoming_races.json` です。過去の `features.parquet` は拒否します。
+- `race_status` は `upcoming`、`cancelled`、`postponed` のみ許可し、後二者は記録対象外です。
+- オッズ保存はSQLiteの書き込みトランザクションで重複時刻を確認し、既存の同一レース・馬番・取得時刻を再保存しません。
+- 未認証の予測特徴量からAI推論を実行せず、発走前のEVは認証しません。
