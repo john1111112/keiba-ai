@@ -73,6 +73,14 @@ class TransportContractTest(unittest.TestCase):
         self.assertEqual(result["records_count"], 0)
         self.assertEqual(result["ra_records"], [])
 
+    def test_opened_stream_with_no_record_is_off_day_not_error(self):
+        link = FakeJVGetsLink([])
+        result = execute_jvlink_fetch(
+            link, "0B15", "20261027000000", mode="rt"
+        )
+        self.assertEqual(result["fetch_status"], "NO_DATA_AVAILABLE")
+        self.assertTrue(link.closed)
+
     def test_other_jvlink_open_error_is_still_failure(self):
         class BadAuth(FakeJVGetsLink):
             def JVRTOpen(self, data_spec, key):
