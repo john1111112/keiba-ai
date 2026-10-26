@@ -11,3 +11,7 @@ data/notified_races.json
 models/*.bak
 *.zip
 data/odds_history.db
+data/*.log
+data/monitor_daemon_status.json
+data/last_background_scan.json
+

@@ -38,9 +38,11 @@
 - **重複防止**: 同一レース・同一タイミングの通知を安全に抑止。
 - **安全ロック**: モデル・実データの完全検証が完了するまで、実際の推奨通知は安全にレビュー専用（無効化）としてフェイルクローズ。
 
-### 6. バックグラウンド自動実行
-- Streamlit画面を閉じても、バックグラウンド監視プロセスが定期的に発走前オッズをスキャン・記録・再評価。
-- Windowsタスクスケジューラとの連携に対応。
+### 6. バックグラウンド自動実行（アプリ終了中も監視継続）
+- **常駐デーモン (`scripts/run_background_monitor.py`)**: 画面（Streamlit）を閉じていてもバックグラウンドで60秒ごとに定期スキャン・AI推論・通知チェックを実行。
+- **Windowsタスクスケジューラ登録 (`scripts/setup_windows_task.bat` / `.ps1`)**: Windowsログオン時またはPC再起動後も自動で定期監視を復帰。
+- **耐障害性**: ネットワーク切断やデータ異常が発生してもログに記録し、クラッシュせず次回サイクルで自動復旧。
+- **SQLite同時アクセス安全性**: WALモード（Write-Ahead Logging）とビジータイムアウトにより、UIと監視プロセスの同時アクセスロックを完全に防止。
 
 ---
 
@@ -49,16 +51,19 @@
 ### ワンクリック起動（推奨）
 リポジトリ直下の **`START_KEIBA_AI.bat`** をダブルクリックするだけです。
 1. Python環境を自動認識
-2. バックグラウンド自動監視サービスを開始
+2. 常駐バックグラウンド監視デーモンを最小化ウィンドウで開始
 3. ブラウザで自動的に操作ダッシュボード（`http://localhost:8501`）が開きます
 
-### コマンドラインからの起動
+### Windowsタスクスケジューラへの登録（PC再起動後も常時自動監視）
 ```powershell
-# Webダッシュボード起動
-python -m streamlit run app.py
+# 5分間隔で定期実行タスクを登録
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows_task.ps1 -Action register
 
-# バックグラウンド監視スキャン（単発実行）
-python scripts/run_background_scan.py --manifest data/upcoming_races.json --db data/odds_history.db
+# 稼働状況を確認
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows_task.ps1 -Action status
+
+# 登録解除
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows_task.ps1 -Action unregister
 ```
 
 ---
@@ -74,11 +79,18 @@ python scripts/run_background_scan.py --manifest data/upcoming_races.json --db d
 1. サイドバーの「🔔 デスクトップ通知テスト」をクリック。
 2. Windows画面右下にトースト通知が表示されます。
 
+### 通知条件の設定
+アプリ内の「🏇 本日レース・AI期待値速報」タブで以下を設定可能：
+- 最小期待回収倍率（デフォルト: `1.15`）
+- 最小AI勝率（デフォルト: `20%`）
+- Windowsトースト通知 ON/OFF
+- Discord通知 ON/OFF
+
 ---
 
 ## 🧪 テスト・品質保証
 
-全267件の単体・統合テストが全件合格することを確認済みです。
+全277件の単体・統合テストが全件合格することを確認済みです。
 ```powershell
 python -m unittest discover tests
 ```
@@ -86,4 +98,12 @@ python -m unittest discover tests
 - 本番DB（`data/keiba.db`）の SHA-256 不変検証
 - 未来情報リーク遮断テスト
 - オッズ・予測タイムライン追記型保存テスト
-- 重複記録抑止（Idempotency Guard）テスト
+- 重複記録・重複通知抑止（Idempotency Guard）テスト
+- 定期実行・アプリ終了中監視テスト
+- 特徴量不足（デフォルト補完の禁止検証）テスト
+- モデル読み込み失敗時フェイルクローズテスト
+- オッズ欠損・期限切れ遮断テスト
+- 期待値閾値判定テスト
+- Discord通信失敗時耐障害性テスト
+- SQLite同時アクセス（WALモード並行処理）テスト
+- Windows再起動後復帰テスト

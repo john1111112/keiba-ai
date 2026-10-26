@@ -245,6 +245,104 @@ with tab0:
                 st.info("現在発走前の対象レースがありません。")
         except Exception as e:
             st.warning(f"データ解析ステータス: {e}")
+    st.divider()
+    
+    # --- 監視状況・通知設定・履歴セクション ---
+    st.markdown("### ⚙️ バックグラウンド自動監視 ＆ 自動通知管理")
+    st.caption("画面を閉じていてもWindows上で自動的にレースを分析し、条件合致時に通知します。")
+
+    col_m1, col_m2 = st.columns(2)
+    
+    with col_m1:
+        st.markdown("#### 📡 監視デーモン稼働状況")
+        daemon_status_file = Path("data/monitor_daemon_status.json")
+        daemon_status = "停止中 (START_KEIBA_AI.bat またはタスクスケジューラで起動)"
+        daemon_pid = None
+        last_run_time = "未実行"
+        cycles = 0
+        if daemon_status_file.is_file():
+            try:
+                import json
+                d_info = json.loads(daemon_status_file.read_text(encoding="utf-8"))
+                daemon_status = d_info.get("daemon_status", "不明")
+                daemon_pid = d_info.get("pid")
+                last_run_time = d_info.get("last_run_at", "未実行")
+                cycles = d_info.get("cycle_count", 0)
+            except Exception:
+                pass
+        
+        st.write(f"**ステータス**: `{daemon_status}`" + (f" (PID: {daemon_pid})" if daemon_pid else ""))
+        st.write(f"**累計実行サイクル**: `{cycles} 回`")
+        st.write(f"**最終スキャン時刻**: `{last_run_time}`")
+        
+        c_btn1, c_btn2 = st.columns(2)
+        with c_btn1:
+            if st.button("▶️ 今すぐ手動スキャン実行", use_container_width=True):
+                from scripts.run_background_scan import run_cycle
+                with st.spinner("スキャン＆推論実行中..."):
+                    res = run_cycle("data/authorized_feed/latest.json", "data/alert_state.db")
+                    st.success(f"スキャン完了: 処理レース={res.get('processed_races')}, 候補={res.get('candidates_found')}, 通知={res.get('notifications_sent')}")
+                    st.rerun()
+        with c_btn2:
+            st.caption("※タスクスケジューラ設定は `scripts/setup_windows_task.bat` から行えます。")
+
+    with col_m2:
+        st.markdown("#### 🎯 通知条件・閾値設定")
+        from src.automated_monitor import load_alert_config, save_alert_config
+        cfg = load_alert_config()
+        
+        c_c1, c_c2 = st.columns(2)
+        with c_c1:
+            in_min_ev = st.number_input("最低期待回収倍率 (EV)", min_value=1.0, max_value=10.0, value=float(cfg.get("min_ev", 1.15)), step=0.05)
+            in_win_toast = st.checkbox("Windowsデスクトップ通知", value=bool(cfg.get("windows_toast_enabled", True)))
+        with c_c2:
+            in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
+            in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", True)))
+            
+        if st.button("💾 条件設定を保存", use_container_width=True):
+            cfg["min_ev"] = round(in_min_ev, 2)
+            cfg["min_win_prob"] = round(in_min_p, 2)
+            cfg["windows_toast_enabled"] = in_win_toast
+            cfg["discord_enabled"] = in_discord
+            save_alert_config(cfg)
+            st.success("通知条件を保存しました！次回監視サイクルから適用されます。")
+
+    # --- 通知履歴テーブル ---
+    st.markdown("#### 📜 通知配信履歴（SQLite: data/alert_state.db）")
+    alert_db = Path("data/alert_state.db")
+    if alert_db.is_file():
+        try:
+            import sqlite3
+            from contextlib import closing
+            with closing(sqlite3.connect(f"file:{alert_db.resolve()}?mode=ro", uri=True)) as conn:
+                hist_df = pd.read_sql_query("""
+                SELECT race_id as レースID, horse_number as 馬番, horse_name as 馬名,
+                       win_odds as 単勝オッズ, round(win_probability, 3) as AI勝率,
+                       round(expected_value, 2) as 期待値, first_sent_at as 送信時刻,
+                       channel as チャネル, delivery_status as 状態
+                FROM alert_delivery ORDER BY id DESC LIMIT 20
+                """, conn)
+            if len(hist_df) > 0:
+                st.dataframe(hist_df, hide_index=True, use_container_width=True)
+            else:
+                st.info("まだ通知履歴はありません。条件に合致するレースが検知され次第、自動記録されます。")
+        except Exception as exc:
+            st.info("通知履歴データベースの初期化待機中...")
+    else:
+        st.info("まだ通知履歴データベースはありません。")
+
+    # --- 直近の監視ログ ---
+    with st.expander("📝 監視ログ（直近の実行ログ）"):
+        log_file = Path("data/background_monitor.log")
+        if log_file.is_file():
+            try:
+                lines = log_file.read_text(encoding="utf-8").splitlines()
+                st.code("\n".join(lines[-25:]), language="text")
+            except Exception:
+                st.caption("ログ読込中...")
+        else:
+            st.caption("ログファイルは監視実行時に自動生成されます。")
+
 
 
 # ==========================================
