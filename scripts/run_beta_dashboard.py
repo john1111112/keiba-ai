@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import html
 import json
-import mimetypes
 import re
 import sqlite3
 import math
@@ -58,19 +57,25 @@ def _upcoming_rows(manifest_path, *, now=None):
         return []
 
 
-def _manual_odds_rows(db_path, upcoming, *, now=None):
+def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
     """Read only accepted, timestamp-valid pre-race prices; never certify them."""
     db = Path(db_path)
     if not db.is_file() or not upcoming:
         return []
     current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        return []
+    if type(max_age_seconds) not in (int, float) or not 0 < max_age_seconds <= 86400:
+        return []
     try:
         with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
-            raw = conn.execute("""
-                SELECT race_id, horse_number, odds_value, observed_at, fetched_at,
-                       source, data_status FROM odds_timeline
-                WHERE odds_type='win'
-            """).fetchall()
+            raw = []
+            for race_id, _ in upcoming:
+                raw.extend(conn.execute("""
+                    SELECT race_id, horse_number, odds_value, observed_at, fetched_at,
+                           source, data_status FROM odds_timeline
+                    WHERE odds_type='win' AND race_id=?
+                """, (race_id,)).fetchall())
     except (sqlite3.Error, OSError):
         return []
     starts = dict(upcoming)
@@ -90,7 +95,8 @@ def _manual_odds_rows(db_path, upcoming, *, now=None):
             got = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
             if (obs.tzinfo is None or got.tzinfo is None or
                     obs.utcoffset() is None or got.utcoffset() is None or
-                    not obs <= got <= current < starts[race]):
+                    not obs <= got <= current < starts[race] or
+                    (current - got).total_seconds() > max_age_seconds):
                 continue
         except (ValueError, TypeError, AttributeError, OverflowError):
             continue
@@ -145,7 +151,7 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '<table><thead><tr><th>レース</th><th>馬番</th><th>単勝</th>'
             '<th>取得元検証</th><th>AI勝率</th><th>期待値</th><th>判定</th></tr></thead>'
             '<tbody>' + odds_html + '</tbody></table>'
-            '<small>手動入力等の時刻情報を検査して表示。独立認証済みではありません。</small></div>'
+            '<small>手動入力等の時刻情報を検査。取得後10分以内のオッズのみ表示。独立認証済みではありません。</small></div>'
             '<div class="card"><h2>レース分析レポート</h2><ul>'
             + links + '</ul></div>'
             '<div class="card"><h2>システム状態</h2>'
