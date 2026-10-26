@@ -787,10 +787,18 @@ def run_monitor_scan(
                 logger.info(f"通知処理完了: レース {race_id} 馬番 {h_num} (status={overall_status})")
 
     eligible_count = sum(1 for c in all_candidates if c["eligible"])
+    if errors and processed_races == 0 and races:
+        scan_status = "INFERENCE_BLOCKED"
+    elif errors:
+        scan_status = "INFERENCE_PARTIAL"
+    else:
+        scan_status = "COMPLETED"
     return {
-        "status": "COMPLETED",
+        "status": scan_status,
+        "total_upcoming_races": len(races),
+        "inference_failure_count": len(errors),
         "processed_races": processed_races,
-        "model_inference_allowed": True,
+        "model_inference_allowed": scan_status != "INFERENCE_BLOCKED",
         "candidates_found": len(all_candidates),
         "eligible_candidates": eligible_count,
         "notifications_sent": notifications_sent,
