@@ -3,10 +3,11 @@
 
 【基本原則・制約】
 1. 発走30分前(pre_30m)・10分前(pre_10m)・5分前(pre_5m)のタイムポイントを厳格管理
-2. 取得できない場合は確実に「欠損扱い」(odds_status='missing')とし、架空データ・ダミー値は生成禁止
+2. 取得できない場合や取得元未接続時は確実に「欠損扱い」(odds_status='missing')とし、架空データ・ダミー値は生成禁止
 3. レース確定オッズ(final_settled)や発走時刻以降のオッズは完全遮断・代用禁止
 4. 既存DB (data/keiba.db) は一切変更せず、独立DB (data/odds_history.db) のみへ追記保存
 5. 提供元発表時刻(observed_at)、システム受信時刻(fetched_at)、AI予測実行時刻(predicted_at)の実時刻を厳密記録
+6. 二重記録防止（Idempotency Guard）およびプロバイダー再試行（Retry Logic）を標準装備
 """
 from __future__ import annotations
 import datetime
@@ -27,6 +28,7 @@ from .odds_history import (
 )
 from .market import compute_market_probabilities_array
 from .features import CATEGORICAL_COLS
+from .odds_provider import OddsProviderManager
 
 TARGET_TIMINGS = ("pre_30m", "pre_10m", "pre_5m")
 TIMING_OFFSETS_MINUTES = {
@@ -51,7 +53,6 @@ def parse_timestamp(ts: Union[str, datetime.datetime]) -> datetime.datetime:
     if isinstance(ts, datetime.datetime):
         return ts
     s = str(ts).strip()
-    # Handle 'YYYY-MM-DD HH:MM:SS' or ISO format
     if " " in s and "T" not in s:
         s = s.replace(" ", "T")
     return datetime.datetime.fromisoformat(s)
@@ -174,13 +175,17 @@ def record_prerace_snapshot(
     blend_weight: float = 0.5,
     executed_at: Optional[Union[str, datetime.datetime]] = None,
     db_path: Optional[Path] = None,
-    source_name: str = "realtime_logger"
+    source_name: str = "realtime_logger",
+    allow_duplicate: bool = False,
+    provider_manager: Optional[OddsProviderManager] = None,
+    max_retries: int = 3,
+    backoff_sec: float = 1.0
 ) -> Dict[str, Any]:
     """
     【発走前スナップショット実時刻記録の統合関数】
-    1. 指定タイミング（pre_30m, pre_10m, pre_5m）の目標時刻を算出
-    2. オッズ提供がある場合は厳密検証の上、odds_timeline に追記
-    3. オッズが取得できない場合は明示的に欠損（odds_status='missing'）として記録（架空データ代用ゼロ）
+    1. 二重記録防止（Idempotency Guard）: 同一 (race_id, timing_tag) が記録済みの場合は安全にスキップ
+    2. オッズ提供が未指定の場合はプロバイダー経由で再試行取得。未接続なら「欠損扱い」として記録（架空データゼロ）
+    3. オッズ提供がある場合は厳密検証の上、odds_timeline に追記
     4. 特徴量がある場合、AIモデル推論を実行し ai_predictions_timeline に実時刻(predicted_at)付きで保存
     5. スナップショット実行結果を asof_snapshot_runs に監査ログとして記録
     """
@@ -198,10 +203,56 @@ def record_prerace_snapshot(
     race_iso = format_iso(race_dt)
     cutoff_iso = format_iso(cutoff_dt)
 
-    # 1. オッズ処理
+    # 0. 二重記録防止チェック (Idempotency Guard)
+    if not allow_duplicate:
+        conn = sqlite3.connect(target_db)
+        cur = conn.cursor()
+        existing = cur.execute(
+            "SELECT id, odds_status, pred_status, executed_at FROM asof_snapshot_runs WHERE race_id = ? AND timing_tag = ?",
+            (str(race_id), str(timing_tag))
+        ).fetchone()
+        conn.close()
+
+        if existing:
+            return {
+                "status": "SKIPPED_ALREADY_RECORDED",
+                "race_id": str(race_id),
+                "timing_tag": str(timing_tag),
+                "scheduled_race_time": race_iso,
+                "target_snapshot_time": cutoff_iso,
+                "executed_at": exec_iso,
+                "odds_status": existing[1],
+                "pred_status": existing[2],
+                "odds_count": 0,
+                "pred_count": 0,
+                "message": f"Snapshot for race {race_id} at {timing_tag} already recorded in asof_snapshot_runs (id={existing[0]}). Skipping duplicate insert.",
+                "is_duplicate_prevented": True,
+                "db_path": str(target_db)
+            }
+
+    # 1. オッズ処理（プロバイダー再試行・接続状態判定）
     odds_status = "missing"
     valid_odds: List[Dict[str, Any]] = []
     error_msg = None
+    retry_audit: Optional[Dict[str, Any]] = None
+
+    # 明示的なオッズ指定がない場合、プロバイダーマネージャーを介して再試行取得
+    if odds_records is None:
+        mgr = provider_manager or OddsProviderManager()
+        fetched_odds, retry_audit = mgr.fetch_prerace_odds_with_retry(
+            race_id=str(race_id),
+            scheduled_race_time=race_iso,
+            timing_tag=timing_tag,
+            max_retries=max_retries,
+            backoff_sec=backoff_sec
+        )
+        if fetched_odds:
+            odds_records = fetched_odds
+        else:
+            if retry_audit.get("outcome") == "all_sources_disconnected":
+                error_msg = "オッズ取得元がすべて未接続(DISCONNECTED)です。架空データ代用を禁止し欠損扱いとします。"
+            elif retry_audit.get("outcome") == "retries_exhausted_missing":
+                error_msg = f"オッズ取得試行が全{max_retries}回失敗しました（欠損扱い）。"
 
     if odds_records:
         try:
@@ -368,6 +419,7 @@ def record_prerace_snapshot(
     conn.close()
 
     return {
+        "status": "RECORDED",
         "race_id": str(race_id),
         "timing_tag": timing_tag,
         "scheduled_race_time": race_iso,
@@ -380,6 +432,8 @@ def record_prerace_snapshot(
         "model_version": model_ver,
         "model_sha256": model_sha256,
         "error_message": error_msg,
+        "retry_audit": retry_audit,
+        "is_duplicate_prevented": False,
         "db_path": str(target_db)
     }
 

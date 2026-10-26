@@ -6,8 +6,12 @@
 2. オッズ取得不可時の「欠損扱い」(odds_status='missing')の厳密動作（架空データ代用ゼロ）
 3. 確定オッズ(final_settled等)および発走時刻以降オッズの完全遮断・代用禁止
 4. 観測時刻 > 取得時刻 の因果律違反データの遮断
-5. 既存DB (data/keiba.db) の SHA-256 完全不変性の検証
-6. CLIツール (scripts/record_prerace_asof.py) の正常系・欠損系・監査照会テスト
+5. 二重記録防止 (Idempotency Guard) の検証: 同一(race_id, timing_tag)の重複挿入抑止
+6. 取得プロバイダー診断と接続不能時の未接続(DISCONNECTED)判定・架空データ代用ゼロ検証
+7. 再試行 (Retry Logic) とリトライ枯渇時の欠損扱い移行検証
+8. 自動実行スケジューラ (run_prerace_auto_recorder.py) のスキャン実行と二重抑止
+9. 既存DB (data/keiba.db) の SHA-256 完全不変性の検証
+10. CLIツール (scripts/record_prerace_asof.py) の正常系・欠損系・監査照会テスト
 """
 import hashlib
 import json
@@ -33,6 +37,13 @@ from src.prerace_recorder import (
     validate_odds_records,
     PostRaceOddsLeakageError,
     TARGET_TIMINGS
+)
+from src.odds_provider import (
+    OddsProviderManager,
+    BaseOddsProvider,
+    JVLinkOddsProvider,
+    LicensedFeedOddsProvider,
+    FileSnapshotOddsProvider
 )
 from src.odds_history import init_odds_history_db, get_latest_odds_as_of
 
@@ -188,6 +199,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             executed_at="2026-05-01 15:10:00",
             db_path=self.test_db_path
         )
+        self.assertEqual(res_30m["status"], "RECORDED")
         self.assertEqual(res_30m["odds_status"], "captured")
         self.assertEqual(res_30m["odds_count"], 2)
         self.assertEqual(res_30m["pred_status"], "recorded")
@@ -207,6 +219,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             executed_at="2026-05-01 15:30:00",
             db_path=self.test_db_path
         )
+        self.assertEqual(res_10m["status"], "RECORDED")
         self.assertEqual(res_10m["odds_status"], "captured")
 
         # 3. 5分前スナップショット (目標: 15:35:00)
@@ -223,6 +236,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             executed_at="2026-05-01 15:35:00",
             db_path=self.test_db_path
         )
+        self.assertEqual(res_5m["status"], "RECORDED")
         self.assertEqual(res_5m["odds_status"], "captured")
 
         # データベース内の実記録を照会して検証
@@ -243,22 +257,64 @@ class TestPreRaceRecorder(unittest.TestCase):
             self.assertIsNotNone(p["expected_value"])
             self.assertEqual(p["status"], "valid")
 
+    def test_duplicate_recording_prevention(self):
+        """二重記録防止: 同一(race_id, timing_tag)の2回目実行が安全に抑止されること"""
+        race_id = "202605010101"
+        race_time = "2026-05-01 15:40:00"
+
+        snap_30m = [
+            {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01 15:09:50", "fetched_at": "2026-05-01 15:09:55", "source": "JV-Link", "data_status": "pre_30m"},
+        ]
+        # 初回実行
+        res1 = record_prerace_snapshot(
+            race_id=race_id,
+            scheduled_race_time=race_time,
+            timing_tag="pre_30m",
+            odds_records=snap_30m,
+            features_df=self.sample_features,
+            executed_at="2026-05-01 15:10:00",
+            db_path=self.test_db_path,
+            allow_duplicate=False
+        )
+        self.assertEqual(res1["status"], "RECORDED")
+        self.assertFalse(res1["is_duplicate_prevented"])
+
+        # 2回目実行（同一タイミング・パラメータ）
+        res2 = record_prerace_snapshot(
+            race_id=race_id,
+            scheduled_race_time=race_time,
+            timing_tag="pre_30m",
+            odds_records=snap_30m,
+            features_df=self.sample_features,
+            executed_at="2026-05-01 15:10:05",
+            db_path=self.test_db_path,
+            allow_duplicate=False
+        )
+        self.assertEqual(res2["status"], "SKIPPED_ALREADY_RECORDED")
+        self.assertTrue(res2["is_duplicate_prevented"])
+
+        # DB内のレコード数が増えていないことを確認
+        records = query_snapshot_records(race_id, timing_tag="pre_30m", db_path=self.test_db_path)
+        self.assertEqual(len(records["runs"]), 1)
+        self.assertEqual(len(records["odds"]), 1)
+
     def test_missing_odds_handling(self):
         """オッズが取得できない場合に欠損扱い(odds_status='missing')として記録され、架空データは生成されないこと"""
         race_id = "202605010101"
         race_time = "2026-05-01 15:40:00"
 
-        # オッズレコードなし（None）で実行
+        # オッズレコードなし（空リスト）で実行
         res = record_prerace_snapshot(
             race_id=race_id,
             scheduled_race_time=race_time,
             timing_tag="pre_30m",
-            odds_records=None,
+            odds_records=[],
             features_df=self.sample_features,
             executed_at="2026-05-01 15:10:00",
             db_path=self.test_db_path
         )
 
+        self.assertEqual(res["status"], "RECORDED")
         self.assertEqual(res["odds_status"], "missing")
         self.assertEqual(res["odds_count"], 0)
         self.assertEqual(res["pred_status"], "recorded")
@@ -337,6 +393,30 @@ class TestPreRaceRecorder(unittest.TestCase):
         valid = validate_odds_records(causality_violation, race_time, compute_target_snapshot_time(race_time, "pre_5m"))
         self.assertEqual(len(valid), 0)
 
+    def test_odds_provider_diagnostics_and_retry(self):
+        """プロバイダー診断およびリトライ枯渇時の欠損動作テスト"""
+        # モックプロバイダー（意図的に接続失敗させる）
+        class FailingProvider(BaseOddsProvider):
+            def __init__(self):
+                super().__init__("FailingTestProvider")
+                self.calls = 0
+
+            def check_connection(self):
+                return {"provider": self.name, "connected": True, "status": "TEST"}
+
+            def fetch_prerace_odds(self, race_id, scheduled_race_time, timing_tag):
+                self.calls += 1
+                raise ConnectionError("Temporary connection timeout")
+
+        failing = FailingProvider()
+        mgr = OddsProviderManager([failing])
+        records, audit = mgr.fetch_prerace_odds_with_retry(
+            "202605010101", "2026-05-01 15:40:00", "pre_30m", max_retries=2, backoff_sec=0.01
+        )
+        self.assertIsNone(records)
+        self.assertEqual(failing.calls, 2)
+        self.assertEqual(audit["outcome"], "retries_exhausted_missing")
+
     def test_existing_db_integrity_preserved(self):
         """既存DB (data/keiba.db) の SHA-256 が本番バックアップハッシュと完全一致し、一切変更されないこと"""
         if not KEIBA_DB_PATH.exists():
@@ -389,6 +469,23 @@ class TestPreRaceRecorder(unittest.TestCase):
             query_res = json.load(f)
         self.assertEqual(len(query_res["runs"]), 1)
         self.assertEqual(query_res["runs"][0]["odds_status"], "missing")
+
+    def test_auto_recorder_runner_diagnose_cli(self):
+        """自動実行ランナー (scripts/run_prerace_auto_recorder.py --diagnose-providers) の実行テスト"""
+        diag_out = Path(self.temp_dir.name) / "diag.json"
+        cmd = [
+            sys.executable,
+            str(repo_root / "scripts" / "run_prerace_auto_recorder.py"),
+            "--diagnose-providers",
+            "--out", str(diag_out)
+        ]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        self.assertTrue(diag_out.is_file())
+        with open(diag_out, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertIn("total_providers", data)
+        self.assertIn("connected_providers", data)
+        self.assertIn("details", data)
 
 
 if __name__ == "__main__":

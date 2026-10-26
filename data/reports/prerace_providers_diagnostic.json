@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-10-26T11:07:34.679676",
+  "total_providers": 4,
+  "connected_providers": 1,
+  "all_sources_disconnected": false,
+  "status": "SOME_SOURCES_CONNECTED",
+  "details": [
+    {
+      "provider": "JV-Link",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "reason": "win32com library is not installed in current Python environment."
+    },
+    {
+      "provider": "LicensedFeed",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "reason": "Licensed feed directory (C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\feeds\\prerace_odds) or contract (C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\config\\phase12_feed_contract.json) not configured."
+    },
+    {
+      "provider": "NetkeibaLive",
+      "connected": true,
+      "status": "ONLINE",
+      "note": "Live odds endpoint reachable (status 200)."
+    },
+    {
+      "provider": "FileSnapshot",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "snapshot_dir": "C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\snapshots",
+      "reason": "Directory C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\snapshots does not exist."
+    }
+  ],
+  "policy": "架空データでの代用は厳禁。未接続時は欠損(MISSING)としてフェイルクローズ処理します。"
+}
