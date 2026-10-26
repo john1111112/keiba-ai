@@ -21,8 +21,14 @@ def audit_raw(db_path):
                 GROUP BY r.data_spec, r.record_type
                 ORDER BY r.data_spec, r.record_type""").fetchall()
         except sqlite3.OperationalError:
-            return {"status": "INVALID_JV_RECORD_DB", "record_count": 0,
-                    "bet_status": "NO_BET"}
+            try:
+                rows = conn.execute("""SELECT data_spec, record_type, COUNT(*),
+                    MIN(fetched_at), MAX(fetched_at), COUNT(*)
+                    FROM jv_raw_records GROUP BY data_spec, record_type
+                    ORDER BY data_spec, record_type""").fetchall()
+            except sqlite3.OperationalError:
+                return {"status": "INVALID_JV_RECORD_DB", "record_count": 0,
+                        "bet_status": "NO_BET"}
     return {"status": "RAW_DATA_ONLY_UNPARSED", "record_count": sum(r[2] for r in rows),
             "groups": [{"data_spec": r[0], "record_type": r[1],
                         "count": r[2], "observation_count": r[5],
