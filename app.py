@@ -307,9 +307,17 @@ with tab0:
                     if last_checked.tzinfo is not None and (
                         datetime.now(timezone.utc) - last_checked
                     ).total_seconds() <= 180 and runtime.get("daemon_status") == "RUNNING":
-                        running_status = "監視中（通知安全ロック）" if notification_config.get(
-                            "safety_lock_enabled", True
-                        ) else "監視中（通知条件判定）"
+                        last_scan = runtime.get("last_scan_result") or {}
+                        if last_scan.get("status") in (
+                            "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
+                            "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
+                            "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST"
+                        ):
+                            running_status = "接続・解析エラー（自動再試行中）"
+                        else:
+                            running_status = "監視中（通知安全ロック）" if notification_config.get(
+                                "safety_lock_enabled", True
+                            ) else "監視中（通知条件判定）"
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
             st.metric("自動通知状態", running_status)
