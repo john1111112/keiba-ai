@@ -58,17 +58,22 @@ class LocalValidationTuningTests(unittest.TestCase):
                     "CREATE TABLE race_results (race_id TEXT, horse_number INTEGER, age INTEGER, weight_carry REAL, finish_order TEXT)"
                 )
                 connection.executemany("INSERT INTO races VALUES (?, ?)", [
-                    ("valid", "2025-06-01"), ("incomplete", "2025-06-02")
+                    ("valid", "2025-06-01"),
+                    ("incomplete", "2025-06-02"),
+                    ("nonnumeric", "2025-06-03"),
                 ])
                 connection.executemany("INSERT INTO race_results VALUES (?, ?, ?, ?, ?)", [
                     ("valid", 1, 4, 55, "1"),
                     ("valid", 2, 5, 56, "2"),
                     ("incomplete", 1, 4, 55, "1"),
                     ("incomplete", 2, None, 56, "2"),
+                    ("nonnumeric", 1, 4, 55, "1"),
+                    ("nonnumeric", 2, 5, 56, "中止"),
                 ])
                 connection.commit()
                 races = load_period(connection, start="2025-01-01", end="2025-12-31")
                 self.assertEqual(len(races), 1)
+                self.assertEqual(races[0][0]["race_id"], "valid")
                 self.assertEqual(races[0][0]["win"], 1)
             finally:
                 connection.close()

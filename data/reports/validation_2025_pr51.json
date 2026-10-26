@@ -1,0 +1,50 @@
+{
+  "status": "VALIDATION_ONLY_NOT_HOLDOUT",
+  "features": [
+    "age",
+    "weight_carry",
+    "horse_number"
+  ],
+  "train_races": 45,
+  "validation_races": 865,
+  "train_end": "2024-12-28",
+  "validation_start": "2025-01-05",
+  "validation_end": "2025-12-28",
+  "grid_size": 125,
+  "selection": {
+    "weights": {
+      "age": -0.25,
+      "weight_carry": 0.1,
+      "horse_number": 0.0
+    },
+    "validation_log_loss": 2.605405415700584
+  },
+  "holdout_evaluated": false,
+  "roi": null,
+  "sha256": "61c5483ec8c221eaa7070e464e07220f0eb6a0240e6f74766a898f10e8827069",
+  "validation_baseline_comparison": {
+    "status": "IN_SAMPLE_VALIDATION_DIAGNOSTIC_ONLY",
+    "race_count": 865,
+    "runner_count": 12589,
+    "models": {
+      "weighted": {
+        "race_log_loss": 2.605405415700584,
+        "runner_brier": 0.06328110620776338,
+        "top1_accuracy": 0.10635838150289018
+      },
+      "uniform": {
+        "race_log_loss": 2.6571803140868604,
+        "runner_brier": 0.06376088115772152,
+        "top1_accuracy": 0.07630057803468208
+      }
+    },
+    "market_odds_baseline": null,
+    "holdout_evaluated": false,
+    "roi": null,
+    "warning": "Weights were selected on these same validation labels. Do not report as holdout or predictive edge."
+  },
+  "data_status": "LOCAL_HISTORICAL_CACHE_PROVENANCE_UNVERIFIED",
+  "asof_status": "NOT_CERTIFIED",
+  "holdout_status": "NOT_ACCESSED",
+  "note": "Weights optimized on historical validation outcomes. This is development, not independent future prediction or real-money expected-value evidence."
+}
