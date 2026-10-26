@@ -1,0 +1,6 @@
+{
+  "status": "BLOCKED_NO_ODDS_TIMELINE",
+  "asof_certified": false,
+  "eligible_races": 0,
+  "note": "No timestamped odds snapshots; historical final odds cannot certify pre-race evaluation."
+}

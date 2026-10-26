@@ -46,5 +46,12 @@ if __name__ == "__main__":
     p.add_argument("--db", default="data/odds_history.db")
     p.add_argument("--start", default="2025-01-01")
     p.add_argument("--end", default="2025-12-31")
+    p.add_argument("--out", default=None, help="Path to write JSON output")
     args = p.parse_args()
-    print(json.dumps(audit(args.db, start=args.start, end=args.end), ensure_ascii=False, indent=2))
+    res = audit(args.db, start=args.start, end=args.end)
+    out_json = json.dumps(res, ensure_ascii=False, indent=2)
+    print(out_json)
+    if args.out:
+        out_p = Path(args.out)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_text(out_json + "\n", encoding="utf-8")
