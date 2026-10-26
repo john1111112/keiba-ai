@@ -311,7 +311,7 @@ with tab0:
                         if last_scan.get("status") in (
                             "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
                             "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
-                            "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST"
+                            "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST", "INFERENCE_BLOCKED"
                         ):
                             running_status = "接続・解析エラー（自動再試行中）"
                         else:
