@@ -62,8 +62,7 @@ def run_schedule_scan(
         }
 
     df_feat = pd.read_parquet(features_path)
-    # 未確定・出走前レースを抽出
-    upcoming = df_feat[df_feat["finish_order"].fillna(0) == 0].copy()
+    # Race result fields cannot certify upcoming status; require a separate\n    # explicit upcoming race manifest before scanning.\n    if "race_status" not in df_feat.columns:\n        return {\n            "status": "BLOCKED_NO_UPCOMING_MANIFEST",\n            "message": "race_status field missing; finish_order cannot prove a race is upcoming.",\n            "processed_races": 0, "captured_count": 0, "missing_count": 0,\n            "snapshots": []\n        }\n    upcoming = df_feat[df_feat["race_status"].astype(str).str.lower() == "upcoming"].copy()
     if len(upcoming) == 0:
         return {
             "status": "NO_UPCOMING_RACES",
@@ -122,7 +121,7 @@ def run_schedule_scan(
                 race_id=str(race_id),
                 scheduled_race_time=race_time_str,
                 timing_tag=timing,
-                features_df=group,
+                features_df=None,  # Feature provenance not certified; never infer from result tables.
                 executed_at=now_dt.isoformat(),
                 db_path=db_path,
                 allow_duplicate=allow_duplicate,
