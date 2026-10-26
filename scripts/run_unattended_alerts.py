@@ -69,8 +69,14 @@ def run_alert_cycle(candidates_path, state_db, *, now=None, deliver=False):
                 "eligible": len(eligible), "delivered": 0,
                 "blocked": len(evaluated) - len(eligible),
                 "bet_status": "NO_BET"}
-    if sys.platform != "win32":
-        raise RuntimeError("Desktop delivery only supported on Windows")
+    # JSON boolean claims and source strings are caller-controlled. They
+    # cannot establish independent feed/model certification. Until a trusted
+    # provider+model adapter supplies verified evidence, no live notifications.
+    return {"status": "BLOCKED_UNVERIFIED_PROVENANCE",
+            "evaluated": len(evaluated), "eligible_by_claim": len(eligible),
+            "eligible": 0, "delivered": 0,
+            "blocked": len(evaluated), "bet_status": "NO_BET",
+            "reason": "Candidate JSON cannot certify odds or model provenance"}
     db_path = Path(state_db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     delivered, duplicate, failures = 0, 0, 0
