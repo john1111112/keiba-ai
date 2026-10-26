@@ -28,5 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Run offline odds-drop tests
-        run: python -m unittest discover -s tests -p 'test_*odds.py' -v
+      - name: Install importer dependencies
+        run: python -m pip install pandas numpy
+      - name: Run odds-drop tests
+        run: python -m unittest discover -s tests -p 'test_odds_drops.py' -v
+      - name: Run manual-import tests
+        run: python -m unittest discover -s tests -p 'test_manual_odds.py' -v
