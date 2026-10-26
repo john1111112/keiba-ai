@@ -206,14 +206,17 @@ class UnattendedMonitoringTests(unittest.TestCase):
     # -------------------------------------------------------------
     def test_duplicate_alert_suppression(self):
         feed_p = self._create_sample_feed(win_odds=10.0)
-        # 1回目実行
-        res1 = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)
-        self.assertEqual(res1["notifications_sent"], 1)
+        with patch("src.automated_monitor.verify_feed_provenance", return_value=(True, "PROVENANCE_VERIFIED")), \
+             patch("src.automated_monitor.send_windows_notification", return_value=True), \
+             patch("src.notifier.send_windows_notification", return_value=True):
+            # 1回目実行
+            res1 = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)
+            self.assertEqual(res1["notifications_sent"], 1)
 
-        # 2回目実行（同一レース・同一条件）
-        res2 = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)
-        # 重複が抑止され、送信件数は 0 になる
-        self.assertEqual(res2["notifications_sent"], 0)
+            # 2回目実行（同一レース・同一条件）
+            res2 = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)
+            # 重複が抑止され、送信件数は 0 になる
+            self.assertEqual(res2["notifications_sent"], 0)
 
     # -------------------------------------------------------------
     # 8. Discord通信失敗時の復旧 (test_discord_network_failure_resilience)
@@ -227,7 +230,9 @@ class UnattendedMonitoringTests(unittest.TestCase):
 
         # requests.post をモックして例外（ネットワークタイムアウト）を発生させる
         # windows_notification は成功をモック
-        with patch("src.notifier.send_windows_notification", return_value=True), \
+        with patch("src.automated_monitor.verify_feed_provenance", return_value=(True, "PROVENANCE_VERIFIED")), \
+             patch("src.automated_monitor.send_windows_notification", return_value=True), \
+             patch("src.notifier.send_windows_notification", return_value=True), \
              patch("src.notifier.get_discord_webhook", return_value="https://discord.com/api/webhooks/test"), \
              patch("requests.post", side_effect=Exception("Connection timed out")):
             res = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)

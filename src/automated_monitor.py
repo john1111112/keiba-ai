@@ -5,7 +5,8 @@
 - 期待回収倍率 (EV = 勝率 × 単勝オッズ) を算出し、閾値判定
 - 重複通知防止 (Idempotency) を保証し、Windowsトースト通知およびDiscord通知を送信
 - 取得失敗・モデル異常・通信失敗をログに記録し、次回サイクルで自動復旧
-- 本番通知の安全ロック (safety_lock_enabled) を徹底し、未認可・未検証データでの外部送信を完全遮断
+- 本番通知の安全ロック (safety_lock_enabled) を徹底し、自己申告値の偽装を完全排除した正規データ認証を適用
+- 安全ロック解除後の正常再評価および通信失敗時の安全再試行（リトライ）を保証
 """
 from __future__ import annotations
 import json
@@ -26,11 +27,13 @@ from src.prerace_feature_pipeline import (
     validate_feature_alignment
 )
 from src.notifier import send_windows_notification, get_discord_webhook
+from src.provenance_verifier import verify_feed_provenance, load_provider_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ALERT_CONFIG = REPO_ROOT / "data" / "alert_config.json"
 DEFAULT_STATE_DB = REPO_ROOT / "data" / "alert_state.db"
 DEFAULT_LOG_PATH = REPO_ROOT / "data" / "background_monitor.log"
+DEFAULT_FEED_DIR = REPO_ROOT / "data" / "authorized_feed"
 
 
 def get_logger(log_path: Optional[Path] = None) -> logging.Logger:
@@ -58,6 +61,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "windows_toast_enabled": True,
         "discord_enabled": True,
         "safety_lock_enabled": True,  # 安全第一：正規データ検証完了まで本番通知をロック（デフォルトTrue）
+        "max_retries": 3,
     }
     if p.is_file():
         try:
@@ -97,6 +101,7 @@ def init_alert_db(db_path: Path) -> None:
             delivery_status TEXT NOT NULL,
             windows_status TEXT DEFAULT 'NOT_SENT',
             discord_status TEXT DEFAULT 'NOT_SENT',
+            retry_count INTEGER DEFAULT 0,
             error_message TEXT,
             UNIQUE(race_id, horse_number, event_type)
         );
@@ -104,19 +109,43 @@ def init_alert_db(db_path: Path) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_delivery_race ON alert_delivery (race_id, horse_number);")
 
 
-def is_already_delivered(db_path: Path, race_id: str, horse_number: int, event_type: str) -> bool:
-    """重複通知防止チェック"""
+def is_already_delivered(
+    db_path: Path,
+    race_id: str,
+    horse_number: int,
+    event_type: str,
+    safety_lock_active: bool = False,
+    max_retries: int = 3
+) -> bool:
+    """
+    重複通知防止チェック
+    - DELIVERED または PARTIAL_SUCCESS: 既に配信完了のため送信抑止
+    - SKIPPED_BY_SAFETY_LOCK:
+        - 安全ロック継続中ならスキップ継続
+        - 安全ロック解除後（正規認証接続時）は、再評価・送信を許可（Falseを返す）
+    - FAILED:
+        - retry_count < max_retries であれば再試行可能（Falseを返す）
+        - retry_count >= max_retries であれば再試行打ち切り（Trueを返す）
+    """
     if not db_path.exists():
         return False
     with closing(sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=30)) as conn:
         row = conn.execute(
-            "SELECT delivery_status FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
+            "SELECT delivery_status, retry_count FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
             (str(race_id), int(horse_number), str(event_type))
         ).fetchone()
         if row is None:
             return False
-        # 過去に成功（DELIVERED / PARTIAL_SUCCESS）または安全ロックスキップの場合は送信済みと判定
-        return row[0] in ("DELIVERED", "PARTIAL_SUCCESS", "SKIPPED_BY_SAFETY_LOCK")
+        status, retries = row[0], (row[1] or 0)
+        if status in ("DELIVERED", "PARTIAL_SUCCESS"):
+            return True
+        if status == "SKIPPED_BY_SAFETY_LOCK":
+            # 安全ロック中なら再送不要（既に安全スキップ記録あり）
+            # ロック解除後なら再送を許可
+            return safety_lock_active
+        if status == "FAILED":
+            return retries >= max_retries
+        return status in ("CLAIMED",)
 
 
 def try_claim_alert(db_path: Path, race_id: str, horse_number: int, event_type: str) -> bool:
@@ -129,14 +158,28 @@ def try_claim_alert(db_path: Path, race_id: str, horse_number: int, event_type: 
             INSERT OR IGNORE INTO alert_delivery (
                 race_id, horse_number, horse_name, event_type, win_odds, win_probability,
                 expected_value, first_sent_at, channel, delivery_status,
-                windows_status, discord_status, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                windows_status, discord_status, retry_count, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
             """, (
                 str(race_id), int(horse_number), "", str(event_type),
                 0.0, 0.0, 0.0, now_iso, "claim", "CLAIMED",
                 "PENDING", "PENDING", ""
             ))
-            return cur.rowcount == 1
+            if cur.rowcount == 1:
+                return True
+            # 既存行がある場合、FAILED または SKIPPED からの再試行・昇格クレームか判定
+            row = cur.execute(
+                "SELECT delivery_status, retry_count FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
+                (str(race_id), int(horse_number), str(event_type))
+            ).fetchone()
+            if row and row[0] in ("FAILED", "SKIPPED_BY_SAFETY_LOCK"):
+                cur.execute("""
+                UPDATE alert_delivery
+                SET delivery_status = 'CLAIMED_RETRY'
+                WHERE race_id = ? AND horse_number = ? AND event_type = ? AND delivery_status IN ('FAILED', 'SKIPPED_BY_SAFETY_LOCK')
+                """, (str(race_id), int(horse_number), str(event_type)))
+                return cur.rowcount == 1
+            return False
     except Exception:
         return False
 
@@ -156,37 +199,100 @@ def record_alert_delivery(
     discord_status: str = "NOT_SENT",
     error: str = ""
 ) -> None:
-    """通知履歴をSQLiteに安全に保存（二重送信防止用のアトミック挿入）"""
+    """通知履歴をSQLiteに安全に保存（成否の個別記録およびリトライカウント更新）"""
     now_iso = datetime.now(timezone.utc).isoformat()
     with closing(sqlite3.connect(db_path, timeout=30)) as conn, conn:
+        # 既存行の retry_count を取得
+        row = conn.execute(
+            "SELECT retry_count FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
+            (str(race_id), int(horse_number), str(event_type))
+        ).fetchone()
+        cur_retries = (row[0] if row else 0)
+        new_retries = cur_retries + 1 if status == "FAILED" else cur_retries
+
         conn.execute("""
         INSERT OR REPLACE INTO alert_delivery (
             race_id, horse_number, horse_name, event_type, win_odds, win_probability,
             expected_value, first_sent_at, channel, delivery_status,
-            windows_status, discord_status, error_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            windows_status, discord_status, retry_count, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(race_id), int(horse_number), str(horse_name), str(event_type),
             float(win_odds), float(win_probability), float(expected_value),
             now_iso, str(channel), str(status),
-            str(windows_status), str(discord_status), str(error)
+            str(windows_status), str(discord_status), new_retries, str(error)
         ))
 
 
-def validate_feed_payload(payload: Any, received_at: datetime) -> Tuple[bool, str, List[Dict[str, Any]], bool]:
+def resolve_latest_authorized_feed(feed_dir: Path) -> Tuple[Optional[Path], str]:
+    """
+    データ取得スクリプトが保存したスナップショットから最新の有効フィードを安全に特定
+    戻り値: (feed_path, status_reason)
+    """
+    base_dir = Path(feed_dir)
+    status_file = base_dir / "last_feed_status.json"
+    if not status_file.is_file():
+        # latest.json が直接存在する場合はフォールバック
+        latest_file = base_dir / "latest.json"
+        if latest_file.is_file():
+            return latest_file, "USING_DIRECT_LATEST_FILE"
+        return None, "NO_FEED_AVAILABLE"
+
+    try:
+        data = json.loads(status_file.read_text(encoding="utf-8"))
+        archive_str = data.get("archive")
+        if not archive_str:
+            return None, "NO_ARCHIVE_IN_STATUS"
+        archive_path = Path(archive_str)
+        if not archive_path.is_file():
+            return None, "ARCHIVE_FILE_MISSING"
+
+        # 鮮度確認（60分以内）
+        rcv_str = data.get("received_at")
+        if rcv_str:
+            rcv_dt = datetime.fromisoformat(rcv_str.replace("Z", "+00:00"))
+            if rcv_dt.tzinfo is None:
+                rcv_dt = rcv_dt.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - rcv_dt).total_seconds() > 3600:
+                return None, "FEED_EXPIRED"
+
+        return archive_path, "RESOLVED_FROM_STATUS"
+    except Exception as exc:
+        return None, f"FEED_RESOLUTION_ERROR: {exc}"
+
+
+def validate_feed_payload(
+    payload: Any,
+    received_at: datetime,
+    feed_path: Optional[Path] = None,
+    provider_config_path: Optional[Path] = None
+) -> Tuple[bool, str, List[Dict[str, Any]], bool]:
     """
     認可フィードの形式・公開日時・オッズ観測日時・出所認証を厳格に検証
+    ※ JSON自己申告値 ("certified_source": true 等) による偽装を排除し、
+       システムプロバイダ設定およびアーカイブ真正性検証を通して判定。
     戻り値: (is_valid, reason, races, is_certified_source)
     """
     if not isinstance(payload, dict):
         return False, "Payload must be a dictionary", [], False
 
-    # 出所確認: 正規認可プロバイダまたは明示的な認可フラグ
-    source = str(payload.get("source") or payload.get("provider") or "").lower()
-    is_certified = bool(payload.get("certified_source") is True or source in ("jra_van", "jvlink", "authorized_feed", "jra_official"))
+    # 包装フォーマット（{"received_at": ..., "feed": {...}}）への対応
+    feed_body = payload.get("feed", payload) if isinstance(payload, dict) else payload
+    if not isinstance(feed_body, dict):
+        return False, "Invalid feed envelope structure", [], False
+
+    # 出所真正性の検証（自己申告文字列は信用せず、システム設定とアーカイブ整合性で検証）
+    is_certified = False
+    if feed_path:
+        is_cert, cert_reason = verify_feed_provenance(
+            feed_path=Path(feed_path),
+            feed_payload=feed_body,
+            provider_config_path=provider_config_path
+        )
+        is_certified = is_cert
 
     # 公開日時の検証
-    pub_str = payload.get("published_at")
+    pub_str = feed_body.get("published_at")
     if not pub_str:
         return False, "Missing published_at in feed", [], False
     try:
@@ -199,7 +305,7 @@ def validate_feed_payload(payload: Any, received_at: datetime) -> Tuple[bool, st
     if pub_dt > received_at:
         return False, "Future publication date detected", [], False
 
-    raw_races = payload.get("races")
+    raw_races = feed_body.get("races")
     if not isinstance(raw_races, list):
         return False, "Payload races field must be a list", [], False
 
@@ -280,6 +386,7 @@ def run_monitor_scan(
     as_of_time: Optional[str] = None,
     model_path: Optional[Path] = None,
     past_db_path: Optional[Path] = None,
+    provider_config_path: Optional[Path] = None,
     dry_run: bool = False
 ) -> Dict[str, Any]:
     """
@@ -324,7 +431,12 @@ def run_monitor_scan(
             "checked_at": now_dt.isoformat()
         }
 
-    is_valid, validation_reason, races, is_certified_source = validate_feed_payload(raw_feed, now_dt)
+    is_valid, validation_reason, races, is_certified_source = validate_feed_payload(
+        raw_feed,
+        now_dt,
+        feed_path=feed_file,
+        provider_config_path=provider_config_path
+    )
     if not is_valid:
         msg = f"フィード検証失敗（拒絶）: {validation_reason}"
         logger.warning(msg)
@@ -376,7 +488,7 @@ def run_monitor_scan(
 
     # 安全ロック判定：設定上のフラグと正規データ認証状態の二重防護
     safety_lock_enabled = config.get("safety_lock_enabled", True)
-    # 正規認可データでない場合は強制的に外部通知を安全ロック
+    # 正規認可データでない場合は外部通知を強制ロック（Fail-Closed）
     if not is_certified_source:
         safety_lock_enabled = True
 
@@ -483,7 +595,14 @@ def run_monitor_scan(
             # 通知処理
             if candidate["eligible"] and not dry_run:
                 event_type = f"EV_{min_ev}_WIN_{min_p}"
-                if is_already_delivered(state_db, race_id, h_num, event_type):
+                
+                # 重複通知防止チェック（安全ロック状態およびリトライ上限を渡す）
+                max_retries = config.get("max_retries", 3)
+                if is_already_delivered(
+                    state_db, race_id, h_num, event_type,
+                    safety_lock_active=safety_lock_enabled,
+                    max_retries=max_retries
+                ):
                     logger.info(f"重複通知スキップ: レース {race_id} 馬番 {h_num}")
                     continue
 

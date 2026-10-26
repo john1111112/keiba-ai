@@ -16,13 +16,31 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.run_prerace_auto_recorder import run_schedule_scan
-from src.automated_monitor import run_monitor_scan
+from src.automated_monitor import run_monitor_scan, resolve_latest_authorized_feed
 
 
-def run_cycle(manifest, db, *, now=None, dry_run=False):
+def run_cycle(manifest, db, *, now=None, dry_run=False, config_path=None):
     """Run one cycle of unattended pre-race scan and notification."""
     path = Path(manifest)
-    if not path.is_file():
+
+    # パスがディレクトリまたは未存在の場合、認可スナップショット解決を試行
+    target_feed = path
+    if path.is_dir() or not path.is_file():
+        search_dir = path if path.is_dir() else path.parent
+        resolved, reason = resolve_latest_authorized_feed(search_dir)
+        if resolved and resolved.is_file():
+            target_feed = resolved
+        else:
+            return {
+                "status": "NO_UPCOMING_MANIFEST",
+                "reason": reason,
+                "processed_races": 0,
+                "captured_count": 0,
+                "bet_status": "NO_BET",
+                "model_inference_allowed": False
+            }
+
+    if not target_feed.is_file():
         return {
             "status": "NO_UPCOMING_MANIFEST",
             "processed_races": 0,
@@ -30,8 +48,9 @@ def run_cycle(manifest, db, *, now=None, dry_run=False):
             "bet_status": "NO_BET",
             "model_inference_allowed": False
         }
+
     try:
-        content = path.read_text(encoding="utf-8")
+        content = target_feed.read_text(encoding="utf-8")
         payload = json.loads(content)
     except Exception as exc:
         return {
@@ -47,7 +66,7 @@ def run_cycle(manifest, db, *, now=None, dry_run=False):
     # invoke run_schedule_scan for backward-compatibility while keeping no-bet safety
     if isinstance(payload, list):
         try:
-            res = run_schedule_scan(path, Path(db), as_of_time=now)
+            res = run_schedule_scan(target_feed, Path(db), as_of_time=now)
             if not isinstance(res, dict):
                 raise ValueError("Invalid scanner response")
             res["bet_status"] = "NO_BET"
@@ -66,10 +85,11 @@ def run_cycle(manifest, db, *, now=None, dry_run=False):
     # For authorized feed envelopes with races & horses, run automated monitor scan with model inference
     try:
         res = run_monitor_scan(
-            feed_path=path,
+            feed_path=target_feed,
             state_db_path=Path(db),
             as_of_time=now,
-            dry_run=dry_run
+            dry_run=dry_run,
+            config_path=config_path
         )
         return {
             "status": res["status"],
@@ -97,11 +117,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Unattended pre-race scan and notification")
     parser.add_argument("--manifest", default="data/authorized_feed/latest.json")
     parser.add_argument("--db", default="data/alert_state.db")
+    parser.add_argument("--config", default="data/alert_config.json", help="Path to alert config JSON")
     parser.add_argument("--out", default="data/last_background_scan.json")
     parser.add_argument("--now", help="Timezone-aware timestamp (default: now)")
     parser.add_argument("--dry-run", action="store_true", help="Do not send actual notifications")
     args = parser.parse_args(argv)
-    result = run_cycle(args.manifest, args.db, now=args.now, dry_run=args.dry_run)
+    result = run_cycle(args.manifest, args.db, now=args.now, dry_run=args.dry_run, config_path=args.config)
     result["checked_at"] = datetime.now(timezone.utc).isoformat()
     payload = json.dumps(result, ensure_ascii=False, indent=2, default=str)
     print(payload)

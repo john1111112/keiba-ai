@@ -260,7 +260,8 @@ class SafetyAndVerificationSuiteTests(unittest.TestCase):
         cfg["windows_toast_enabled"] = False  # Windows通知はOFFにしてDiscordのみ検証
         save_alert_config(cfg, self.config_path)
 
-        with patch("src.notifier.get_discord_webhook", return_value="https://discord.com/api/webhooks/fail"), \
+        with patch("src.automated_monitor.verify_feed_provenance", return_value=(True, "PROVENANCE_VERIFIED")), \
+             patch("src.notifier.get_discord_webhook", return_value="https://discord.com/api/webhooks/fail"), \
              patch("requests.post", side_effect=Exception("HTTP 500 Internal Error")):
             res = run_monitor_scan(feed_path=feed_file, state_db_path=self.state_db, config_path=self.config_path)
             self.assertEqual(res["status"], "COMPLETED")
@@ -289,7 +290,9 @@ class SafetyAndVerificationSuiteTests(unittest.TestCase):
             notification_counter["count"] += 1
             return True
 
-        with patch("src.notifier.send_windows_notification", side_effect=mock_notify):
+        with patch("src.automated_monitor.verify_feed_provenance", return_value=(True, "PROVENANCE_VERIFIED")), \
+             patch("src.automated_monitor.send_windows_notification", side_effect=mock_notify), \
+             patch("src.notifier.send_windows_notification", side_effect=mock_notify):
             # 2つの並行スレッドから同時にスキャンを実行
             def run_scan():
                 return run_monitor_scan(feed_path=feed_file, state_db_path=self.state_db, config_path=self.config_path)
@@ -302,7 +305,7 @@ class SafetyAndVerificationSuiteTests(unittest.TestCase):
 
         # 同時実行されても通知送信は最大1回のみ
         total_sent = res1["notifications_sent"] + res2["notifications_sent"]
-        self.assertLessEqual(total_sent, 1)
+        self.assertEqual(total_sent, 1)
 
     # 9. Windows再起動後に監視を再開できる
     def test_resume_monitoring_after_restart(self):
