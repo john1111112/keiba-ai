@@ -147,9 +147,9 @@ def check_environment_compatibility() -> Dict[str, Any]:
     if not is_windows:
         overall_status = "BLOCKED"
         issues.append("Operating system is not Windows (JV-Link requires Windows).")
-    elif not win32com_available:
+    elif not python32_path:
         overall_status = "SETUP_REQUIRED"
-        issues.append("pywin32 (win32com) is not installed in current Python environment.")
+        issues.append("The JV-Link worker requires 32-bit Python and pywin32.")
     elif not sdk_registered:
         overall_status = "SETUP_REQUIRED"
         issues.append("JV-Link SDK (JVDTLab.JVLink) is not registered in Windows registry.")
