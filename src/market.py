@@ -7,7 +7,12 @@ Phase 3C: 市場オッズ基準モデルおよびAI統合モジュール
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Tuple, List, Optional
-from sklearn.metrics import log_loss, roc_auc_score, brier_score_loss
+try:
+    from sklearn.metrics import log_loss, roc_auc_score, brier_score_loss
+except ImportError:
+    log_loss = None
+    roc_auc_score = None
+    brier_score_loss = None
 
 
 def compute_market_probabilities_array(odds_arr: np.ndarray, active_mask: Optional[np.ndarray] = None) -> np.ndarray:
@@ -125,6 +130,8 @@ def find_optimal_blend_weight(
     過去データ（OOF予測値）のみを用いて、Log Loss を最小化する最適なAI結合重み w* を探索する。
     探索グリッド: w in [0.00, 0.01, ..., 1.00]
     """
+    if log_loss is None:
+        raise ImportError("scikit-learn is required for find_optimal_blend_weight")
     y_true = np.asarray(y_true, dtype=int)
     p_ai = np.asarray(p_ai, dtype=float).clip(1e-7, 1.0 - 1e-7)
     p_m = np.asarray(p_market, dtype=float).clip(1e-7, 1.0 - 1e-7)

@@ -1,0 +1,76 @@
+{
+  "status": "HISTORICAL_VALIDATION_MODEL_COMPARISON_COMPLETED",
+  "evaluation_period": {
+    "year": 2025,
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31"
+  },
+  "sample_counts": {
+    "total_races": 865,
+    "total_runners": 12589,
+    "mean_runners_per_race": 14.55
+  },
+  "models": {
+    "uniform": {
+      "race_log_loss": 2.65718,
+      "runner_log_loss": 0.248746,
+      "runner_brier_score": 0.063761,
+      "top1_accuracy": 0.076301,
+      "top1_hits": 66,
+      "total_races": 865
+    },
+    "ai_alone": {
+      "race_log_loss": 2.605405,
+      "runner_log_loss": 0.244929,
+      "runner_brier_score": 0.063281,
+      "top1_accuracy": 0.106358,
+      "top1_hits": 92,
+      "total_races": 865
+    },
+    "market_odds": {
+      "race_log_loss": 1.98822,
+      "runner_log_loss": 0.19795,
+      "runner_brier_score": 0.05552,
+      "top1_accuracy": 0.313295,
+      "top1_hits": 271,
+      "total_races": 865
+    },
+    "blend_50ai_50mkt": {
+      "race_log_loss": 2.157309,
+      "runner_log_loss": 0.210777,
+      "runner_brier_score": 0.057407,
+      "top1_accuracy": 0.310983,
+      "top1_hits": 269,
+      "total_races": 865
+    },
+    "blend_30ai_70mkt": {
+      "race_log_loss": 2.0653,
+      "runner_log_loss": 0.203675,
+      "runner_brier_score": 0.056174,
+      "top1_accuracy": 0.313295,
+      "top1_hits": 271,
+      "total_races": 865
+    },
+    "blend_10ai_90mkt": {
+      "race_log_loss": 2.003686,
+      "runner_log_loss": 0.199046,
+      "runner_brier_score": 0.055578,
+      "top1_accuracy": 0.313295,
+      "top1_hits": 271,
+      "total_races": 865
+    }
+  },
+  "ai_weights": {
+    "age": -0.25,
+    "weight_carry": 0.1,
+    "horse_number": 0.0
+  },
+  "holdout_status": "NOT_ACCESSED",
+  "holdout_2026_isolated": true,
+  "asof_status": "NOT_CERTIFIED",
+  "data_status": "LOCAL_HISTORICAL_CACHE_PROVENANCE_UNVERIFIED",
+  "roi": null,
+  "warning": "Odds in local SQLite are final settlement odds; certified pre-race timestamps are not established. 2026 holdout labels were not queried or accessed. This evaluation does not imply profitability in live markets.",
+  "generated_at_utc": "2026-10-26T01:05:04.330718+00:00",
+  "sha256": "b625c69460c08e5eeb940b3617444cf5e2170b821fc2a10404537788562cdd1c"
+}
