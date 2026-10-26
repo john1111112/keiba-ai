@@ -52,14 +52,6 @@ class JVLinkBridgeError(JVLinkError):
     pass
 
 
-# JRA-VAN JVStatus 仕様コード定義
-JVSTATUS_MAP = {
-    0: ("SERVICE_INACTIVE", False, "サービス休止または未初期化"),
-    1: ("AUTHENTICATED", True, "認証成功（正規利用可能）"),
-    2: ("MAINTENANCE", False, "JRA-VAN サーバーメンテナンス中"),
-    3: ("EXPIRED_OR_UNCONTRACTED", False, "利用権限なし（未契約または無料体験期限切れ）")
-}
-
 
 def _verified_32bit_python(candidate: str) -> bool:
     """Execute candidate interpreter to confirm its pointer size, not just its filename."""
@@ -221,55 +213,30 @@ class JVLinkClient:
                 self._driver_status = f"INIT_FAILED_CODE_{code}"
                 raise JVLinkError(f"JVInit failed with return code {code}")
             self._initialized = True
-            # 初期化直後はステータス確認を実施
-            self.check_service_status()
+            # JVStatus counts pending downloads, and must not be used as auth.
         except Exception as exc:
             self._initialized = False
             self._driver_status = "INIT_EXCEPTION"
             raise JVLinkError(f"JVInit execution failed: {exc}") from exc
 
     def check_service_status(self) -> Dict[str, Any]:
-        """
-        JRA-VANのサービス状態・利用権限ステータスを仕様に基づいて判定。
-        戻り値コードを厳密に解析し、未認証・異常値は connected: False とする。
+        """Report only evidenced access, not JVStatus download progress.
+
+        The official JV-Link interface defines JVStatus as the number of
+        files awaiting download. It is not a subscription/authentication check.
         """
         if not self._initialized:
-            self._driver_status = "NOT_INITIALIZED"
-            return {
-                "status_code": None,
-                "driver_status": "NOT_INITIALIZED",
-                "connected": False,
-                "message": "JVLinkClient is not initialized"
-            }
-
-        try:
-            status_raw = getattr(self._link, "JVStatus", lambda: 0)()
-            code = int(status_raw[0]) if isinstance(status_raw, (tuple, list)) else int(status_raw)
-        except Exception as exc:
-            self._driver_status = "STATUS_CALL_FAILED"
-            return {
-                "status_code": -999,
-                "driver_status": "STATUS_CALL_FAILED",
-                "connected": False,
-                "message": f"JVStatus call failed: {exc}"
-            }
-
-        # 仕様マッピング判定
-        if code in JVSTATUS_MAP:
-            driver_status, connected, desc = JVSTATUS_MAP[code]
+            status = "NOT_INITIALIZED"
+        elif self._driver_status == "AUTHENTICATED":
+            status = "AUTHENTICATED"
         else:
-            driver_status = f"UNVERIFIED_STATUS_{code}"
-            connected = False
-            desc = f"Unverified status code: {code}"
-
-        self._driver_status = driver_status
-
+            status = "NOT_VERIFIED"
         return {
-            "status_code": code,
-            "driver_status": driver_status,
-            "connected": connected,
-            "message": desc,
-            "sid": self.sid
+            "status_code": None,
+            "driver_status": status,
+            "connected": status == "AUTHENTICATED",
+            "message": "Access is only confirmed following successful JV-Link acquisition.",
+            "sid": self.sid,
         }
 
     def fetch_via_32bit_worker(
