@@ -17,6 +17,7 @@ import json
 import os
 import platform
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
