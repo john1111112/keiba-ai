@@ -176,7 +176,9 @@ class JVLinkClient:
     JV-Link SDK 操作および特徴量・推論パイプラインへの接続クライアント
     """
     def __init__(self, sid: str = "UNKNOWN", mock_com_obj=None, test_mode: bool = False):
-        self.sid = sid
+        self.sid = os.getenv("KEIBA_JVLINK_SID", "").strip() if sid == "UNKNOWN" else sid
+        if not self.sid:
+            self.sid = "UNKNOWN"
         self._link = mock_com_obj
         self._initialized = False
         self._driver_status = "UNVERIFIED"
