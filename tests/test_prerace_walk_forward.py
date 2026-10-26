@@ -55,6 +55,9 @@ class WalkForwardTests(unittest.TestCase):
         self.assertEqual([f["validation_races"] for f in report["folds"]], [6, 6])
         self.assertEqual(report["total_validation_horses"], 24)
         self.assertEqual(report["bet_status"], "NO_BET")
+        self.assertIn(report["research_quality_gate"],
+                      ("BASELINE_NOT_BEATEN", "BASELINE_BEATEN_NOT_CERTIFIED"))
+        self.assertLessEqual(report["folds_beating_uniform_winner_nll"], report["total_folds"])
         self.assertAlmostEqual(report["weighted_uniform_baseline_brier"], 0.25)
         self.assertAlmostEqual(report["weighted_uniform_race_winner_nll"], __import__("math").log(2))
         self.assertGreaterEqual(report["weighted_race_winner_nll_research_only"], 0)
