@@ -1,7 +1,10 @@
 """
 JV-Link 接続診断 & 実運用準備チェッカー (JV-Link Readiness Checker)
 - Windows環境、Pythonバージョン、ビット数 (32bit/64bit) の確認
+- 32bit Python (ワーカーブリッジ) の検出
+- pywin32 の導入状態
 - JV-Link SDK (COM) の登録状態検出
+- COMインスタンス生成可否の独立検証
 - JRA-VAN利用権限・認証状態の確認
 - 28特徴量パイプラインおよびLightGBMモデルの整合性検証
 - 通知機能（Windows Toast / Discord）の設定状態確認
@@ -21,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.jvlink_client import check_environment_compatibility
+from src.jvlink_client import check_environment_compatibility, find_32bit_python
 from src.provenance_verifier import load_provider_config
 from src.features import FEATURE_COLS_V2_28
 from src.automated_monitor import load_alert_config
@@ -49,15 +52,28 @@ def run_full_readiness_check() -> dict:
         "windows_version": compat["windows_version"],
         "python_version": compat["python_version"],
         "python_bitness": compat["python_architecture"],
-        "win32com_installed": compat["win32com_available"]
+        "win32com_installed": compat["win32com_available"],
+        "python32_available": compat["python32_available"],
+        "python32_path": compat["python32_path"]
     }
 
-    # 2. JV-Link SDK診断
+    # 2. JV-Link SDK & COM 独立診断
+    com_creatable = False
+    com_error = None
+    if compat["win32com_available"] and compat["sdk_registered"]:
+        try:
+            import win32com.client
+            _link = win32com.client.Dispatch("jvdg.JVLink")
+            com_creatable = True
+        except Exception as exc:
+            com_error = str(exc)
+
     results["jvlink_sdk"] = {
         "sdk_registered": compat["sdk_registered"],
         "sdk_clsid": compat["sdk_clsid"],
-        "jra_van_authorized": compat["jra_van_authorized"],
-        "architecture_note": compat["arch_warning"]
+        "com_instantiable": com_creatable,
+        "com_error": com_error,
+        "jra_van_authorized": compat["jra_van_authorized"]
     }
 
     # 3. 28特徴量パイプライン & モデル診断
@@ -80,7 +96,6 @@ def run_full_readiness_check() -> dict:
             else:
                 model_sha_match = False
 
-            # モデルロード試行
             import joblib
             clf = joblib.load(str(model_path))
             n_features = getattr(clf, "n_features_in_", 28)
@@ -140,32 +155,34 @@ def print_report(results: dict):
     print("-" * 70)
 
     env = results["environment"]
-    print("[1. 実行環境]")
-    print(f"  - OS:                   {env['os']} ({env['windows_version']})")
-    print(f"  - Python:               {env['python_version']} ({env['python_bitness']})")
-    print(f"  - win32com (pywin32):   {'検出完了' if env['win32com_installed'] else '未導入'}")
+    print("[1. 実行環境 & Pythonアーキテクチャ]")
+    print(f"  - OS:                     {env['os']} ({env['windows_version']})")
+    print(f"  - Main Python:            {env['python_version']} ({env['python_bitness']})")
+    print(f"  - win32com (pywin32):     {'導入完了' if env['win32com_installed'] else '未導入'}")
+    print(f"  - 32bit Python ワーカー:   {env['python32_path'] if env['python32_available'] else '未検出 (必要時自動利用)'}")
 
     sdk = results["jvlink_sdk"]
-    print("\n[2. JV-Link SDK & 認証]")
-    print(f"  - SDK COM登録:          {'検出成功' if sdk['sdk_registered'] else '未検出 (要インストール)'}")
+    print("\n[2. JV-Link SDK & COM 独立診断]")
+    print(f"  - SDK COM登録:            {'検出成功' if sdk['sdk_registered'] else '未検出 (要インストーラー実行)'}")
     if sdk["sdk_clsid"]:
-        print(f"  - SDK CLSID:            {sdk['sdk_clsid']}")
-    print(f"  - JRA-VAN利用権限設定:  {'設定済み' if sdk['jra_van_authorized'] else '未設定 (要無料体験/契約)'}")
-    if sdk["architecture_note"]:
-        print(f"  - アーキテクチャ注意事項: {sdk['architecture_note']}")
+        print(f"  - SDK CLSID:              {sdk['sdk_clsid']}")
+    print(f"  - COM インスタンス化:     {'可能' if sdk['com_instantiable'] else '未確認 / 未導入'}")
+    if sdk["com_error"]:
+        print(f"  - COM 生成エラー詳細:     {sdk['com_error']}")
+    print(f"  - JRA-VAN利用権限設定:    {'設定済み' if sdk['jra_van_authorized'] else '未設定 (要無料体験/契約)'}")
 
     pm = results["pipeline_and_model"]
     print("\n[3. 28特徴量パイプライン & AIモデル]")
-    print(f"  - 特徴量定義:           {pm['pipeline_schema_features']} 特徴量 (完全一致)")
-    print(f"  - モデルファイル実在:   {'確認完了' if pm['model_file_exists'] else '欠落'}")
-    print(f"  - SHA-256整合性照合:    {'完全一致' if pm['model_sha256_verified'] else '不一致または未検証'}")
-    print(f"  - モデルロード実行:     {'ロード成功 (28入力)' if pm['model_loadable'] else 'ロード失敗'}")
+    print(f"  - 特徴量定義:             {pm['pipeline_schema_features']} 特徴量 (完全一致)")
+    print(f"  - モデルファイル実在:     {'確認完了' if pm['model_file_exists'] else '欠落'}")
+    print(f"  - SHA-256整合性照合:      {'完全一致' if pm['model_sha256_verified'] else '不一致または未検証'}")
+    print(f"  - モデルロード実行:       {'ロード成功 (28入力)' if pm['model_loadable'] else 'ロード失敗'}")
 
     notif = results["notification_system"]
     print("\n[4. 通知システム & 安全ロック]")
-    print(f"  - 安全ロック状態:       {'有効 (Fail-Closed保護中)' if notif['safety_lock_enabled'] else '解除済み'}")
-    print(f"  - Windows Toast通知:    {'有効' if notif['windows_toast_enabled'] else '無効'}")
-    print(f"  - Discord Webhook通知:  {'有効' if notif['discord_enabled'] else '無効'}")
+    print(f"  - 安全ロック状態:         {'有効 (Fail-Closed保護中)' if notif['safety_lock_enabled'] else '解除済み'}")
+    print(f"  - Windows Toast通知:      {'有効' if notif['windows_toast_enabled'] else '無効'}")
+    print(f"  - Discord Webhook通知:    {'有効' if notif['discord_enabled'] else '無効'}")
 
     print("-" * 70)
     status = results["overall_status"]
@@ -198,7 +215,6 @@ def main(argv=None):
     else:
         print_report(results)
 
-    # 終了コード: BLOCKED の場合のみ非ゼロ (1)、SETUP_REQUIRED と READY は 0
     sys.exit(1 if results["overall_status"] == "BLOCKED" else 0)
 
 

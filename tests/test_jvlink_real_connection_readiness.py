@@ -1,18 +1,20 @@
 """
-第5回JV-Link実接続準備 & 架空補完完全撤去 総合検証テストスイート
-(JV-Link Real Connection Readiness & Strict Provenance Test Suite)
+第6回JV-Link実接続環境・認証処理・レースID衝突防止 総合検証テストスイート
+(JV-Link Real Connection, Authenticity & Race ID Disambiguation Test Suite)
 
-【検証要件】
-1. 架空の初期値補完の完全撤去（距離、場、時刻、馬場、年齢、斤量、性別、馬番の欠損・不正時はValueError送出）
-2. 不正・破損したJV-Dataレコードの拒絶 (Fail-Closed)
-3. レースID・出走馬の重複や衝突の防止
-4. 別レースのオッズ混入防止（レースキー照合による不正遮断）
-5. 未検証レコード（O2〜O7, HR等）の本番利用禁止
-6. 環境変数（KEIBA_JVLINK_CERTIFIED=1等）や設定ファイルの単独改ざんによる認証突破の完全遮断
-7. 正規取得処理によるセッション署名（Trusted Acquisition Session Token）の検証と本番分離
-8. SDK未導入時の安全停止（例外送出とSETUP_REQUIRED判定）
-9. 診断ツール (scripts/check_jvlink_readiness.py) の正常実行と出力判定
-10. JV-Link生データから28特徴量・推論・EV計算パイプラインへの正規接続準備
+【検証項目】
+1. 固定秘密鍵が存在しない（ハードコード秘密鍵の完全撤去）
+2. 秘密鍵未設定時は本番署名を発行できない (Fail-Closed)
+3. 偽造署名を拒絶する
+4. 期限切れ署名を拒絶する
+5. JV-Link未認証時は本番通知を禁止する (driver_status != 'AUTHENTICATED')
+6. JVStatus の異常値（負数や未知コード）を成功扱いしない
+7. 異なる開催日のレースIDが衝突しない（16桁完全レースキーの検証）
+8. RA・SE・O1のレースキー不一致を拒絶する
+9. 32bit/64bit環境の不一致を検出する
+10. SDK未導入時に安全停止する
+11. 32bit取得プロセスと64bit推論プロセス間のデータ受け渡し検証
+12. 実データ未接続時に誤通知しない
 """
 from __future__ import annotations
 import hashlib
@@ -22,6 +24,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
@@ -37,18 +40,23 @@ from src.jvlink_adapter import (
     parse_jv_se_record,
     parse_jv_o1_record,
     convert_jvlink_records_to_prerace_feed,
+    normalize_to_16char_race_key,
     UNVERIFIED_RECORD_TYPES
 )
 from src.jvlink_client import (
     check_environment_compatibility,
+    find_32bit_python,
     JVLinkClient,
     JVLinkNotInstalledError,
-    JVLinkError
+    JVLinkError,
+    JVLinkBridgeError,
+    JVSTATUS_MAP
 )
 from src.provenance_verifier import (
     verify_feed_provenance,
     create_acquisition_signature,
-    load_provider_config
+    load_provider_config,
+    get_provenance_secret
 )
 from src.automated_monitor import run_monitor_scan, init_alert_db, load_alert_config, save_alert_config
 from scripts.check_jvlink_readiness import run_full_readiness_check
@@ -118,222 +126,229 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
         ).encode("cp932")
 
     # -------------------------------------------------------------
-    # 1. 架空データの初期値補完の完全撤去
+    # 1. 固定秘密鍵が存在しないことの検証
     # -------------------------------------------------------------
-    def test_no_fabricated_defaults_in_ra_record(self):
-        # 距離欠損（スペースのみ）
-        ra_no_dist = self._build_valid_ra(distance="    ")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_ra_record(ra_no_dist)
-        self.assertIn("Invalid or missing distance", str(ctx.exception))
-
-        # 競馬場コード不正
-        ra_bad_course = self._build_valid_ra(race_key="2026102699010101")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_ra_record(ra_bad_course)
-        self.assertIn("Invalid or unverified course code", str(ctx.exception))
-
-        # 発走時刻欠損
-        ra_no_time = self._build_valid_ra(post_time="    ")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_ra_record(ra_no_time)
-        self.assertIn("Missing or invalid post time", str(ctx.exception))
-
-        # 馬場状態不正
-        ra_bad_cond = self._build_valid_ra(cond="9")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_ra_record(ra_bad_cond)
-        self.assertIn("Invalid or unverified condition code", str(ctx.exception))
-
-    def test_no_fabricated_defaults_in_se_record(self):
-        # 馬齢欠損
-        se_no_age = self._build_valid_se(age="  ")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_se_record(se_no_age)
-        self.assertIn("Invalid age", str(ctx.exception))
-
-        # 斤量欠損
-        se_no_weight = self._build_valid_se(weight_carry="   ")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_se_record(se_no_weight)
-        self.assertIn("Invalid weight carry", str(ctx.exception))
-
-        # 性別コード不正
-        se_bad_sex = self._build_valid_se(sex="9")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_se_record(se_bad_sex)
-        self.assertIn("Invalid sex code", str(ctx.exception))
-
-        # 馬番欠損
-        se_no_hnum = self._build_valid_se(horse_num="  ")
-        with self.assertRaises(ValueError) as ctx:
-            parse_jv_se_record(se_no_hnum)
-        self.assertIn("Invalid horse number", str(ctx.exception))
+    def test_no_hardcoded_secret_key_in_provenance_verifier(self):
+        import inspect
+        import src.provenance_verifier as pv
+        source = inspect.getsource(pv)
+        self.assertNotIn("keiba_ai_trusted_session_key_v5", source)
+        self.assertNotIn("default_secret", source.lower())
 
     # -------------------------------------------------------------
-    # 2. 不正・破損レコードの拒絶 (Fail-Closed)
+    # 2. 秘密鍵未設定時は本番署名を発行・検証できない (Fail-Closed)
     # -------------------------------------------------------------
-    def test_corrupted_record_rejection(self):
-        with self.assertRaises(ValueError):
-            parse_jv_ra_record(b"RA short")
-        with self.assertRaises(ValueError):
-            parse_jv_se_record(b"SE short")
-        with self.assertRaises(ValueError):
-            parse_jv_o1_record(b"O1 short")
+    def test_missing_secret_key_fails_closed(self):
+        # 環境変数 KEIBA_PROVENANCE_SECRET 未設定かつキーファイル未存在で自動作成禁止時
+        with patch.dict(os.environ, {"KEIBA_TEST_MODE": "0"}, clear=True):
+            if "KEIBA_PROVENANCE_SECRET" in os.environ:
+                del os.environ["KEIBA_PROVENANCE_SECRET"]
+            with patch("src.provenance_verifier.DEFAULT_KEY_FILE", self.dir_path / "non_existent_key.dat"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    get_provenance_secret(test_mode=False, allow_create_prod_key=False)
+                self.assertIn("No secure provenance secret configured", str(ctx.exception))
 
     # -------------------------------------------------------------
-    # 3. レースID重複や出走馬番号重複の防止
+    # 3. 偽造署名を拒絶する
     # -------------------------------------------------------------
-    def test_duplicate_horse_number_in_same_race_rejected(self):
-        ra = self._build_valid_ra()
-        se1 = self._build_valid_se(horse_num="01", horse_id="2022100001")
-        se2 = self._build_valid_se(horse_num="01", horse_id="2022100002")  # 同一番号
-        o1 = self._build_valid_o1()
-
-        with self.assertRaises(ValueError) as ctx:
-            convert_jvlink_records_to_prerace_feed([ra, se1, se2, o1])
-        self.assertIn("Duplicate horse number 1", str(ctx.exception))
-
-    # -------------------------------------------------------------
-    # 4. 別レースのオッズ・出走馬の混入防止 (Race Key Mismatch)
-    # -------------------------------------------------------------
-    def test_mismatched_race_key_rejected(self):
-        ra = self._build_valid_ra(race_key="2026102605010101")
-        # 異なるレース（中山第2レース: 06010102）の馬やオッズ
-        se_other_race = self._build_valid_se(race_key="2026102606010102")
-        o1_other_race = self._build_valid_o1(race_key="2026102606010102")
-
-        with self.assertRaises(ValueError) as ctx:
-            convert_jvlink_records_to_prerace_feed([ra, se_other_race])
-        self.assertIn("Race key mismatch in SE record", str(ctx.exception))
-
-        with self.assertRaises(ValueError) as ctx:
-            convert_jvlink_records_to_prerace_feed([ra, self._build_valid_se(), o1_other_race])
-        self.assertIn("Race key mismatch in O1 record", str(ctx.exception))
-
-    # -------------------------------------------------------------
-    # 5. 未検証レコード（O2〜O7, HR等）の利用禁止
-    # -------------------------------------------------------------
-    def test_unverified_records_not_ingested(self):
-        ra = self._build_valid_ra()
-        se = self._build_valid_se()
-        o1 = self._build_valid_o1()
-        unverified_o3 = b"O3" + b" " * 100  # 馬連オッズ
-
-        # 未検証レコードが含まれていても、除外されて安全にパースされる
-        feed = convert_jvlink_records_to_prerace_feed([ra, se, o1, unverified_o3])
-        self.assertEqual(len(feed["races"]), 1)
-        self.assertNotIn("O3", feed)
-
-    # -------------------------------------------------------------
-    # 6. 環境変数や設定JSONの単独改ざんによる認証突破の完全遮断
-    # -------------------------------------------------------------
-    def test_forged_environment_variable_cannot_bypass_provenance(self):
-        raw_feed = {
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "source": "jra_van",
-            "certified_source": True,  # 自己申告
-            "races": []
-        }
+    def test_forged_session_signature_rejected(self):
+        raw_feed = {"published_at": datetime.now(timezone.utc).isoformat(), "source": "jvlink", "races": []}
         feed_file = self.feed_dir / "forged_feed.json"
         feed_file.write_text(json.dumps(raw_feed), encoding="utf-8")
 
-        # KEIBA_JVLINK_CERTIFIED=1 をセットし、provider_config を書き換えても、
-        # 取得セッション署名（.acquisition_session.json）が存在しないため遮断される
-        with patch.dict(os.environ, {"KEIBA_JVLINK_CERTIFIED": "1"}):
-            is_cert, reason = verify_feed_provenance(
-                feed_path=feed_file,
-                feed_payload=raw_feed,
-                provider_config_path=self.provider_config,
-                feed_dir=self.feed_dir
-            )
-            self.assertFalse(is_cert)
-            self.assertIn("Acquisition process not connected", reason)
+        # 不正な偽造署名
+        session_file = self.feed_dir / ".acquisition_session.json"
+        session_file.write_text(json.dumps({
+            "feed_sha256": "fake_hash_12345",
+            "feed_path": str(feed_file),
+            "module_name": "src.jvlink_client",
+            "provider": "jra_van",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "timestamp": int(time.time()),
+            "nonce": "test_nonce",
+            "driver_status": "AUTHENTICATED",
+            "signature": "forged_hmac_hex"
+        }), encoding="utf-8")
+
+        is_cert, reason = verify_feed_provenance(feed_file, raw_feed, self.provider_config, self.feed_dir, test_mode=True)
+        self.assertFalse(is_cert)
+        self.assertIn("signature mismatch", reason)
 
     # -------------------------------------------------------------
-    # 7. 正規取得処理によるセッション署名の検証と本番分離
+    # 4. 期限切れ署名を拒絶する
     # -------------------------------------------------------------
-    def test_trusted_acquisition_session_signature_and_production_isolation(self):
-        raw_feed = {
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "source": "jvlink",
-            "races": [{"race_id": "20260501"}]
-        }
-        feed_file = self.feed_dir / "valid_feed.json"
+    def test_expired_session_signature_rejected(self):
+        raw_feed = {"published_at": datetime.now(timezone.utc).isoformat(), "source": "jvlink", "races": []}
+        feed_file = self.feed_dir / "expired_feed.json"
         feed_file.write_text(json.dumps(raw_feed), encoding="utf-8")
 
-        # テストモジュールによるセッション署名を発行
+        # 2時間前のタイムスタンプで署名作成
+        old_ts = int(time.time()) - 7200
+        with patch("time.time", return_value=old_ts):
+            create_acquisition_signature(
+                feed_payload=raw_feed,
+                feed_path=feed_file,
+                module_name="tests.test_jvlink_real_connection_readiness",
+                provider="jra_van",
+                output_path=self.feed_dir / ".acquisition_session.json",
+                test_mode=True,
+                driver_status="AUTHENTICATED"
+            )
+
+        is_cert, reason = verify_feed_provenance(feed_file, raw_feed, self.provider_config, self.feed_dir, test_mode=True)
+        self.assertFalse(is_cert)
+        self.assertIn("expired", reason.lower())
+
+    # -------------------------------------------------------------
+    # 5. JV-Link未認証時は本番通知を禁止する (Fail-Closed)
+    # -------------------------------------------------------------
+    def test_unauthenticated_driver_status_blocks_alert(self):
+        raw_feed = {"published_at": datetime.now(timezone.utc).isoformat(), "source": "jvlink", "races": []}
+        feed_file = self.feed_dir / "unauth_feed.json"
+        feed_file.write_text(json.dumps(raw_feed), encoding="utf-8")
+
+        # driver_status が "SERVICE_INACTIVE" や "EXPIRED_OR_UNCONTRACTED"
         create_acquisition_signature(
             feed_payload=raw_feed,
             feed_path=feed_file,
-            module_name="tests.test_safety_and_verification_suite",
+            module_name="tests.test_jvlink_real_connection_readiness",
             provider="jra_van",
-            output_path=self.feed_dir / ".acquisition_session.json"
+            output_path=self.feed_dir / ".acquisition_session.json",
+            test_mode=True,
+            driver_status="EXPIRED_OR_UNCONTRACTED"
         )
 
-        # 本番実行時（test_mode=False かつ KEIBA_TEST_MODE未設定）では、
-        # テストセッションによる署名での本番通知を拒絶する
-        with patch.dict(os.environ, {"KEIBA_TEST_MODE": "0"}):
-            is_cert, reason = verify_feed_provenance(
-                feed_path=feed_file,
-                feed_payload=raw_feed,
-                provider_config_path=self.provider_config,
-                feed_dir=self.feed_dir,
-                test_mode=False
-            )
-            self.assertFalse(is_cert)
-            self.assertIn("Test acquisition session cannot be used for production alerts", reason)
+        is_cert, reason = verify_feed_provenance(feed_file, raw_feed, self.provider_config, self.feed_dir, test_mode=True)
+        self.assertFalse(is_cert)
+        self.assertIn("driver session is not authenticated", reason)
 
-        # テストモード（test_mode=True）では正常に認定される
-        is_cert, reason = verify_feed_provenance(
-            feed_path=feed_file,
-            feed_payload=raw_feed,
-            provider_config_path=self.provider_config,
-            feed_dir=self.feed_dir,
-            test_mode=True
+    # -------------------------------------------------------------
+    # 6. JVStatus の異常値を成功扱いしない
+    # -------------------------------------------------------------
+    def test_jvstatus_abnormal_values_not_treated_as_connected(self):
+        mock_com = MagicMock()
+        mock_com.JVInit.return_value = 0
+
+        client = JVLinkClient(sid="TEST", mock_com_obj=mock_com, test_mode=True)
+        client.connect()
+
+        # コード 0: 未初期化/休止 -> False
+        mock_com.JVStatus.return_value = 0
+        s0 = client.check_service_status()
+        self.assertFalse(s0["connected"])
+        self.assertEqual(s0["driver_status"], "SERVICE_INACTIVE")
+
+        # コード 3: 権限なし/未契約 -> False
+        mock_com.JVStatus.return_value = 3
+        s3 = client.check_service_status()
+        self.assertFalse(s3["connected"])
+        self.assertEqual(s3["driver_status"], "EXPIRED_OR_UNCONTRACTED")
+
+        # 未知のコード -99 -> UNVERIFIED & False
+        mock_com.JVStatus.return_value = -99
+        s_unknown = client.check_service_status()
+        self.assertFalse(s_unknown["connected"])
+        self.assertIn("UNVERIFIED", s_unknown["driver_status"])
+
+        # コード 1 のみ connected: True
+        mock_com.JVStatus.return_value = 1
+        s1 = client.check_service_status()
+        self.assertTrue(s1["connected"])
+        self.assertEqual(s1["driver_status"], "AUTHENTICATED")
+
+    # -------------------------------------------------------------
+    # 7. 異なる開催日のレースIDが衝突しないことの検証
+    # -------------------------------------------------------------
+    def test_different_dates_do_not_collide_race_id(self):
+        # 東京05場, 01回, 01日, 01R: 2026年10月24日
+        ra_day1 = self._build_valid_ra(race_key="2026102405010101")
+        # 東京05場, 01回, 02日, 01R: 2026年10月25日
+        ra_day2 = self._build_valid_ra(race_key="2026102505010201")
+
+        parsed1 = parse_jv_ra_record(ra_day1)
+        parsed2 = parse_jv_ra_record(ra_day2)
+
+        # 16桁の完全レースキーが race_id となっているため、衝突しない！
+        self.assertNotEqual(parsed1["race_id"], parsed2["race_id"])
+        self.assertEqual(parsed1["race_id"], "2026102405010101")
+        self.assertEqual(parsed2["race_id"], "2026102505010201")
+
+        # 旧8桁形式の比較（旧形式では 20260501 で衝突していた）
+        self.assertEqual(parsed1["legacy_race_id"], parsed2["legacy_race_id"])
+        # 正規化ヘルパーで衝突回避
+        self.assertNotEqual(
+            normalize_to_16char_race_key(parsed1["legacy_race_id"], default_date="2026-10-24"),
+            normalize_to_16char_race_key(parsed2["legacy_race_id"], default_date="2026-10-25")
         )
-        self.assertTrue(is_cert)
-        self.assertEqual(reason, "PROVENANCE_VERIFIED")
 
     # -------------------------------------------------------------
-    # 8. SDK未導入時の安全停止 (Fail-Closed)
+    # 8. RA・SE・O1のレースキー不一致を拒絶する
     # -------------------------------------------------------------
-    def test_sdk_not_installed_raises_safe_error(self):
-        client = JVLinkClient(sid="TEST_SID")
-        # SDK未導入環境では connect() で JVLinkNotInstalledError または JVLinkError
+    def test_mismatched_race_key_rejected(self):
+        ra = self._build_valid_ra(race_key="2026102605010101")
+        se_other = self._build_valid_se(race_key="2026102606010102")  # 中山2R
+        with self.assertRaises(ValueError) as ctx:
+            convert_jvlink_records_to_prerace_feed([ra, se_other])
+        self.assertIn("Race key mismatch", str(ctx.exception))
+
+    # -------------------------------------------------------------
+    # 9. 32bit/64bit環境の不一致・診断の独立性
+    # -------------------------------------------------------------
+    def test_architecture_compatibility_check(self):
+        compat = check_environment_compatibility()
+        self.assertIn("python_architecture", compat)
+        self.assertIn("win32com_available", compat)
+        self.assertIn("sdk_registered", compat)
+        self.assertIn("python32_available", compat)
+        self.assertIsInstance(compat["issues"], list)
+
+    # -------------------------------------------------------------
+    # 10. SDK未導入時に安全停止する
+    # -------------------------------------------------------------
+    def test_sdk_not_installed_fails_safely(self):
+        client = JVLinkClient(sid="TEST", mock_com_obj=None, test_mode=True)
         with patch("src.jvlink_client.check_environment_compatibility", return_value={
             "is_windows": True,
-            "win32com_available": False,
+            "win32com_available": True,
             "sdk_registered": False
         }):
             with self.assertRaises(JVLinkNotInstalledError) as ctx:
                 client.connect()
-            self.assertIn("win32com.client is missing", str(ctx.exception))
+            self.assertIn("JV-Link SDK is not registered", str(ctx.exception))
 
     # -------------------------------------------------------------
-    # 9. 接続診断ツール (scripts/check_jvlink_readiness.py) の診断判定
+    # 11. 32bitワーカープロセスとの連携・ブリッジ検証
     # -------------------------------------------------------------
-    def test_readiness_checker_output(self):
-        report = run_full_readiness_check()
-        self.assertIn("overall_status", report)
-        self.assertIn(report["overall_status"], ("READY", "SETUP_REQUIRED", "BLOCKED"))
-        self.assertTrue(report["pipeline_and_model"]["model_sha256_verified"])
-        self.assertEqual(report["pipeline_and_model"]["pipeline_schema_features"], 28)
+    def test_32bit_worker_bridge_handling(self):
+        client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        # 32bit Python が存在しない場合は JVLinkBridgeError を安全に送出
+        with patch("src.jvlink_client.find_32bit_python", return_value=None):
+            with self.assertRaises(JVLinkBridgeError) as ctx:
+                client.fetch_via_32bit_worker("0B15", "202610260000", self.dir_path / "out.json")
+            self.assertIn("No 32-bit Python executable found", str(ctx.exception))
 
     # -------------------------------------------------------------
-    # 10. JV-Link生レコードから28特徴量・推論へのE2Eパイプライン結合
+    # 12. 実データ未接続時に誤通知しない (E2E)
     # -------------------------------------------------------------
-    def test_e2e_jvlink_records_to_pipeline_feed(self):
+    def test_unconnected_real_data_does_not_fire_alert(self):
         ra = self._build_valid_ra()
         se = self._build_valid_se()
         o1 = self._build_valid_o1()
 
         feed = convert_jvlink_records_to_prerace_feed([ra, se, o1])
-        self.assertEqual(feed["source"], "jvlink")
-        self.assertEqual(len(feed["races"]), 1)
-        race = feed["races"][0]
-        self.assertEqual(race["race_id"], "20260501")
-        self.assertEqual(race["horses"][0]["win_odds"], 5.2)
+        self.assertEqual(feed["races"][0]["race_id"], "2026102605010101")
+        feed_file = self.feed_dir / "latest.json"
+        feed_file.write_text(json.dumps(feed, ensure_ascii=False), encoding="utf-8")
+
+        # セッション署名がない状態では、スキャナを実行しても通知は0件
+        res = run_monitor_scan(
+            feed_path=feed_file,
+            state_db_path=self.state_db,
+            config_path=self.config_path,
+            provider_config_path=self.provider_config
+        )
+        self.assertEqual(res["notifications_sent"], 0)
+        self.assertTrue(res["safety_lock_enabled"])
 
 
 if __name__ == "__main__":

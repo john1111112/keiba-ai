@@ -3,7 +3,9 @@ JV-Link (JRA-VAN) データ変換アダプター (JV-Link Ingest Adapter)
 - JV-Data 公式生レコード（RA: レース詳細, SE: 出走馬, O1: 単複オッズ）を厳格デコード
 - 架空データの推測補完（4歳、55kg、1600m、東京、良、牡等）は完全禁止
 - 必須情報が欠損・不正な場合は推測補完せず、Fail-Closed で例外を送出し処理停止
-- レースID・馬番・オッズの整合性を検証し、別レースの混入を防止
+- レースID衝突の完全防止: 16桁完全レースキー (YYYYMMDD + 場2 + 回2 + 日2 + R2) を一意の race_id として採用
+- 旧8桁レースIDとの後方互換マッピングをサポート
+- レースキー・馬番・オッズの整合性を完全検証し、別レースの混入を物理的に遮断
 - 未検証レコード（馬連・ワイド・3連単等）は本番利用禁止
 """
 from __future__ import annotations
@@ -55,11 +57,32 @@ UNVERIFIED_RECORD_TYPES: Set[str] = {
 }
 
 
+def normalize_to_16char_race_key(race_id_or_key: str, default_date: Optional[str] = None) -> str:
+    """
+    旧8桁レースID (YYYY+場2+R2) と 16桁公式レースキー (YYYYMMDD+場2+回2+日2+R2) の
+    互換性を保ち、内部処理および履歴照合のための一意性を正規化する。
+    """
+    s = str(race_id_or_key).strip()
+    if len(s) == 16 and s.isdigit():
+        return s
+    # 旧形式 (8桁: 例 20260501 -> 年2026, 場05, R01)
+    if len(s) == 8 and s.isdigit():
+        # 日付情報が補足可能な場合
+        if default_date and len(default_date.replace("-", "")) == 8:
+            ymd = default_date.replace("-", "")
+            course = s[4:6]
+            race_num = s[6:8]
+            return f"{ymd}{course}0101{race_num}"
+    return s
+
+
 def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
     RA レース詳細レコードのパース (Shift-JIS 固定長)
-    ※ 架空データの補完（東京・1600m・15:00・良など）を完全禁止し、
-       欠損・不正時は ValueError を送出する。
+    【一意性保証】
+    - race_id に16桁公式完全レースキー (YYYYMMDD + 場コード2 + 回2 + 日2 + R2) を採用し、
+      異なる開催日でのID衝突を完全に防止。
+    - 旧8桁ID (legacy_race_id) も併せて保持し後方互換性を維持。
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
@@ -86,12 +109,19 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
         raise ValueError(f"Invalid or missing month_day in RA record: '{month_day}'")
     if course_code not in JRA_COURSE_MAP:
         raise ValueError(f"Invalid or unverified course code in RA record: '{course_code}'")
+    if not (kai.isdigit() and len(kai) == 2):
+        raise ValueError(f"Invalid or missing kai in RA record: '{kai}'")
+    if not (nichi.isdigit() and len(nichi) == 2):
+        raise ValueError(f"Invalid or missing nichi in RA record: '{nichi}'")
     if not (race_num_str.isdigit() and 1 <= int(race_num_str) <= 12):
         raise ValueError(f"Invalid race number in RA record: '{race_num_str}'")
 
     race_course = JRA_COURSE_MAP[course_code]
     race_num = int(race_num_str)
-    race_id = f"{year}{course_code}{race_num_str.zfill(2)}"
+
+    # 衝突しない完全16桁一意ID
+    full_race_id = race_key
+    legacy_race_id = f"{year}{course_code}{race_num_str.zfill(2)}"
 
     # 発走時刻 (HHMM: 344-348)
     post_time_str = text[344:348].strip()
@@ -133,7 +163,8 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
 
     return {
         "race_key": race_key,
-        "race_id": race_id,
+        "race_id": full_race_id,
+        "legacy_race_id": legacy_race_id,
         "race_date": date_iso,
         "race_time": race_time_iso,
         "race_course": race_course,
@@ -148,8 +179,6 @@ def parse_jv_ra_record(raw_bytes: bytes) -> Dict[str, Any]:
 def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
     SE 馬毎出走情報レコードのパース (Shift-JIS 固定長)
-    ※ 架空データの補完（4歳・55kg・牡・馬番1番など）を完全禁止し、
-       欠損・不正時は ValueError を送出する。
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
@@ -239,10 +268,6 @@ def parse_jv_se_record(raw_bytes: bytes) -> Dict[str, Any]:
 def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     """
     O1 単複オッズレコードのパース (Shift-JIS 固定長)
-    戻り値: {
-        "race_key": race_key,
-        "odds_map": { horse_number: (win_odds, observed_at_iso) }
-    }
     """
     if not isinstance(raw_bytes, (bytes, bytearray)):
         raise TypeError(f"Expected bytes, got {type(raw_bytes).__name__}")
@@ -269,15 +294,13 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
     obs_iso = f"{y}-{m}-{d}T{hh}:{mm}:00+09:00"
 
     odds_map: Dict[int, Tuple[float, str]] = {}
-    # 単勝オッズブロック: 各馬番ごとにオッズ(4桁, 0.1倍単位)
     offset = 47
     for num in range(1, 29):
         if offset + 4 <= len(text):
             o_str = text[offset:offset+4].strip()
-            # "0000" や 発売前/取消 "9999" は有効オッズとみなさない
             if o_str.isdigit() and 10 <= int(o_str) <= 9990:
                 odds_map[num] = (float(o_str) / 10.0, obs_iso)
-        offset += 8  # 単勝4 + 人気2 + 予備2 = 8バイト
+        offset += 8
 
     return {
         "race_key": race_key,
@@ -287,15 +310,8 @@ def parse_jv_o1_record(raw_bytes: bytes) -> Dict[str, Any]:
 
 def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, Any]:
     """
-    JV-Linkの生レコードリスト (RA, SE, O1) から、
-    発走前28特徴量パイプラインへ直接投入可能な認可フィード辞書を構築。
-    
-    【安全要件】
-    1. RAレコードが厳格に存在すること。
-    2. SEレコード（出走馬）のレースキーが RA と完全に一致すること。別レース馬の混入を拒絶。
-    3. 馬番の重複を拒絶。
-    4. O1レコード（オッズ）のレースキーが RA と完全に一致すること。別レースオッズの混入を拒絶。
-    5. 未検証レコード（O2〜O6, HR等）が渡された場合、本番推論への混入を禁止。
+    JV-Link生レコードリスト (RA, SE, O1) から、
+    発走前28特徴量パイプラインへ投入可能な認可フィード辞書を構築。
     """
     ra_info = None
     target_race_key = None
@@ -309,7 +325,6 @@ def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, An
         rtype = raw[:2].decode("ascii", errors="ignore")
 
         if rtype in UNVERIFIED_RECORD_TYPES:
-            # 未検証レコード種別は本番利用禁止のためスキップ
             continue
 
         if rtype == "RA":
@@ -354,13 +369,12 @@ def convert_jvlink_records_to_prerace_feed(records: List[bytes]) -> Dict[str, An
             h["win_odds"] = None
             h["odds_observed_at"] = None
 
-    # 出走馬を馬番順にソート
     horses.sort(key=lambda x: x["horse_number"])
     ra_info["horses"] = horses
 
     return {
         "published_at": datetime.now(timezone.utc).isoformat(),
         "source": "jvlink",
-        "certified_source": False,  # 自己申告フラグは使わない（Falseで固定）
+        "certified_source": False,
         "races": [ra_info]
     }

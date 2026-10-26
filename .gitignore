@@ -16,4 +16,10 @@ data/*.pid
 data/*.lock
 data/monitor_daemon_status.json
 data/last_background_scan.json
+*.key
+*.secret
+*.dat
+.acquisition_session.json
+data/**/.acquisition_session.json
+data/.secure_key.dat
 

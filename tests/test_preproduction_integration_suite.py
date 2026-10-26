@@ -167,7 +167,8 @@ class PreproductionIntegrationTests(unittest.TestCase):
             feed_path=archive_file,
             module_name="tests.test_preproduction_integration_suite",
             provider="licensed_api",
-            output_path=self.feed_dir / ".acquisition_session.json"
+            output_path=self.feed_dir / ".acquisition_session.json",
+            test_mode=True
         )
 
         # 照合 (テストモード有効)
