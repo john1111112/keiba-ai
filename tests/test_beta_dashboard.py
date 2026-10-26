@@ -126,12 +126,26 @@ class BetaDashboardTests(unittest.TestCase):
                                       "bet_status": "BET"}), encoding="utf-8")
         self.assertEqual(_background_status(status), "結果ファイル不正")
         status.write_text(json.dumps({"status": "SCAN_BLOCKED",
+                                      "checked_at": "2026-10-26T09:00:00+00:00",
                                       "bet_status": "BET"}), encoding="utf-8")
-        page = dashboard_html(self.root, scan_status=status)
+        page = dashboard_html(self.root, scan_status=status, now=__import__("datetime").datetime.fromisoformat("2026-10-26T09:05:00+00:00"))
         self.assertIn("SCAN_BLOCKED", page)
         self.assertIn("NO BET", page)
         self.assertIn("未認証", page)
         self.assertNotIn("<script>", page)
+
+    def test_background_scan_stale_and_future_times(self):
+        from datetime import datetime
+        status = self.root / "scan.json"
+        current = datetime.fromisoformat("2026-10-26T10:00:00+00:00")
+        status.write_text(json.dumps({"status": "COMPLETED",
+                                      "checked_at": "2026-10-26T09:00:00+00:00"}))
+        self.assertIn("停止の可能性", _background_status(status, now=current))
+        status.write_text(json.dumps({"status": "COMPLETED",
+                                      "checked_at": "2026-10-26T10:30:00+00:00"}))
+        self.assertIn("未来", _background_status(status, now=current))
+        status.write_text(json.dumps({"status": "COMPLETED"}))
+        self.assertIn("時刻不明", _background_status(status, now=current))
 
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
