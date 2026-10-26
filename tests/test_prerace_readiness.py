@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,31 @@ class ReadinessTests(unittest.TestCase):
             self.assertEqual(result["status"], "NO_BET")
             self.assertEqual(result["eligible_odds_horses"], 1)
             self.assertEqual(result["manual_or_uncertified_odds"], 1)
+
+    def test_invalid_prices_and_predictions_never_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "odds.db"
+            with sqlite3.connect(db) as conn:
+                conn.execute("""CREATE TABLE odds_timeline (
+                    race_id TEXT, horse_number INTEGER, odds_type TEXT,
+                    odds_value REAL, observed_at TEXT, fetched_at TEXT,
+                    source TEXT, data_status TEXT)""")
+                conn.execute("""CREATE TABLE ai_predictions_timeline (
+                    race_id TEXT, horse_number INTEGER, pred_win_prob REAL,
+                    predicted_at TEXT, odds_status TEXT)""")
+                for horse, price in [(1, -1), (2, 0.5), (3, float("inf"))]:
+                    conn.execute("INSERT INTO odds_timeline VALUES (?, ?, 'win', ?, ?, ?, ?, ?)",
+                                 ("r1", horse, price, "2026-10-25T15:30:00+09:00",
+                                  "2026-10-25T15:31:00+09:00", "manual", "manual_prerace"))
+                for horse, prob in [(1, -0.1), (2, 1.5), (3, float("nan"))]:
+                    conn.execute("INSERT INTO ai_predictions_timeline VALUES (?, ?, ?, ?, ?)",
+                                 ("r1", horse, prob, "2026-10-25T15:32:00+09:00", "captured"))
+            result = race_readiness(db, "r1",
+                                    as_of_time="2026-10-25T15:35:00+09:00",
+                                    race_start_time="2026-10-25T15:40:00+09:00")
+            self.assertEqual(result["eligible_odds_horses"], 0)
+            self.assertEqual(result["eligible_prediction_rows"], 0)
+            self.assertEqual(result["status"], "NO_BET")
 
     def test_after_start_rejected(self):
         with self.assertRaises(ValueError):
