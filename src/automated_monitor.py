@@ -5,6 +5,7 @@
 - 期待回収倍率 (EV = 勝率 × 単勝オッズ) を算出し、閾値判定
 - 重複通知防止 (Idempotency) を保証し、Windowsトースト通知およびDiscord通知を送信
 - 取得失敗・モデル異常・通信失敗をログに記録し、次回サイクルで自動復旧
+- 本番通知の安全ロック (safety_lock_enabled) を徹底し、未認可・未検証データでの外部送信を完全遮断
 """
 from __future__ import annotations
 import json
@@ -19,7 +20,11 @@ from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
 
 from src.model import KeibaAIWinModel, MODEL_WIN_V2_28_PATH
-from src.prerace_feature_pipeline import build_prerace_28features, validate_clean_prerace_input
+from src.prerace_feature_pipeline import (
+    build_prerace_28features,
+    validate_clean_prerace_input,
+    validate_feature_alignment
+)
 from src.notifier import send_windows_notification, get_discord_webhook
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -42,7 +47,7 @@ def get_logger(log_path: Optional[Path] = None) -> logging.Logger:
 
 
 def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
-    """アラート設定（閾値、通知チャネル、安全ロック）を読み込む"""
+    """アラート設定（閾値、通知チャネル、安全ロック）を読み込む。デフォルトで安全ロックON"""
     p = Path(config_path or DEFAULT_ALERT_CONFIG)
     default_config = {
         "min_ev": 1.15,
@@ -52,7 +57,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "max_seconds_to_start": 1800,
         "windows_toast_enabled": True,
         "discord_enabled": True,
-        "safety_lock_enabled": True,  # 本番データ検証完了まで実買い目通知をレビューモードにする
+        "safety_lock_enabled": True,  # 安全第一：正規データ検証完了まで本番通知をロック（デフォルトTrue）
     }
     if p.is_file():
         try:
@@ -90,6 +95,8 @@ def init_alert_db(db_path: Path) -> None:
             first_sent_at TEXT NOT NULL,
             channel TEXT NOT NULL,
             delivery_status TEXT NOT NULL,
+            windows_status TEXT DEFAULT 'NOT_SENT',
+            discord_status TEXT DEFAULT 'NOT_SENT',
             error_message TEXT,
             UNIQUE(race_id, horse_number, event_type)
         );
@@ -103,10 +110,35 @@ def is_already_delivered(db_path: Path, race_id: str, horse_number: int, event_t
         return False
     with closing(sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=30)) as conn:
         row = conn.execute(
-            "SELECT 1 FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
+            "SELECT delivery_status FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
             (str(race_id), int(horse_number), str(event_type))
         ).fetchone()
-        return row is not None
+        if row is None:
+            return False
+        # 過去に成功（DELIVERED / PARTIAL_SUCCESS）または安全ロックスキップの場合は送信済みと判定
+        return row[0] in ("DELIVERED", "PARTIAL_SUCCESS", "SKIPPED_BY_SAFETY_LOCK")
+
+
+def try_claim_alert(db_path: Path, race_id: str, horse_number: int, event_type: str) -> bool:
+    """アトミックに送信権を獲得（同時実行時の二重送信を物理的に排除）"""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        with closing(sqlite3.connect(db_path, timeout=10)) as conn, conn:
+            cur = conn.cursor()
+            cur.execute("""
+            INSERT OR IGNORE INTO alert_delivery (
+                race_id, horse_number, horse_name, event_type, win_odds, win_probability,
+                expected_value, first_sent_at, channel, delivery_status,
+                windows_status, discord_status, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                str(race_id), int(horse_number), "", str(event_type),
+                0.0, 0.0, 0.0, now_iso, "claim", "CLAIMED",
+                "PENDING", "PENDING", ""
+            ))
+            return cur.rowcount == 1
+    except Exception:
+        return False
 
 
 def record_alert_delivery(
@@ -120,21 +152,125 @@ def record_alert_delivery(
     expected_value: float,
     channel: str,
     status: str,
+    windows_status: str = "NOT_SENT",
+    discord_status: str = "NOT_SENT",
     error: str = ""
 ) -> None:
-    """通知履歴をSQLiteに保存"""
+    """通知履歴をSQLiteに安全に保存（二重送信防止用のアトミック挿入）"""
     now_iso = datetime.now(timezone.utc).isoformat()
     with closing(sqlite3.connect(db_path, timeout=30)) as conn, conn:
         conn.execute("""
         INSERT OR REPLACE INTO alert_delivery (
             race_id, horse_number, horse_name, event_type, win_odds, win_probability,
-            expected_value, first_sent_at, channel, delivery_status, error_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            expected_value, first_sent_at, channel, delivery_status,
+            windows_status, discord_status, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(race_id), int(horse_number), str(horse_name), str(event_type),
             float(win_odds), float(win_probability), float(expected_value),
-            now_iso, str(channel), str(status), str(error)
+            now_iso, str(channel), str(status),
+            str(windows_status), str(discord_status), str(error)
         ))
+
+
+def validate_feed_payload(payload: Any, received_at: datetime) -> Tuple[bool, str, List[Dict[str, Any]], bool]:
+    """
+    認可フィードの形式・公開日時・オッズ観測日時・出所認証を厳格に検証
+    戻り値: (is_valid, reason, races, is_certified_source)
+    """
+    if not isinstance(payload, dict):
+        return False, "Payload must be a dictionary", [], False
+
+    # 出所確認: 正規認可プロバイダまたは明示的な認可フラグ
+    source = str(payload.get("source") or payload.get("provider") or "").lower()
+    is_certified = bool(payload.get("certified_source") is True or source in ("jra_van", "jvlink", "authorized_feed", "jra_official"))
+
+    # 公開日時の検証
+    pub_str = payload.get("published_at")
+    if not pub_str:
+        return False, "Missing published_at in feed", [], False
+    try:
+        pub_dt = datetime.fromisoformat(str(pub_str).replace("Z", "+00:00"))
+        if pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+    except Exception as exc:
+        return False, f"Invalid published_at format: {exc}", [], False
+
+    if pub_dt > received_at:
+        return False, "Future publication date detected", [], False
+
+    raw_races = payload.get("races")
+    if not isinstance(raw_races, list):
+        return False, "Payload races field must be a list", [], False
+
+    valid_races = []
+    seen_race_ids = set()
+
+    for idx, r in enumerate(raw_races):
+        if not isinstance(r, dict):
+            return False, f"Race at index {idx} must be a dictionary", [], False
+
+        rid = str(r.get("race_id", "")).strip()
+        if not rid or rid in seen_race_ids:
+            return False, f"Invalid or duplicate race_id '{rid}' at index {idx}", [], False
+        seen_race_ids.add(rid)
+
+        # 発走時刻の検証
+        time_str = r.get("race_time") or r.get("start_time")
+        if not time_str:
+            return False, f"Missing race_time for race {rid}", [], False
+        try:
+            start_dt = datetime.fromisoformat(str(time_str).replace("Z", "+00:00"))
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+        except Exception as exc:
+            return False, f"Invalid race_time for race {rid}: {exc}", [], False
+
+        # 発走済みレースは除外
+        status = r.get("race_status", "upcoming")
+        if status != "upcoming" or start_dt <= received_at:
+            continue
+
+        horses = r.get("horses", [])
+        if not isinstance(horses, list) or len(horses) == 0:
+            return False, f"Race {rid} has no valid horses list", [], False
+
+        seen_hnums = set()
+        for h in horses:
+            if not isinstance(h, dict):
+                return False, f"Race {rid} contains non-dict horse", [], False
+            hnum = h.get("horse_number")
+            if type(hnum) is not int or hnum < 1 or hnum in seen_hnums:
+                return False, f"Race {rid} invalid or duplicate horse_number {hnum}", [], False
+            seen_hnums.add(hnum)
+
+            odds = h.get("win_odds")
+            if odds is not None:
+                try:
+                    f_odds = float(odds)
+                    if not math.isfinite(f_odds) or f_odds < 1.0:
+                        return False, f"Race {rid} horse {hnum} invalid odds {odds}", [], False
+                except (ValueError, TypeError):
+                    return False, f"Race {rid} horse {hnum} non-numeric odds {odds}", [], False
+
+                obs_str = h.get("odds_observed_at")
+                if obs_str:
+                    try:
+                        obs_dt = datetime.fromisoformat(str(obs_str).replace("Z", "+00:00"))
+                        if obs_dt.tzinfo is None:
+                            obs_dt = obs_dt.replace(tzinfo=timezone.utc)
+                        if obs_dt > received_at or obs_dt > pub_dt or obs_dt >= start_dt:
+                            return False, f"Race {rid} horse {hnum} invalid odds observation timestamp", [], False
+                    except Exception as exc:
+                        return False, f"Race {rid} horse {hnum} bad odds timestamp: {exc}", [], False
+
+        # 開催日の確定
+        if "race_date" not in r:
+            r["race_date"] = start_dt.strftime("%Y-%m-%d")
+
+        valid_races.append(r)
+
+    return True, "VALIDATED", valid_races, is_certified
 
 
 def run_monitor_scan(
@@ -172,19 +308,28 @@ def run_monitor_scan(
             "checked_at": now_dt.isoformat()
         }
 
-    # フィード読込
+    # フィード読込と厳格な統一検証
     try:
         raw_feed = json.loads(feed_file.read_text(encoding="utf-8"))
-        if isinstance(raw_feed, dict) and "feed" in raw_feed:
-            feed_data = raw_feed["feed"]
-        else:
-            feed_data = raw_feed
-        races = feed_data.get("races", []) if isinstance(feed_data, dict) else []
     except Exception as exc:
-        msg = f"フィード解析エラー: {exc}"
+        msg = f"フィードJSON解析エラー: {exc}"
         logger.error(msg)
         return {
             "status": "FEED_PARSE_ERROR",
+            "message": msg,
+            "processed_races": 0,
+            "model_inference_allowed": False,
+            "candidates_found": 0,
+            "notifications_sent": 0,
+            "checked_at": now_dt.isoformat()
+        }
+
+    is_valid, validation_reason, races, is_certified_source = validate_feed_payload(raw_feed, now_dt)
+    if not is_valid:
+        msg = f"フィード検証失敗（拒絶）: {validation_reason}"
+        logger.warning(msg)
+        return {
+            "status": "FEED_VALIDATION_REJECTED",
             "message": msg,
             "processed_races": 0,
             "model_inference_allowed": False,
@@ -229,39 +374,25 @@ def run_monitor_scan(
     notifications_sent = 0
     errors = []
 
+    # 安全ロック判定：設定上のフラグと正規データ認証状態の二重防護
+    safety_lock_enabled = config.get("safety_lock_enabled", True)
+    # 正規認可データでない場合は強制的に外部通知を安全ロック
+    if not is_certified_source:
+        safety_lock_enabled = True
+
     for race in races:
-        if not isinstance(race, dict):
-            continue
-        status = race.get("race_status", "upcoming")
-        if status != "upcoming":
-            continue
-
-        race_id = str(race.get("race_id", ""))
+        race_id = str(race["race_id"])
         race_time_str = race.get("race_time") or race.get("start_time")
-        if not race_time_str:
-            continue
-
-        try:
-            start_dt = datetime.fromisoformat(str(race_time_str).replace("Z", "+00:00"))
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-
-        # 発走済みレースは遮断
-        if start_dt <= now_dt:
-            continue
+        start_dt = datetime.fromisoformat(str(race_time_str).replace("Z", "+00:00"))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
 
         seconds_to_start = (start_dt - now_dt).total_seconds()
-        # 発走前ウィンドウ（例: 300秒〜1800秒）のチェック
         min_win = config.get("min_seconds_to_start", 300)
         max_win = config.get("max_seconds_to_start", 1800)
-        # スキャン対象として許容する範囲（ウィンドウ外でも予測自体は可能だが通知はウィンドウ内）
         in_alert_window = (min_win <= seconds_to_start <= max_win)
 
         horses = race.get("horses", [])
-        if not horses:
-            continue
 
         # オッズ欠損・鮮度チェック
         has_valid_odds = True
@@ -293,15 +424,16 @@ def run_monitor_scan(
             logger.info(f"レース {race_id}: オッズ期限切れ（Stale）のため通知を停止")
             continue
 
-        # 28特徴量の安全生成
+        # 28特徴量の安全生成（開催日を必須渡し、架空補完なし）
         try:
             race_info = {
                 "race_id": race_id,
+                "race_date": race.get("race_date") or start_dt.strftime("%Y-%m-%d"),
                 "race_course": race.get("race_course"),
                 "surface": race.get("surface"),
                 "distance": race.get("distance"),
-                "condition": race.get("condition", "良"),
-                "direction": race.get("direction", "右"),
+                "condition": race.get("condition"),
+                "direction": race.get("direction"),
             }
             feat_df = build_prerace_28features(race_info, horses, past_db_path=past_db_path)
         except ValueError as exc:
@@ -355,20 +487,48 @@ def run_monitor_scan(
                     logger.info(f"重複通知スキップ: レース {race_id} 馬番 {h_num}")
                     continue
 
-                # 通知送信
+                # 同時実行時の二重送信防止: アトミックに送信権を獲得
+                if not try_claim_alert(state_db, race_id, h_num, event_type):
+                    logger.info(f"他プロセス送信中・送信済みのためスキップ: レース {race_id} 馬番 {h_num}")
+                    continue
+
+                # 安全ロックがONの場合、外部通知を遮断してスキップ記録
+                if safety_lock_enabled:
+                    logger.info(f"安全ロック中: 外部通知を安全に保留（レース {race_id} 馬番 {h_num}）")
+                    record_alert_delivery(
+                        db_path=state_db,
+                        race_id=race_id,
+                        horse_number=h_num,
+                        horse_name=h_name,
+                        event_type=event_type,
+                        win_odds=odds,
+                        win_probability=p_win,
+                        expected_value=ev,
+                        channel="none",
+                        status="SKIPPED_BY_SAFETY_LOCK",
+                        windows_status="BLOCKED_BY_SAFETY_LOCK",
+                        discord_status="BLOCKED_BY_SAFETY_LOCK",
+                        error="Safety lock active (real betting notification locked)"
+                    )
+                    continue
+
+                # 外部通知の実行
                 title = f"🏇 AI競馬期待値速報: レース {race_id}"
                 body = f"{h_num}番 {h_name} | 勝率 {p_win*100:.1f}% | オッズ {odds:.1f}倍 | 期待値 {ev:.2f}倍 (発走まで約{int(seconds_to_start/60)}分)"
 
-                sent_ok = True
+                w_status = "NOT_SENT"
+                d_status = "NOT_SENT"
                 err_msg = ""
 
                 # Windows通知
                 if config.get("windows_toast_enabled", True):
                     try:
                         w_ok = send_windows_notification(title, body)
+                        w_status = "DELIVERED" if w_ok else "FAILED"
                         if not w_ok:
                             logger.warning(f"Windows通知送信失敗: {race_id} #{h_num}")
                     except Exception as e:
+                        w_status = "FAILED"
                         err_msg += f"WindowsToastError: {e}; "
 
                 # Discord通知
@@ -387,10 +547,31 @@ def run_monitor_scan(
                                 }]
                             }
                             resp = requests.post(webhook_url, json=payload, timeout=8)
-                            if resp.status_code not in (200, 204):
+                            if resp.status_code in (200, 204):
+                                d_status = "DELIVERED"
+                            else:
+                                d_status = "FAILED"
                                 err_msg += f"Discord HTTP {resp.status_code}; "
                         except Exception as e:
+                            d_status = "FAILED"
                             err_msg += f"DiscordError: {e}; "
+                    else:
+                        d_status = "NO_WEBHOOK"
+
+                # 総合ステータス判定
+                any_success = (w_status == "DELIVERED" or d_status == "DELIVERED")
+                all_failed = (w_status == "FAILED" or d_status == "FAILED")
+                
+                if (config.get("windows_toast_enabled", True) and w_status != "DELIVERED") and \
+                   (config.get("discord_enabled", True) and d_status not in ("DELIVERED", "NO_WEBHOOK")):
+                    overall_status = "FAILED"
+                elif any_success:
+                    overall_status = "DELIVERED" if not all_failed else "PARTIAL_SUCCESS"
+                elif not config.get("windows_toast_enabled", True) and not config.get("discord_enabled", True):
+                    # チャネル無効設定時
+                    overall_status = "DELIVERED"
+                else:
+                    overall_status = "DELIVERED" if not err_msg else "FAILED"
 
                 # 履歴保存
                 record_alert_delivery(
@@ -403,11 +584,14 @@ def run_monitor_scan(
                     win_probability=p_win,
                     expected_value=ev,
                     channel="windows+discord",
-                    status="DELIVERED" if not err_msg else "PARTIAL_ERROR",
+                    status=overall_status,
+                    windows_status=w_status,
+                    discord_status=d_status,
                     error=err_msg
                 )
-                notifications_sent += 1
-                logger.info(f"通知完了: レース {race_id} 馬番 {h_num} (EV={ev})")
+                if overall_status in ("DELIVERED", "PARTIAL_SUCCESS"):
+                    notifications_sent += 1
+                logger.info(f"通知処理完了: レース {race_id} 馬番 {h_num} (status={overall_status})")
 
     eligible_count = sum(1 for c in all_candidates if c["eligible"])
     return {
@@ -418,5 +602,7 @@ def run_monitor_scan(
         "eligible_candidates": eligible_count,
         "notifications_sent": notifications_sent,
         "errors": errors,
+        "safety_lock_enabled": safety_lock_enabled,
+        "is_certified_source": is_certified_source,
         "checked_at": now_dt.isoformat()
     }

@@ -69,6 +69,7 @@ class UnattendedMonitoringTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         race_start = now + timedelta(minutes=race_start_offset_minutes)
         odds_obs = now - timedelta(seconds=odds_observed_offset_seconds)
+        pub_at = now - timedelta(seconds=min(10, odds_observed_offset_seconds // 2))
 
         horse_data = {
             "horse_number": 1,
@@ -101,7 +102,8 @@ class UnattendedMonitoringTests(unittest.TestCase):
             race_data["race_course"] = "東京"
 
         feed = {
-            "published_at": (now - timedelta(minutes=1)).isoformat(),
+            "published_at": pub_at.isoformat(),
+            "certified_source": True,
             "races": [race_data]
         }
         feed_file = self.dir_path / feed_name
@@ -116,7 +118,8 @@ class UnattendedMonitoringTests(unittest.TestCase):
         status_file = self.dir_path / "daemon_status.json"
 
         with patch("scripts.run_background_monitor.STATUS_PATH", status_file), \
-             patch("scripts.run_background_monitor.PID_PATH", self.dir_path / "daemon.pid"):
+             patch("scripts.run_background_monitor.PID_PATH", self.dir_path / "daemon.pid"), \
+             patch("scripts.run_background_monitor.LOCK_PATH", self.dir_path / "daemon.lock"):
             run_daemon(
                 manifest_path=str(feed_p),
                 db_path=str(self.state_db),
@@ -219,10 +222,13 @@ class UnattendedMonitoringTests(unittest.TestCase):
         feed_p = self._create_sample_feed(win_odds=10.0)
         cfg = load_alert_config(self.config_path)
         cfg["discord_enabled"] = True
+        cfg["windows_toast_enabled"] = True
         save_alert_config(cfg, self.config_path)
 
         # requests.post をモックして例外（ネットワークタイムアウト）を発生させる
-        with patch("src.notifier.get_discord_webhook", return_value="https://discord.com/api/webhooks/test"), \
+        # windows_notification は成功をモック
+        with patch("src.notifier.send_windows_notification", return_value=True), \
+             patch("src.notifier.get_discord_webhook", return_value="https://discord.com/api/webhooks/test"), \
              patch("requests.post", side_effect=Exception("Connection timed out")):
             res = run_monitor_scan(feed_path=feed_p, state_db_path=self.state_db, config_path=self.config_path, dry_run=False)
             self.assertEqual(res["status"], "COMPLETED")
@@ -230,9 +236,10 @@ class UnattendedMonitoringTests(unittest.TestCase):
 
         # 送信ステータスが記録されており、エラーがあってもDB整合性が保たれていること
         with closing(sqlite3.connect(f"file:{self.state_db.resolve()}?mode=ro", uri=True)) as conn:
-            row = conn.execute("SELECT delivery_status, error_message FROM alert_delivery").fetchone()
-            self.assertIn("PARTIAL_ERROR", row[0])
-            self.assertIn("DiscordError", row[1])
+            row = conn.execute("SELECT delivery_status, discord_status, error_message FROM alert_delivery").fetchone()
+            self.assertEqual(row[0], "PARTIAL_SUCCESS")
+            self.assertEqual(row[1], "FAILED")
+            self.assertIn("DiscordError", row[2])
 
     # -------------------------------------------------------------
     # 9. SQLiteの同時アクセス安全性 (test_concurrent_sqlite_access)
@@ -285,7 +292,8 @@ class UnattendedMonitoringTests(unittest.TestCase):
 
         feed_p = self._create_sample_feed()
         with patch("scripts.run_background_monitor.STATUS_PATH", status_file), \
-             patch("scripts.run_background_monitor.PID_PATH", pid_file):
+             patch("scripts.run_background_monitor.PID_PATH", pid_file), \
+             patch("scripts.run_background_monitor.LOCK_PATH", self.dir_path / "daemon.lock"):
             run_daemon(manifest_path=str(feed_p), db_path=str(self.state_db), interval_seconds=1, max_cycles=1)
 
         data = json.loads(status_file.read_text(encoding="utf-8"))

@@ -1,11 +1,14 @@
 """
 発走前特徴量（28特徴量）の安全生成パイプライン
 - 事後結果（finish_order, 確定オッズ等）の混入を完全遮断
-- 過去データ（data/keiba.db）から発走前時点（r.date < target_date）の過去成績を集計
+- 開催日（race_date）を必須とし、過去データ（data/keiba.db）から発走前時点（r.date < target_date）の過去成績のみを集計
+- 架空の特徴量補完（4歳、55kg、0kg、4週、先行、良、右等のデフォルト捏造）を完全撤去
 - 特徴量不足（必須項目欠落）や不正な入力は安全に拒絶（Fail-Closed）
-- 欠損値は架空数値で捏造せず、NaNのままモデルに入力
+- 実データ取得不能時は欠損値（np.nan）として扱い、必須特徴量が不足する場合は推論停止
+- 学習時と推論時の28特徴量定義・順序・型・カテゴリの整合性を検証
 """
 from __future__ import annotations
+import logging
 import math
 import sqlite3
 from contextlib import closing
@@ -17,6 +20,8 @@ import numpy as np
 
 from src.features import FEATURE_COLS_V2_28, CATEGORICAL_COLS
 
+logger = logging.getLogger("PreraceFeaturePipeline")
+
 PROHIBITED_FEATURE_COLUMNS = frozenset({
     "finish_order", "finish_position", "rank_result", "result",
     "target", "target_win", "target_place", "is_win", "is_place",
@@ -25,8 +30,17 @@ PROHIBITED_FEATURE_COLUMNS = frozenset({
     "time_str", "last_3f", "margin_str", "corner_4_pos",
 })
 
-REQUIRED_RACE_KEYS = {"race_id", "race_course", "surface", "distance"}
+REQUIRED_RACE_KEYS = {"race_id", "race_course", "surface", "distance", "race_date"}
 REQUIRED_HORSE_KEYS = {"horse_number"}
+
+# カテゴリカル変数の定義（学習時と完全一致）
+CAT_DEFS = {
+    "running_style": ["先行", "差し", "追込", "逃げ"],
+    "race_course": ["中京", "中山", "京都", "函館", "小倉", "新潟", "札幌", "東京", "福島", "阪神"],
+    "surface": ["ダート", "芝"],
+    "condition": ["不良", "稍重", "良", "重"],
+    "sex": ["セン", "牝", "牡"],
+}
 
 
 def validate_clean_prerace_input(race_info: Dict[str, Any], horses: List[Dict[str, Any]]) -> None:
@@ -73,6 +87,24 @@ def validate_clean_prerace_input(race_info: Dict[str, Any], horses: List[Dict[st
         )
 
 
+def validate_feature_alignment(df: pd.DataFrame) -> None:
+    """学習時と推論時の28特徴量の定義・順序・型の整合性を検証"""
+    missing_cols = [c for c in FEATURE_COLS_V2_28 if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"FEATURE_ALIGNMENT_ERROR: Missing 28-feature columns: {missing_cols}")
+
+    for cat_col, expected_categories in CAT_DEFS.items():
+        if cat_col in df.columns:
+            series = df[cat_col]
+            if not isinstance(series.dtype, pd.CategoricalDtype):
+                raise TypeError(f"FEATURE_ALIGNMENT_ERROR: Column '{cat_col}' must be CategoricalDtype")
+            actual_cats = list(series.dtype.categories)
+            if actual_cats != expected_categories:
+                raise ValueError(
+                    f"FEATURE_ALIGNMENT_ERROR: Categories for '{cat_col}' mismatch: expected {expected_categories}, got {actual_cats}"
+                )
+
+
 def build_prerace_28features(
     race_info: Dict[str, Any],
     horses: List[Dict[str, Any]],
@@ -81,19 +113,35 @@ def build_prerace_28features(
 ) -> pd.DataFrame:
     """
     当日の発走前出走表と過去実績から 28特徴量を構築する。
+    - 架空の初期値（4歳, 55kg, 0kg, 4週, 先行, 良, 右）による捏造補完は禁止
+    - 開催日（race_date または target_date）より前の実績（r.date < target_date）のみを集計
+    - 実データ取得不能時は np.nan として扱い、推論可能か検証
     """
-    validate_clean_prerace_input(race_info, horses)
+    # 開催日の確定
+    r_date = str(target_date or race_info.get("race_date") or "").strip()
+    if not r_date:
+        raise ValueError("INSUFFICIENT_FEATURES: race_date is required to prevent future leakage")
+    race_info_with_date = dict(race_info)
+    race_info_with_date["race_date"] = r_date
 
-    race_id = str(race_info["race_id"])
-    race_course = str(race_info["race_course"])
-    surface = str(race_info["surface"])
+    validate_clean_prerace_input(race_info_with_date, horses)
+
+    race_id = str(race_info_with_date["race_id"])
+    race_course = str(race_info_with_date["race_course"])
+    surface = str(race_info_with_date["surface"])
     try:
-        distance = float(race_info["distance"])
+        distance = float(race_info_with_date["distance"])
     except (ValueError, TypeError) as exc:
         raise ValueError("INSUFFICIENT_FEATURES: Invalid distance") from exc
 
-    condition = str(race_info.get("condition", "良"))
-    direction = str(race_info.get("direction", "右"))
+    # 架空の補完は行わず、存在する場合のみ採用（ない場合は np.nan / None）
+    condition = race_info_with_date.get("condition")
+    if condition is not None and str(condition).strip() not in CAT_DEFS["condition"]:
+        condition = None
+
+    direction = race_info_with_date.get("direction")
+    if direction is not None and str(direction).strip() not in ("右", "左", "直線"):
+        direction = None
 
     # 過去走DB接続（存在する場合）
     past_db = Path(past_db_path) if past_db_path else Path(__file__).resolve().parent.parent / "data" / "keiba.db"
@@ -102,16 +150,20 @@ def build_prerace_28features(
     rows = []
     for h in horses:
         h_num = int(h["horse_number"])
-        b_num = int(h.get("bracket_number", math.ceil(h_num / 2) if h_num <= 16 else 8))
-        age = float(h.get("age", 4.0)) if h.get("age") is not None else np.nan
-        weight_carry = float(h.get("weight_carry", 55.0)) if h.get("weight_carry") is not None else np.nan
+        b_num = int(h["bracket_number"]) if h.get("bracket_number") is not None else (
+            math.ceil(h_num / 2) if h_num <= 16 else 8
+        )
+        
+        # 架空の初期値（4歳, 55kg, 0kg等）を廃止し、取得データのみ使用
+        age = float(h["age"]) if h.get("age") is not None else np.nan
+        weight_carry = float(h["weight_carry"]) if h.get("weight_carry") is not None else np.nan
         horse_weight = float(h["horse_weight"]) if h.get("horse_weight") is not None else np.nan
-        horse_weight_diff = float(h.get("horse_weight_diff", 0.0)) if h.get("horse_weight_diff") is not None else 0.0
-        weight_ratio = (weight_carry / horse_weight) if (horse_weight and not np.isnan(horse_weight) and horse_weight > 0) else np.nan
-        sex = str(h.get("sex", "牡"))
+        horse_weight_diff = float(h["horse_weight_diff"]) if h.get("horse_weight_diff") is not None else np.nan
+        weight_ratio = (weight_carry / horse_weight) if (horse_weight and not np.isnan(horse_weight) and horse_weight > 0 and not np.isnan(weight_carry)) else np.nan
+        sex = str(h["sex"]) if h.get("sex") is not None and str(h["sex"]) in CAT_DEFS["sex"] else None
 
-        horse_id = str(h.get("horse_id", ""))
-        jockey_id = str(h.get("jockey_id", ""))
+        horse_id = str(h.get("horse_id", "")).strip()
+        jockey_id = str(h.get("jockey_id", "")).strip()
 
         # 過去走から統計量を集計（初出走や欠損の場合は np.nan）
         jockey_win_rate = np.nan
@@ -125,42 +177,38 @@ def build_prerace_28features(
         dist_place_rate = np.nan
         direction_place_rate = np.nan
         heavy_place_rate = np.nan
-        rest_weeks = float(h.get("rest_weeks", 4.0)) if h.get("rest_weeks") is not None else np.nan
-        is_toushi = int(h.get("is_toushi", 0))
-        running_style = str(h.get("running_style", "先行"))
+        rest_weeks = float(h["rest_weeks"]) if h.get("rest_weeks") is not None else np.nan
+        is_toushi = int(h["is_toushi"]) if h.get("is_toushi") is not None else 0
+        running_style = str(h["running_style"]) if h.get("running_style") is not None and str(h["running_style"]) in CAT_DEFS["running_style"] else None
 
         if has_past_db and (horse_id or jockey_id):
             try:
-                with closing(sqlite3.connect(f"file:{past_db.resolve()}?mode=ro", uri=True)) as conn:
-                    # 騎手成績（対象日以前）
+                with closing(sqlite3.connect(f"file:{past_db.resolve()}?mode=ro", uri=True, timeout=15)) as conn:
+                    # 騎手成績（対象日厳密以前: r.date < r_date）
                     if jockey_id:
-                        date_filter = "AND r.date < ?" if target_date else ""
-                        params = (jockey_id, target_date) if target_date else (jockey_id,)
-                        j_query = f"""
+                        j_query = """
                         SELECT count(*),
                                sum(CASE WHEN res.finish_order = 1 THEN 1 ELSE 0 END),
                                sum(CASE WHEN res.finish_order <= 3 THEN 1 ELSE 0 END)
                         FROM race_results res
                         JOIN races r ON res.race_id = r.race_id
-                        WHERE res.jockey_id = ? AND res.finish_order > 0 {date_filter}
+                        WHERE res.jockey_id = ? AND res.finish_order > 0 AND r.date < ?
                         """
-                        j_row = conn.execute(j_query, params).fetchone()
+                        j_row = conn.execute(j_query, (jockey_id, r_date)).fetchone()
                         if j_row and j_row[0] > 0:
                             jockey_win_rate = round(float(j_row[1] / j_row[0]), 4)
                             jockey_place_rate = round(float(j_row[2] / j_row[0]), 4)
 
-                    # 馬の過去走（対象日以前）
+                    # 馬の過去走（対象日厳密以前: r.date < r_date）
                     if horse_id:
-                        h_date_filter = "AND r.date < ?" if target_date else ""
-                        h_params = (horse_id, target_date) if target_date else (horse_id,)
-                        h_query = f"""
+                        h_query = """
                         SELECT res.finish_order, res.last_3f, r.race_course, r.distance, r.condition
                         FROM race_results res
                         JOIN races r ON res.race_id = r.race_id
-                        WHERE res.horse_id = ? AND res.finish_order > 0 {h_date_filter}
+                        WHERE res.horse_id = ? AND res.finish_order > 0 AND r.date < ?
                         ORDER BY r.date DESC
                         """
-                        h_rows = conn.execute(h_query, h_params).fetchall()
+                        h_rows = conn.execute(h_query, (horse_id, r_date)).fetchall()
                         if h_rows:
                             past_race_count = len(h_rows)
                             ranks = [r[0] for r in h_rows]
@@ -180,9 +228,9 @@ def build_prerace_28features(
                             d_matches = [r[0] for r in h_rows if abs(float(r[3] or 0) - distance) <= 100]
                             if d_matches:
                                 dist_place_rate = round(float(sum(1 for r in d_matches if r <= 3) / len(d_matches)), 4)
-            except Exception:
-                # 過去DB参照で例外があっても、捏造せず欠損値のまま継続
-                pass
+            except Exception as exc:
+                # 過去DB参照で例外が発生した場合は握りつぶさず警告ログに詳細を記録
+                logger.warning(f"Past DB query failed for race {race_id}, horse {horse_id}, jockey {jockey_id}: {exc}")
 
         row_dict = {
             "race_id": race_id,
@@ -225,16 +273,12 @@ def build_prerace_28features(
     df["race_nige_count"] = nige_c
     df["is_fast_pace"] = 1 if nige_c >= 3 else 0
 
-    # カテゴリカル変数の定義
-    cat_defs = {
-        "running_style": ["先行", "差し", "追込", "逃げ"],
-        "race_course": ["中京", "中山", "京都", "函館", "小倉", "新潟", "札幌", "東京", "福島", "阪神"],
-        "surface": ["ダート", "芝"],
-        "condition": ["不良", "稍重", "良", "重"],
-        "sex": ["セン", "牝", "牡"],
-    }
+    # カテゴリカル変数の定義と検証
     for col in CATEGORICAL_COLS:
-        if col in df.columns and col in cat_defs:
-            df[col] = pd.Categorical(df[col], categories=cat_defs[col])
+        if col in df.columns and col in CAT_DEFS:
+            df[col] = pd.Categorical(df[col], categories=CAT_DEFS[col])
+
+    # 28特徴量の整合性検証
+    validate_feature_alignment(df)
 
     return df

@@ -12,6 +12,8 @@ models/*.bak
 *.zip
 data/odds_history.db
 data/*.log
+data/*.pid
+data/*.lock
 data/monitor_daemon_status.json
 data/last_background_scan.json
 

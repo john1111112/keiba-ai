@@ -24,8 +24,80 @@ from scripts.run_background_scan import run_cycle
 
 STATUS_PATH = REPO_ROOT / "data" / "monitor_daemon_status.json"
 PID_PATH = REPO_ROOT / "data" / "monitor_daemon.pid"
+LOCK_PATH = REPO_ROOT / "data" / "monitor_daemon.lock"
 
 _keep_running = True
+_lock_file_handle = None
+
+
+def is_pid_alive(pid: int) -> bool:
+    """プロセスIDが現在生存しているか確認（Windows/Unix対応）"""
+    if pid <= 0:
+        return False
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            process = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+            if process != 0:
+                kernel32.CloseHandle(process)
+                return True
+            return False
+        else:
+            os.kill(pid, 0)
+            return True
+    except Exception:
+        return False
+
+
+def acquire_process_lock() -> bool:
+    """排他ロックを取得して多重起動を防止"""
+    global _lock_file_handle
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # 既存PIDの生存確認
+        if PID_PATH.exists():
+            try:
+                existing_pid = int(PID_PATH.read_text(encoding="utf-8").strip())
+                if existing_pid != os.getpid() and is_pid_alive(existing_pid):
+                    print(f"[WARN] 既に別の監視デーモン (PID: {existing_pid}) が稼働中です。多重起動を防止し終了します。")
+                    return False
+            except Exception:
+                pass
+
+        _lock_file_handle = open(LOCK_PATH, "w", encoding="utf-8")
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(_lock_file_handle.fileno(), msvcrt.LK_NBLCK, 1)
+        _lock_file_handle.write(f"pid={os.getpid()}\n")
+        _lock_file_handle.flush()
+        return True
+    except (IOError, OSError) as exc:
+        print(f"[WARN] ロックファイルの取得に失敗しました (多重起動防止): {exc}")
+        return False
+
+
+def release_process_lock() -> None:
+    """排他ロックを解放"""
+    global _lock_file_handle
+    if _lock_file_handle:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                try:
+                    msvcrt.locking(_lock_file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                except Exception:
+                    pass
+            _lock_file_handle.close()
+        except Exception:
+            pass
+        _lock_file_handle = None
+    if LOCK_PATH.exists():
+        try:
+            LOCK_PATH.unlink()
+        except Exception:
+            pass
 
 
 def _signal_handler(signum, frame):
@@ -41,6 +113,9 @@ def run_daemon(
     max_cycles: Optional[int] = None
 ) -> None:
     global _keep_running
+    if not acquire_process_lock():
+        sys.exit(0)
+
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
@@ -89,6 +164,7 @@ def run_daemon(
     finally:
         if PID_PATH.exists():
             PID_PATH.unlink()
+        release_process_lock()
         stopped_payload = {
             "daemon_status": "STOPPED",
             "stopped_at": datetime.now(timezone.utc).isoformat(),
