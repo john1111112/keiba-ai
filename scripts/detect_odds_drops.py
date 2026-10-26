@@ -25,10 +25,13 @@ def parse_time(value):
         return None
 
 
-def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=30):
+def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=30, as_of_time=None):
     """Compare each horse's latest two valid snapshots, not settled odds."""
     if threshold_pct <= 0 or max_gap_minutes <= 0:
         raise ValueError("threshold and max gap must be positive")
+    cutoff = parse_time(as_of_time) if as_of_time is not None else None
+    if as_of_time is not None and cutoff is None:
+        raise ValueError("as_of_time must be an ISO 8601 timestamp with timezone")
     db_path = Path(db_path)
     if not db_path.is_file():
         return {"status": "NO_ODDS_DB", "alerts": [], "compared_horses": 0}
@@ -60,7 +63,7 @@ def detect_drops(db_path, *, race_id=None, threshold_pct=30.0, max_gap_minutes=3
         except (ValueError, TypeError):
             rejected += 1
             continue
-        if not obs or not got or obs > got or not math.isfinite(price) or price < 1:
+        if not obs or not got or obs > got or (cutoff is not None and (obs > cutoff or got > cutoff)) or not math.isfinite(price) or price < 1:
             rejected += 1
             continue
         grouped.setdefault((str(rid), int(horse)), []).append((obs, got, price, source, timing))
@@ -98,13 +101,14 @@ def main():
     parser = argparse.ArgumentParser(description="Offline pre-race odds drop audit (no paid API)")
     parser.add_argument("--db", default="data/odds_history.db")
     parser.add_argument("--race-id")
+    parser.add_argument("--as-of-time", help="Only use odds published AND fetched by this timezone-aware time")
     parser.add_argument("--threshold-pct", type=float, default=30)
     parser.add_argument("--max-gap-minutes", type=float, default=30)
     parser.add_argument("--out")
     args = parser.parse_args()
     result = detect_drops(args.db, race_id=args.race_id,
                           threshold_pct=args.threshold_pct,
-                          max_gap_minutes=args.max_gap_minutes)
+                          max_gap_minutes=args.max_gap_minutes, as_of_time=args.as_of_time)
     output = json.dumps(result, ensure_ascii=False, indent=2)
     if args.out:
         target = Path(args.out)
