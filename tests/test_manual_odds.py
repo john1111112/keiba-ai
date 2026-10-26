@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,7 +48,7 @@ class ManualOddsTests(unittest.TestCase):
             source.write_text(json.dumps(sample()), encoding="utf-8")
             self.assertEqual(import_snapshot(source, target)["inserted_count"], 1)
             self.assertEqual(import_snapshot(source, target)["skipped_duplicate_count"], 1)
-            with sqlite3.connect(target) as conn:
+            with closing(sqlite3.connect(target)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM odds_timeline").fetchone()[0], 1)
 
     def test_conflicting_odds_rejected_without_overwrite(self):
@@ -61,7 +62,7 @@ class ManualOddsTests(unittest.TestCase):
             source.write_text(json.dumps(revised), encoding="utf-8")
             with self.assertRaises(ValueError):
                 import_snapshot(source, target)
-            with sqlite3.connect(target) as conn:
+            with closing(sqlite3.connect(target)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT odds_value FROM odds_timeline").fetchone()[0], 5.0)
 
     def test_fractional_horse_rejected(self):
@@ -102,7 +103,7 @@ class ManualOddsTests(unittest.TestCase):
             source.write_text(json.dumps(revised), encoding="utf-8")
             with self.assertRaises(ValueError):
                 import_snapshot(source, target)
-            with sqlite3.connect(target) as conn:
+            with closing(sqlite3.connect(target)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM odds_timeline").fetchone()[0], 1)
 
     def test_dry_run_no_db_created(self):

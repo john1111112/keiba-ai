@@ -2,6 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 
 from src.prerace_recorder import validate_odds_records, record_prerace_snapshot
@@ -71,7 +72,7 @@ class RecorderProvenanceTests(unittest.TestCase):
                 odds_records=[odds(), odds(race_id="r2", horse_number=2)],
                 executed_at="2026-10-25T15:35:00+09:00", db_path=db)
             self.assertEqual(result["odds_status"], "error")
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 0)
 
     def test_duplicate_horse_snapshot_not_partially_saved(self):
@@ -82,7 +83,7 @@ class RecorderProvenanceTests(unittest.TestCase):
                 odds_records=[odds(), odds(odds_value=5.0)],
                 executed_at="2026-10-25T15:35:00+09:00", db_path=db)
             self.assertEqual(result["odds_status"], "error")
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 0)
 
     def test_late_target_cannot_write_db(self):

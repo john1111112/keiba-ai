@@ -10,6 +10,7 @@ import argparse
 import json
 import math
 import sqlite3
+from contextlib import closing
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,7 +30,7 @@ def race_odds_timeline(db_path, race_id, *, as_of_time, race_start_time):
     db = Path(db_path)
     if not db.is_file():
         return result
-    with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as conn, conn:
         try:
             rows = conn.execute("""
                 SELECT horse_number, odds_value, observed_at, fetched_at,

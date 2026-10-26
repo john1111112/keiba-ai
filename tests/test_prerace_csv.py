@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,7 +29,7 @@ class CSVImportTests(unittest.TestCase):
             self.assertIn("NO BET", html.read_text(encoding="utf-8"))
             again = run_csv_pipeline(csv, db, html, **META)
             self.assertEqual(again["import"]["skipped_duplicate_count"], 2)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 2)
 
     def test_dry_run_never_writes(self):

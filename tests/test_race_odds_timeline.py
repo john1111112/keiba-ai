@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,7 @@ class RaceOddsTimelineTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.db = Path(self.temp.name) / "odds.db"
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 id INTEGER PRIMARY KEY, race_id TEXT, horse_number INTEGER,
                 odds_type TEXT, odds_value REAL, observed_at TEXT,
@@ -20,7 +21,7 @@ class RaceOddsTimelineTests(unittest.TestCase):
         self.temp.cleanup()
 
     def add(self, horse, price, observed, fetched, *, status="manual_prerace", source="manual_screen"):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("""INSERT INTO odds_timeline
                 (race_id, horse_number, odds_type, odds_value, observed_at,
                  fetched_at, source, data_status)

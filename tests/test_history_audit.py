@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,7 @@ class HistoryAuditTests(unittest.TestCase):
     def test_counts_and_excludes_bad_rows(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute("""CREATE TABLE odds_timeline (
                     id INTEGER PRIMARY KEY, race_id TEXT, horse_number INTEGER,
                     odds_type TEXT, odds_value REAL, observed_at TEXT,
@@ -49,7 +50,7 @@ class HistoryAuditTests(unittest.TestCase):
     def test_after_start_and_naive_cutoff(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute("""CREATE TABLE odds_timeline (
                     id INTEGER PRIMARY KEY, race_id TEXT, horse_number INTEGER,
                     odds_type TEXT, odds_value REAL, observed_at TEXT,

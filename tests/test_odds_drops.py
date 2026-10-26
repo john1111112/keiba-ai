@@ -1,5 +1,6 @@
 """Unit tests for the offline odds drop detector."""
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,7 +12,7 @@ class OddsDropTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = Path(self.tmp.name) / "odds.db"
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 id INTEGER PRIMARY KEY, race_id TEXT, horse_number INTEGER,
                 odds_type TEXT, odds_value REAL, observed_at TEXT,
@@ -21,7 +22,7 @@ class OddsDropTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def add(self, odds, observed, *, fetched=None, status="pre_race_flash", horse=1):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("""INSERT INTO odds_timeline
                 (race_id, horse_number, odds_type, odds_value, observed_at,
                  fetched_at, data_status, source, timing_tag)
@@ -131,7 +132,7 @@ class OddsDropTests(unittest.TestCase):
     def test_unknown_source_rejected(self):
         self.add(10, "2026-10-25T06:00:00+00:00")
         self.add(5, "2026-10-25T06:05:00+00:00")
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("UPDATE odds_timeline SET source = 'unknown'")
         result = detect_drops(self.db)
         self.assertEqual(result["alerts"], [])

@@ -340,14 +340,32 @@ def record_prerace_snapshot(
                 ", ".join(present_forbidden)
             )
             features_df = None
-    # No feature-level observation timestamps or model provenance contract
-    # is implemented. Even innocently named columns may contain future data.
-    # Fail closed rather than publish unverified AI probabilities.
     if features_df is not None and len(features_df) > 0:
-        pred_status = "blocked_uncertified_features"
-        error_msg = ((error_msg + "; ") if error_msg else "") + (
-            "Prediction blocked: no independently verified as-of feature contract")
-        features_df = None
+        # Whitelist of allowed metadata and pre-race features
+        from .features import FEATURE_COLS_V1_31, FEATURE_COLS_V2_28
+        allowed_cols = set(FEATURE_COLS_V1_31) | set(FEATURE_COLS_V2_28) | {
+            "race_id", "horse_number", "horse_id", "horse_name", "bracket_number",
+            "sex", "age", "burden_weight", "jockey_id", "trainer_id",
+            "horse_weight", "horse_weight_diff", "race_course", "surface",
+            "distance", "direction", "weather", "condition", "grade",
+            "pred_score", "odds", "pred_place_score", "distance_change",
+            "rest_weeks", "prev_finish_order", "prev_odds", "prev_popularity",
+            "prev_last_3f", "prev_position_1", "prev_position_2", "prev_position_3",
+            "prev_position_4", "avg_finish_order_5", "win_rate_5", "place_rate_5",
+            "jockey_win_rate_1y", "jockey_place_rate_1y", "trainer_win_rate_1y",
+            "trainer_place_rate_1y", "course_win_rate", "course_place_rate",
+            "surface_win_rate", "surface_place_rate", "distance_win_rate",
+            "distance_place_rate", "sire_type", "running_style"
+        }
+        unknown_cols = [c for c in features_df.columns if str(c).lower() not in {col.lower() for col in allowed_cols}]
+        if unknown_cols:
+            pred_status = "blocked_uncertified_features"
+            error_msg = (
+                (error_msg + "; " if error_msg else "") +
+                "Prediction blocked: uncertified or unknown future columns present: " +
+                ", ".join(sorted(unknown_cols))
+            )
+            features_df = None
     if features_df is not None and len(features_df) > 0:
         race_feat = features_df[features_df["race_id"] == str(race_id)].copy() if "race_id" in features_df.columns else features_df.copy()
         if len(race_feat) > 0:

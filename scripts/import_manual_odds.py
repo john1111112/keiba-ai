@@ -16,6 +16,7 @@ import argparse
 import json
 import math
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from scripts.detect_odds_drops import parse_time
@@ -70,7 +71,7 @@ def import_snapshot(json_path, db_path, *, dry_run=False):
     init_odds_history_db(Path(db_path))
     inserted = 0
     skipped = 0
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("BEGIN IMMEDIATE")
         # Atomic batch: any conflicting revision rolls back the whole snapshot.
         for horse, price in odds:

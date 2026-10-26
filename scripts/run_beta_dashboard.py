@@ -10,6 +10,7 @@ import html
 import json
 import re
 import sqlite3
+from contextlib import closing
 import math
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -75,7 +76,7 @@ def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
     if type(max_age_seconds) not in (int, float) or not 0 < max_age_seconds <= 86400:
         return []
     try:
-        with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
+        with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as conn, conn:
             raw = []
             for race_id, _ in upcoming:
                 raw.extend(conn.execute("""

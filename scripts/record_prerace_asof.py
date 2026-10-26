@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--race-time", help="Scheduled race start time (ISO or YYYY-MM-DD HH:MM:SS)")
     parser.add_argument("--timing", choices=["pre_30m", "pre_10m", "pre_5m", "auto"], default="auto",
                         help="Snapshot timing target (pre_30m, pre_10m, pre_5m, or auto based on current time)")
+    parser.add_argument("--executed-at", help="Execution timestamp (default: now)")
     parser.add_argument("--odds-json", help="Path to JSON file containing odds snapshot records")
     parser.add_argument("--features", default=str(repo_root / "data" / "features.parquet"),
                         help="Path to features parquet file")
@@ -104,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         timing_tag=timing,
         odds_records=odds_records,
         features_df=features_df,
+        executed_at=args.executed_at,
         db_path=Path(args.db)
     )
 

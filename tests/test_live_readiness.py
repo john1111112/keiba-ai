@@ -28,7 +28,8 @@ class LiveReadinessTests(unittest.TestCase):
     def test_provider_claim_does_not_certify_alerts_or_model(self):
         code, result = self._run({"details": [{"provider": "test", "connected": True}]})
         self.assertEqual(code, 2)
-        self.assertFalse(result["ready_for_live_odds"])\n        self.assertTrue(result["provider_reports_connected"])
+        self.assertFalse(result["ready_for_live_odds"])
+        self.assertTrue(result["provider_reports_connected"])
         self.assertFalse(result["ready_for_unattended_delivery"])
         self.assertFalse(result["ready_for_betting_recommendations"])
 

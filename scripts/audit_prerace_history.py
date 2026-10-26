@@ -10,6 +10,7 @@ import argparse
 import json
 import math
 import sqlite3
+from contextlib import closing
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def audit_odds_history(db_path, *, as_of_time=None, race_starts=None):
               "rejected": {}, "races": []}
     if not db.is_file():
         return result
-    with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as conn:
         try:
             rows = conn.execute("""
                 SELECT race_id, horse_number, odds_type, odds_value,

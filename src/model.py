@@ -435,12 +435,15 @@ class KeibaAIWinModel(KeibaAIModel):
             res_df["pred_win_prob"] = np.minimum(res_df["pred_win_prob"], p_top3)
 
         # 取消・除外馬の除外と確率0化
-        if "time_str" in res_df.columns:
-            valid_mask = (res_df["finish_order"].fillna(0) >= 0) & (~res_df["time_str"].fillna("").astype(str).str.strip().isin(["", "-"]))
+        if "finish_order" in res_df.columns:
+            if "time_str" in res_df.columns:
+                valid_mask = (res_df["finish_order"].fillna(0) >= 0) & (~res_df["time_str"].fillna("").astype(str).str.strip().isin(["", "-"]))
+            else:
+                valid_mask = (res_df["finish_order"].fillna(0) >= 0)
+            unconfirmed = (res_df["finish_order"].fillna(0) == 0)
+            effective_runners = valid_mask | unconfirmed
         else:
-            valid_mask = (res_df["finish_order"].fillna(0) >= 0)
-        unconfirmed = (res_df["finish_order"].fillna(0) == 0)
-        effective_runners = valid_mask | unconfirmed
+            effective_runners = pd.Series(True, index=res_df.index)
         res_df.loc[~effective_runners, "pred_win_prob"] = 0.0
 
         # レース内合計1.0の正規化

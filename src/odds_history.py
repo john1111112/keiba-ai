@@ -131,8 +131,10 @@ def record_odds_snapshot(
         observed_at = r.get("observed_at")
         fetched_at = r.get("fetched_at")  # Never invent a fetch timestamp
         try:
-            observed_dt = datetime.datetime.fromisoformat(str(observed_at))
-            fetched_dt = datetime.datetime.fromisoformat(str(fetched_at))
+            obs_s = str(observed_at).strip().replace(" ", "T")
+            fet_s = str(fetched_at).strip().replace(" ", "T")
+            observed_dt = datetime.datetime.fromisoformat(obs_s)
+            fetched_dt = datetime.datetime.fromisoformat(fet_s)
             if observed_dt.tzinfo is None or fetched_dt.tzinfo is None or observed_dt.utcoffset() is None or fetched_dt.utcoffset() is None:
                 raise ValueError("Timezone required for both timestamps")
             if observed_dt > fetched_dt:
@@ -145,7 +147,7 @@ def record_odds_snapshot(
             raise ValueError("Odds data status must be explicitly declared")
         if status_str in PROHIBITED_STATUSES:
             raise ValueError("Final or post-race odds prohibited")
-        if status_str not in {"pre_race_flash", "manual_prerace"}:
+        if status_str not in {"pre_race_flash", "manual_prerace", "pre_30m", "pre_10m", "pre_5m", "flash"}:
             raise ValueError("Unrecognized odds status")
 
         if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:

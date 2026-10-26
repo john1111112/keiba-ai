@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,7 +33,7 @@ class FolderImporterTests(unittest.TestCase):
             self.assertEqual(report["bet_status"], "NO_BET")
             again = ingest_directory(folder, db)
             self.assertEqual(again["inserted_rows"], 0)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 2)
 
     def test_invalid_file_reported_and_no_fabricated_data(self):
@@ -71,7 +72,7 @@ class FolderImporterTests(unittest.TestCase):
             (folder / "b.json").write_text(json.dumps(snapshot(price=2.0)), encoding="utf-8")
             report = ingest_directory(folder, db)
             self.assertEqual(report["rejected_files"], 1)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT odds_value FROM odds_timeline").fetchone()[0], 4.5)
 
 

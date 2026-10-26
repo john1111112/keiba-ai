@@ -55,12 +55,13 @@ class OddsBatchAtomicTests(unittest.TestCase):
 
     def test_conflict_does_not_insert_other_horses(self):
         import sqlite3
+        from contextlib import closing
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
             record_odds_snapshot([row()], db_path=db)
             with self.assertRaises(ValueError):
                 record_odds_snapshot([row(horse_number=2), row(odds_value=7)], db_path=db)
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 self.assertEqual(conn.execute("SELECT count(*) FROM odds_timeline").fetchone()[0], 1)
 
     def test_valid_rows_saved(self):

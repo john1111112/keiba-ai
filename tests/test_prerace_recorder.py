@@ -71,8 +71,6 @@ class TestPreRaceRecorder(unittest.TestCase):
                 "trainer_id": "t001",
                 "horse_weight": 480.0,
                 "horse_weight_diff": 0.0,
-                "finish_order": 0,
-                "time_str": "",
                 "race_course": "東京",
                 "surface": "芝",
                 "distance": 2000,
@@ -119,8 +117,6 @@ class TestPreRaceRecorder(unittest.TestCase):
                 "trainer_id": "t002",
                 "horse_weight": 500.0,
                 "horse_weight_diff": 2.0,
-                "finish_order": 0,
-                "time_str": "",
                 "race_course": "東京",
                 "surface": "芝",
                 "distance": 2000,
@@ -160,7 +156,7 @@ class TestPreRaceRecorder(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_compute_target_snapshot_time(self):
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
         t_30m = compute_target_snapshot_time(race_time, "pre_30m")
         t_10m = compute_target_snapshot_time(race_time, "pre_10m")
         t_5m = compute_target_snapshot_time(race_time, "pre_5m")
@@ -170,25 +166,25 @@ class TestPreRaceRecorder(unittest.TestCase):
         self.assertEqual(t_5m.strftime("%H:%M:%S"), "15:35:00")
 
     def test_determine_applicable_timing(self):
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
         # 30分前付近 (15:10)
-        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01 15:10:00"), "pre_30m")
+        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01T15:10:00+09:00"), "pre_30m")
         # 10分前付近 (15:30)
-        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01 15:30:00"), "pre_10m")
+        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01T15:30:00+09:00"), "pre_10m")
         # 5分前付近 (15:35)
-        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01 15:35:00"), "pre_5m")
+        self.assertEqual(determine_applicable_timing(race_time, "2026-05-01T15:35:00+09:00"), "pre_5m")
         # 離れた時刻 (14:00)
-        self.assertIsNone(determine_applicable_timing(race_time, "2026-05-01 14:00:00"))
+        self.assertIsNone(determine_applicable_timing(race_time, "2026-05-01T14:00:00+09:00"))
 
     def test_record_prerace_30m_10m_5m(self):
         """30分前・10分前・5分前の3スナップショットが実時刻付きで正確に保存されること"""
         race_id = "202605010101"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         # 1. 30分前スナップショット (目標: 15:10:00)
         snap_30m = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01 15:09:50", "fetched_at": "2026-05-01 15:09:55", "source": "JV-Link", "data_status": "pre_30m"},
-            {"race_id": race_id, "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01 15:09:50", "fetched_at": "2026-05-01 15:09:55", "source": "JV-Link", "data_status": "pre_30m"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:09:50+09:00", "fetched_at": "2026-05-01T15:09:55+09:00", "source": "JV-Link", "data_status": "pre_30m"},
+            {"race_id": race_id, "horse_number": 2, "odds_value": 5.0, "popularity": 2, "observed_at": "2026-05-01T15:09:50+09:00", "fetched_at": "2026-05-01T15:09:55+09:00", "source": "JV-Link", "data_status": "pre_30m"},
         ]
         res_30m = record_prerace_snapshot(
             race_id=race_id,
@@ -196,7 +192,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_30m",
             odds_records=snap_30m,
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:10:00",
+            executed_at="2026-05-01T15:10:00+09:00",
             db_path=self.test_db_path
         )
         self.assertEqual(res_30m["status"], "RECORDED")
@@ -207,8 +203,8 @@ class TestPreRaceRecorder(unittest.TestCase):
 
         # 2. 10分前スナップショット (目標: 15:30:00)
         snap_10m = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01 15:29:50", "fetched_at": "2026-05-01 15:29:55", "source": "JV-Link", "data_status": "pre_10m"},
-            {"race_id": race_id, "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01 15:29:50", "fetched_at": "2026-05-01 15:29:55", "source": "JV-Link", "data_status": "pre_10m"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 2.8, "popularity": 1, "observed_at": "2026-05-01T15:29:50+09:00", "fetched_at": "2026-05-01T15:29:55+09:00", "source": "JV-Link", "data_status": "pre_10m"},
+            {"race_id": race_id, "horse_number": 2, "odds_value": 5.5, "popularity": 2, "observed_at": "2026-05-01T15:29:50+09:00", "fetched_at": "2026-05-01T15:29:55+09:00", "source": "JV-Link", "data_status": "pre_10m"},
         ]
         res_10m = record_prerace_snapshot(
             race_id=race_id,
@@ -216,7 +212,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_10m",
             odds_records=snap_10m,
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:30:00",
+            executed_at="2026-05-01T15:30:00+09:00",
             db_path=self.test_db_path
         )
         self.assertEqual(res_10m["status"], "RECORDED")
@@ -224,8 +220,8 @@ class TestPreRaceRecorder(unittest.TestCase):
 
         # 3. 5分前スナップショット (目標: 15:35:00)
         snap_5m = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 2.5, "popularity": 1, "observed_at": "2026-05-01 15:34:50", "fetched_at": "2026-05-01 15:34:55", "source": "JV-Link", "data_status": "pre_5m"},
-            {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01 15:34:50", "fetched_at": "2026-05-01 15:34:55", "source": "JV-Link", "data_status": "pre_5m"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 2.5, "popularity": 1, "observed_at": "2026-05-01T15:34:50+09:00", "fetched_at": "2026-05-01T15:34:55+09:00", "source": "JV-Link", "data_status": "pre_5m"},
+            {"race_id": race_id, "horse_number": 2, "odds_value": 6.0, "popularity": 2, "observed_at": "2026-05-01T15:34:50+09:00", "fetched_at": "2026-05-01T15:34:55+09:00", "source": "JV-Link", "data_status": "pre_5m"},
         ]
         res_5m = record_prerace_snapshot(
             race_id=race_id,
@@ -233,7 +229,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_5m",
             odds_records=snap_5m,
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:35:00",
+            executed_at="2026-05-01T15:35:00+09:00",
             db_path=self.test_db_path
         )
         self.assertEqual(res_5m["status"], "RECORDED")
@@ -260,10 +256,10 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_duplicate_recording_prevention(self):
         """二重記録防止: 同一(race_id, timing_tag)の2回目実行が安全に抑止されること"""
         race_id = "202605010101"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         snap_30m = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01 15:09:50", "fetched_at": "2026-05-01 15:09:55", "source": "JV-Link", "data_status": "pre_30m"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 3.0, "popularity": 1, "observed_at": "2026-05-01T15:09:50+09:00", "fetched_at": "2026-05-01T15:09:55+09:00", "source": "JV-Link", "data_status": "pre_30m"},
         ]
         # 初回実行
         res1 = record_prerace_snapshot(
@@ -272,7 +268,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_30m",
             odds_records=snap_30m,
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:10:00",
+            executed_at="2026-05-01T15:10:00+09:00",
             db_path=self.test_db_path,
             allow_duplicate=False
         )
@@ -286,7 +282,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_30m",
             odds_records=snap_30m,
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:10:05",
+            executed_at="2026-05-01T15:10:05+09:00",
             db_path=self.test_db_path,
             allow_duplicate=False
         )
@@ -301,7 +297,7 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_missing_odds_handling(self):
         """オッズが取得できない場合に欠損扱い(odds_status='missing')として記録され、架空データは生成されないこと"""
         race_id = "202605010101"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         # オッズレコードなし（空リスト）で実行
         res = record_prerace_snapshot(
@@ -310,7 +306,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_30m",
             odds_records=[],
             features_df=self.sample_features,
-            executed_at="2026-05-01 15:10:00",
+            executed_at="2026-05-01T15:10:00+09:00",
             db_path=self.test_db_path
         )
 
@@ -343,11 +339,11 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_prohibit_final_settled_odds(self):
         """確定オッズ (final_settled) の代用・混入を厳格に遮断・拒絶すること"""
         race_id = "202605010103"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         final_odds = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01 15:45:00", "fetched_at": "2026-05-01 15:45:00", "data_status": "final_settled"},
-            {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "observed_at": "2026-05-01 15:45:00", "fetched_at": "2026-05-01 15:45:00", "data_status": "final_settled"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01T15:45:00+09:00", "fetched_at": "2026-05-01T15:45:00+09:00", "data_status": "final_settled"},
+            {"race_id": race_id, "horse_number": 2, "odds_value": 7.0, "observed_at": "2026-05-01T15:45:00+09:00", "fetched_at": "2026-05-01T15:45:00+09:00", "data_status": "final_settled"},
         ]
 
         # validate_odds_records で例外発生
@@ -361,6 +357,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             timing_tag="pre_5m",
             odds_records=final_odds,
             features_df=self.sample_features,
+            executed_at="2026-05-01T15:35:00+09:00",
             db_path=self.test_db_path
         )
         self.assertEqual(res["odds_status"], "rejected_post_race")
@@ -373,10 +370,10 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_prohibit_post_race_timestamps(self):
         """発走時刻以降のオッズタイムスタンプ（未来オッズ）を遮断すること"""
         race_id = "202605010104"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         post_race_odds = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01 15:41:00", "fetched_at": "2026-05-01 15:41:00", "data_status": "flash"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01T15:41:00+09:00", "fetched_at": "2026-05-01T15:41:00+09:00", "data_status": "flash"},
         ]
 
         with self.assertRaises(PostRaceOddsLeakageError):
@@ -385,10 +382,10 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_causality_guard(self):
         """観測時刻 > 取得時刻 の因果律違反オッズは除外されること"""
         race_id = "202605010105"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
 
         causality_violation = [
-            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01 15:35:05", "fetched_at": "2026-05-01 15:35:00", "data_status": "flash"},
+            {"race_id": race_id, "horse_number": 1, "odds_value": 2.1, "observed_at": "2026-05-01T15:35:05+09:00", "fetched_at": "2026-05-01T15:35:00+09:00", "data_status": "flash"},
         ]
         valid = validate_odds_records(causality_violation, race_time, compute_target_snapshot_time(race_time, "pre_5m"))
         self.assertEqual(len(valid), 0)
@@ -411,7 +408,7 @@ class TestPreRaceRecorder(unittest.TestCase):
         failing = FailingProvider()
         mgr = OddsProviderManager([failing])
         records, audit = mgr.fetch_prerace_odds_with_retry(
-            "202605010101", "2026-05-01 15:40:00", "pre_30m", max_retries=2, backoff_sec=0.01
+            "202605010101", "2026-05-01T15:40:00+09:00", "pre_30m", max_retries=2, backoff_sec=0.01
         )
         self.assertIsNone(records)
         self.assertEqual(failing.calls, 2)
@@ -432,7 +429,7 @@ class TestPreRaceRecorder(unittest.TestCase):
     def test_cli_execution_and_audit_query(self):
         """CLIツール (scripts/record_prerace_asof.py) によるスナップショット記録と照会が正常動作すること"""
         race_id = "202605010106"
-        race_time = "2026-05-01 15:40:00"
+        race_time = "2026-05-01T15:40:00+09:00"
         receipt_out = Path(self.temp_dir.name) / "receipt.json"
 
         # 1. オッズ欠損時 CLI 実行
@@ -442,6 +439,7 @@ class TestPreRaceRecorder(unittest.TestCase):
             "--race-id", race_id,
             "--race-time", race_time,
             "--timing", "pre_10m",
+            "--executed-at", "2026-05-01T15:30:00+09:00",
             "--db", str(self.test_db_path),
             "--out", str(receipt_out)
         ]

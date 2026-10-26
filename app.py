@@ -8,7 +8,9 @@ from pathlib import Path
 
 from src.database import init_db, load_all_race_data, get_db_stats, get_connection, get_races_metadata
 from src.features import build_features, build_features_for_race_with_history
-from src.model import KeibaAIModel, MODEL_PATH
+from src.model import KeibaAIModel, KeibaAIWinModel, MODEL_PATH, MODEL_WIN_V2_28_PATH
+from scripts.build_race_dashboard import build_dashboard
+send_windows_notification = getattr(notif_mod, "send_windows_notification", None)
 
 import src.backtest as bt_mod
 importlib.reload(bt_mod)
@@ -140,6 +142,16 @@ with st.sidebar:
                 st.error(res_test["message"])
     st.divider()
     
+    # Windowsデスクトップ通知
+    st.subheader("🖥️ Windowsデスクトップ通知")
+    if st.button("🔔 デスクトップ通知テスト", use_container_width=True):
+        if send_windows_notification:
+            ok = send_windows_notification("🏇 KEIBA AI", "Windowsデスクトップ通知は正常に稼働しています。")
+            if ok:
+                st.success("デスクトップ通知を送信しました！")
+            else:
+                st.warning("通知送信に失敗しました（Windows環境をご確認ください）。")
+    st.divider()
     # 実在JRAデータ同期・キャッシュ再読込（SELECT専用・DELETE処理完全撤去）
     st.subheader("🌐 JRA公式実在データ管理")
     st.caption("※データベース保護のため、画面からのデータ削除処理は無効化されています。")
@@ -153,8 +165,9 @@ with st.sidebar:
 st.markdown('<div class="main-header">🏇 AI競馬予想システム（過去データ集積型）</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">過去の走破時計・血統・騎手成績・枠順・斤量適性をAIが複合分析し、好走確率と期待値を算出します</div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🔮 レース予想（出馬表＆AI判定）",
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏇 本日レース・AI期待値速報",
+    "🔮 過去レース予想（出馬表＆AI判定）",
     "📈 収益率シミュレーション（厳選投資 vs 全買い）",
     "🎯 実力検証＆跳ね上がり条件",
     "🔔 Discord通知設定・送信",
@@ -162,6 +175,77 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 cache_key = _get_cache_key()
+
+# ==========================================
+# タブ0: 本日レース・AI期待値速報（当日リアルタイム）
+# ==========================================
+with tab0:
+    st.subheader("🏁 本日開催レース・リアルタイムAI単勝勝率 ＆ 期待値分析")
+    st.caption("公式認可データおよび単勝1着モデル（28特徴量）に基づく期待回収倍率ランキング")
+    
+    col_t1, col_t2 = st.columns([3, 1])
+    with col_t1:
+        snapshot_source = st.selectbox(
+            "📡 データ取得ソース",
+            ["最新認可フィード (data/authorized_feed/latest.json)", "発走前スケジュール (data/upcoming_races.json)", "手動スナップショット指定"],
+            index=0
+        )
+    with col_t2:
+        st.write("")
+        st.write("")
+        refresh_btn = st.button("🔄 最新オッズ・予測再計算", use_container_width=True)
+
+    feed_file = Path("data/authorized_feed/latest.json")
+    if "upcoming_races" in snapshot_source:
+        feed_file = Path("data/upcoming_races.json")
+    elif "手動" in snapshot_source:
+        custom_p = st.text_input("スナップショットJSONパス", "data/snapshots/sample.json")
+        feed_file = Path(custom_p)
+
+    c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+    with c_m1:
+        win_model_loaded = MODEL_WIN_V2_28_PATH.exists()
+        st.metric("単勝勝率AIモデル", "稼働中 (28特徴量)" if win_model_loaded else "未ロード")
+    with c_m2:
+        feed_exists = feed_file.exists()
+        st.metric("データ取得状況", "接続済み (公式)" if feed_exists else "未接続（架空補完なし）")
+    with c_m3:
+        st.metric("自動通知状態", "待機中（重複抑止稼働）")
+    with c_m4:
+        from datetime import datetime
+        st.metric("最終更新", datetime.now().strftime("%H:%M:%S"))
+
+    if not feed_file.exists():
+        st.info(f"💡 現在、{feed_file.name} に本日の認可レースデータが存在しません。\n"
+                "※ 安全方針により、架空データや確定オッズによる補完・代用は一切行いません（未接続・欠損扱い）。\n"
+                "公式フィードまたはJV-Linkが接続され次第、自動的に最新オッズと期待値が表示されます。")
+    else:
+        try:
+            # AI予測マニフェストの生成（win_model利用）
+            dash_report = build_dashboard(feed_file)
+            rows = dash_report.get("rows", [])
+            if rows:
+                df_dash = pd.DataFrame(rows)
+                df_dash = df_dash.rename(columns={
+                    "race_id": "レースID", "race_time": "発走日時",
+                    "horse_number": "馬番", "horse_name": "馬名",
+                    "win_odds": "単勝オッズ", "odds_observed_at": "オッズ観測日時",
+                    "win_probability": "AI単勝勝率", "expected_value": "期待回収倍率",
+                    "recommendation": "推奨判定"
+                })
+                # ランキング表示
+                st.dataframe(df_dash, hide_index=True, use_container_width=True)
+                
+                # 注目レース・高期待値馬ピックアップ
+                if "期待回収倍率" in df_dash.columns and df_dash["期待回収倍率"].notna().any():
+                    top_ev = df_dash.dropna(subset=["期待回収倍率"]).sort_values("期待回収倍率", ascending=False).head(3)
+                    st.markdown("### 🔥 本日のAI期待値 TOP 3")
+                    st.dataframe(top_ev, hide_index=True, use_container_width=True)
+            else:
+                st.info("現在発走前の対象レースがありません。")
+        except Exception as e:
+            st.warning(f"データ解析ステータス: {e}")
+
 
 # ==========================================
 # タブ1: レース予想

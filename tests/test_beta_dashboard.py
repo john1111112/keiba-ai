@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -73,7 +74,7 @@ class BetaDashboardTests(unittest.TestCase):
     def test_odds_table_excludes_final_future_and_wrong_race(self):
         from datetime import datetime, timezone
         db = self.root / "odds.db"
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 race_id TEXT, horse_number INTEGER, odds_value REAL,
                 observed_at TEXT, fetched_at TEXT, source TEXT,
@@ -104,7 +105,7 @@ class BetaDashboardTests(unittest.TestCase):
     def test_conflicting_same_timestamp_odds_hidden(self):
         from datetime import datetime
         db = self.root / "odds.db"
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 race_id TEXT, horse_number INTEGER, odds_value REAL,
                 observed_at TEXT, fetched_at TEXT, source TEXT,
@@ -122,7 +123,7 @@ class BetaDashboardTests(unittest.TestCase):
     def test_odds_source_is_html_escaped_and_observation_visible(self):
         from datetime import datetime
         db = self.root / "odds.db"
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 race_id TEXT, horse_number INTEGER, odds_value REAL,
                 observed_at TEXT, fetched_at TEXT, source TEXT,
@@ -143,7 +144,7 @@ class BetaDashboardTests(unittest.TestCase):
     def test_stale_odds_never_displayed(self):
         from datetime import datetime
         db = self.root / "odds.db"
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("""CREATE TABLE odds_timeline (
                 race_id TEXT, horse_number INTEGER, odds_value REAL,
                 observed_at TEXT, fetched_at TEXT, source TEXT,

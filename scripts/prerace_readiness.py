@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from scripts.detect_odds_drops import detect_drops, parse_time
@@ -15,7 +16,7 @@ def race_readiness(db_path, race_id, *, as_of_time, race_start_time):
     db = Path(db_path)
     if not db.is_file():
         return {"race_id": str(race_id), "status": "NO_BET", "reason": "NO_ODDS_DB"}
-    with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)) as conn, conn:
         try:
             odds = conn.execute("""
             SELECT horse_number, odds_value, observed_at, fetched_at, source, data_status

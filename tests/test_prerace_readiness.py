@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,7 +42,7 @@ class ReadinessTests(unittest.TestCase):
     def test_invalid_prices_and_predictions_never_count(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute("""CREATE TABLE odds_timeline (
                     race_id TEXT, horse_number INTEGER, odds_type TEXT,
                     odds_value REAL, observed_at TEXT, fetched_at TEXT,
@@ -66,7 +67,7 @@ class ReadinessTests(unittest.TestCase):
     def test_unknown_status_not_counted_even_if_timestamps_look_valid(self):
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "odds.db"
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute("""CREATE TABLE odds_timeline (
                     race_id TEXT, horse_number INTEGER, odds_type TEXT,
                     odds_value REAL, observed_at TEXT, fetched_at TEXT,
