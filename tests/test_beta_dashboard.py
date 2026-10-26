@@ -147,6 +147,12 @@ class BetaDashboardTests(unittest.TestCase):
         status.write_text(json.dumps({"status": "COMPLETED"}))
         self.assertIn("時刻不明", _background_status(status, now=current))
 
+    def test_dashboard_lists_unresolved_live_feed_and_model_blockers(self):
+        page = dashboard_html(self.root)
+        self.assertIn("NO_VERIFIED_LIVE_ODDS_PROVIDER", page)
+        self.assertIn("NO_CERTIFIED_PRODUCTION_MODEL", page)
+        self.assertIn("NO BET", page)
+
     def test_handler_can_be_built_without_network(self):
         handler = make_handler(self.root)
         self.assertTrue(callable(handler))
