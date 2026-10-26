@@ -102,7 +102,10 @@ def execute_jvlink_fetch(
     ra_records: List[str] = []
     se_records: List[str] = []
     o1_records: List[str] = []
-    
+    ra_records_b64: List[str] = []
+    se_records_b64: List[str] = []
+    o1_records_b64: List[str] = []
+
     error_msg = None
 
     try:
@@ -185,7 +188,7 @@ def execute_jvlink_fetch(
             control_markers = 0
 
             # JVGets preserves Shift-JIS bytes in a COM byte SAFEARRAY.
-            if isinstance(buff, (bytes, bytearray)):
+            if isinstance(buff, (bytes, bytearray, memoryview)):
                 raw = bytes(buff)
             elif isinstance(buff, (tuple, list)) and all(
                 isinstance(value, int) and 0 <= value < 256 for value in buff
@@ -207,10 +210,13 @@ def execute_jvlink_fetch(
             raw_records.append(text)
             if record_type == "RA":
                 ra_records.append(text)
+                ra_records_b64.append(base64.b64encode(raw[:read_rc]).decode("ascii"))
             elif record_type == "SE":
                 se_records.append(text)
+                se_records_b64.append(base64.b64encode(raw[:read_rc]).decode("ascii"))
             elif record_type == "O1":
                 o1_records.append(text)
+                o1_records_b64.append(base64.b64encode(raw[:read_rc]).decode("ascii"))
 
     finally:
         if opened:
@@ -254,7 +260,10 @@ def execute_jvlink_fetch(
         "o1_count": len(o1_records),
         "ra_records": ra_records,
         "se_records": se_records,
-        "o1_records": o1_records
+        "o1_records": o1_records,
+        "ra_records_b64": ra_records_b64,
+        "se_records_b64": se_records_b64,
+        "o1_records_b64": o1_records_b64
     }
 
 
