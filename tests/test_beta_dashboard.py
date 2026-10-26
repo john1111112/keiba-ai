@@ -61,6 +61,15 @@ class BetaDashboardTests(unittest.TestCase):
         ]), encoding="utf-8")
         self.assertEqual(_upcoming_rows(manifest), [])
 
+    def test_dashboard_rejects_result_fields_in_schedule(self):
+        manifest = self.root / "upcoming.json"
+        manifest.write_text(json.dumps([{
+            "race_id": "r1", "race_status": "upcoming",
+            "race_time": "2099-01-01T15:00:00+09:00",
+            "finish_order": 1
+        }]), encoding="utf-8")
+        self.assertEqual(_upcoming_rows(manifest), [])
+
     def test_odds_table_excludes_final_future_and_wrong_race(self):
         from datetime import datetime, timezone
         db = self.root / "odds.db"
