@@ -5,8 +5,10 @@ on:
     paths:
       - "scripts/detect_odds_drops.py"
       - "scripts/import_manual_odds.py"
+      - "scripts/prerace_readiness.py"
       - "tests/test_odds_drops.py"
       - "tests/test_manual_odds.py"
+      - "tests/test_prerace_readiness.py"
       - ".github/workflows/odds-drop-tests.yml"
   push:
     branches:
@@ -36,3 +38,5 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_odds_drops.py' -v
       - name: Run manual-import tests
         run: python -m unittest discover -s tests -p 'test_manual_odds.py' -v
+      - name: Run readiness tests
+        run: python -m unittest discover -s tests -p 'test_prerace_readiness.py' -v
