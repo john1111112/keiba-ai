@@ -187,8 +187,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(out_json)
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(out_json + "
-", encoding="utf-8")
+            Path(args.out).write_text(out_json + "\n", encoding="utf-8")
         return 0
 
     # 2. スケジュール自動スキャンモード
@@ -206,8 +205,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(out_json)
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(out_json + "
-", encoding="utf-8")
+            Path(args.out).write_text(out_json + "\n", encoding="utf-8")
         return 0
 
     # 3. 単一レース記録モード
@@ -255,8 +253,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(out_json)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(out_json + "
-", encoding="utf-8")
+        Path(args.out).write_text(out_json + "\n", encoding="utf-8")
 
     return 0
 
