@@ -87,6 +87,7 @@ def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
         return []
     starts = dict(upcoming)
     latest = {}
+    conflicts = set()
     for race, horse, odds, observed, fetched, source, status in raw:
         if race not in starts or str(status).lower() not in {"manual_prerace", "pre_race_flash"}:
             continue
@@ -108,9 +109,14 @@ def _manual_odds_rows(db_path, upcoming, *, now=None, max_age_seconds=600):
         except (ValueError, TypeError, AttributeError, OverflowError):
             continue
         key = (race, horse)
-        if key not in latest or (obs, got) > latest[key][0]:
-            latest[key] = ((obs, got), (race, horse, price, obs.isoformat(), source))
-    return [v[1] for k, v in sorted(latest.items())]
+        stamp = (obs, got)
+        entry = (race, horse, price, obs.isoformat(), source)
+        if key not in latest or stamp > latest[key][0]:
+            latest[key] = (stamp, entry)
+            conflicts.discard(key)
+        elif stamp == latest[key][0] and entry != latest[key][1]:
+            conflicts.add(key)  # Same published/received time, contradictory data
+    return [v[1] for k, v in sorted(latest.items()) if k not in conflicts]
 
 
 def _background_status(status_path, *, now=None, max_age_seconds=900):
@@ -165,10 +171,12 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
     odds_html = "".join(
         "<tr><td>" + html.escape(race) + "</td><td>" + str(horse) +
         "</td><td>" + html.escape(format(price, ".2f")) +
+        "</td><td>" + html.escape(observed) +
+        "</td><td>" + html.escape(source) +
         "</td><td>未検証</td><td>—</td><td>—</td><td>NO BET</td></tr>"
-        for race, horse, price, _, _ in odds_rows)
+        for race, horse, price, observed, source in odds_rows)
     if not odds_html:
-        odds_html = '<tr><td colspan="7">有効な発走前オッズはありません</td></tr>'
+        odds_html = '<tr><td colspan="9">有効な発走前オッズはありません</td></tr>'
     background = html.escape(_background_status(scan_status, now=now))
     readiness = readiness_report(manifest=manifest_path, odds_db=odds_db)
     blockers = "".join("<li>" + html.escape(reason) + "</li>"
@@ -193,7 +201,7 @@ def dashboard_html(reports_dir, *, refresh_seconds=60, manifest_path="data/upcom
             '<small>予定表は外部から明示的に入力された情報です。公式開催情報の自動取得ではありません。</small></div>'
             '<div class="card"><h2>取得済み発走前オッズ（未認証）</h2>'
             '<table><thead><tr><th>レース</th><th>馬番</th><th>単勝</th>'
-            '<th>取得元検証</th><th>AI勝率</th><th>期待値</th><th>判定</th></tr></thead>'
+            '<th>観測時刻</th><th>入力元</th><th>取得元検証</th><th>AI勝率</th><th>期待値</th><th>判定</th></tr></thead>'
             '<tbody>' + odds_html + '</tbody></table>'
             '<small>手動入力等の時刻情報を検査。取得後10分以内のオッズのみ表示。独立認証済みではありません。</small></div>'
             '<div class="card"><h2>レース分析レポート</h2><ul>'
