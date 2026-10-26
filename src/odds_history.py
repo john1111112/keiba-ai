@@ -145,6 +145,8 @@ def record_odds_snapshot(
             raise ValueError("Odds data status must be explicitly declared")
         if status_str in PROHIBITED_STATUSES:
             raise ValueError("Final or post-race odds prohibited")
+        if status_str not in {"pre_race_flash", "manual_prerace"}:
+            raise ValueError("Unrecognized odds status")
 
         if str(r.get("source", "unknown")).strip().lower() in {"", "unknown", "none"}:
             raise ValueError("Unknown odds source")
