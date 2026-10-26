@@ -37,6 +37,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
     opened = False
     records = []
     wait_count = 0
+    eof = False
     try:
         init_result = _code(link.JVInit(sid))
         if init_result != 0:
@@ -56,6 +57,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 raise JVLinkError("Unexpected JVRead result; SDK adapter needs adjustment")
             rc = int(response[0])
             if rc == 0:
+                eof = True
                 break
             if rc == -1:
                 continue  # Skip file switch marker.
@@ -83,6 +85,8 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
             records.append(raw[:rc])
         else:
             raise JVLinkError("JVRead record limit reached without EOF")
+        if not eof:
+            raise JVLinkError("JVRead did not reach EOF")
         return store_records(db_path, records, data_spec=data_spec,
                              fetched_at=fetched_at or datetime.now(timezone.utc).isoformat())
     finally:
