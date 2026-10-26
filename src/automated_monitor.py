@@ -59,7 +59,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "min_seconds_to_start": 300,
         "max_seconds_to_start": 1800,
         "windows_toast_enabled": True,
-        "discord_enabled": True,
+        "discord_enabled": False,  # Opt-in only during development
         "safety_lock_enabled": True,  # 安全第一：正規データ検証完了まで本番通知をロック（デフォルトTrue）
         "max_retries": 3,
     }
