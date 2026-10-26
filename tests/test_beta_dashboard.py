@@ -101,6 +101,45 @@ class BetaDashboardTests(unittest.TestCase):
         self.assertIn("NO BET", page)
         self.assertNotIn("9.00", page)
 
+    def test_conflicting_same_timestamp_odds_hidden(self):
+        from datetime import datetime
+        db = self.root / "odds.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("""CREATE TABLE odds_timeline (
+                race_id TEXT, horse_number INTEGER, odds_value REAL,
+                observed_at TEXT, fetched_at TEXT, source TEXT,
+                data_status TEXT, odds_type TEXT)""")
+            common = ("r1", 3, "2026-10-26T09:00:00+09:00",
+                      "2026-10-26T09:01:00+09:00", "manual", "manual_prerace", "win")
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         (common[0], common[1], 4.2, *common[2:]))
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         (common[0], common[1], 9.9, *common[2:]))
+        now = datetime.fromisoformat("2026-10-26T09:05:00+09:00")
+        upcoming = [("r1", datetime.fromisoformat("2026-10-26T15:00:00+09:00"))]
+        self.assertEqual(_manual_odds_rows(db, upcoming, now=now), [])
+
+    def test_odds_source_is_html_escaped_and_observation_visible(self):
+        from datetime import datetime
+        db = self.root / "odds.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("""CREATE TABLE odds_timeline (
+                race_id TEXT, horse_number INTEGER, odds_value REAL,
+                observed_at TEXT, fetched_at TEXT, source TEXT,
+                data_status TEXT, odds_type TEXT)""")
+            conn.execute("INSERT INTO odds_timeline VALUES (?,?,?,?,?,?,?,?)",
+                         ("r1", 3, 4.2, "2026-10-26T09:00:00+09:00",
+                          "2026-10-26T09:01:00+09:00", "<script>alert(1)</script>",
+                          "manual_prerace", "win"))
+        now = datetime.fromisoformat("2026-10-26T09:05:00+09:00")
+        manifest = self.root / "upcoming.json"
+        manifest.write_text(json.dumps([{"race_id": "r1", "race_status": "upcoming",
+                                         "race_time": "2026-10-26T15:00:00+09:00"}]))
+        page = dashboard_html(self.root, manifest_path=manifest, odds_db=db, now=now)
+        self.assertIn("2026-10-26T09:00:00+09:00", page)
+        self.assertIn("&lt;script&gt;", page)
+        self.assertNotIn("<script>", page)
+
     def test_stale_odds_never_displayed(self):
         from datetime import datetime
         db = self.root / "odds.db"
