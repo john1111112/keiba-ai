@@ -5,6 +5,7 @@ JV-Data decoding must use official record layouts, not guessed offsets.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
+import time
 from src.jvlink_raw_store import store_records
 
 
@@ -19,7 +20,8 @@ def _code(result):
 
 
 def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
-            buffer_size=110000, fetched_at=None):
+            buffer_size=110000, fetched_at=None, sleep=time.sleep,
+            max_wait_seconds=60):
     if data_spec not in ("0B15", "0B30", "0B41"):
         raise ValueError("Unsupported data spec")
     if not isinstance(sid, str) or not sid or len(sid) > 32:
@@ -30,6 +32,8 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         raise ValueError("Invalid buffer size")
     if not isinstance(from_time, str) or len(from_time) != 12 or not from_time.isdigit():
         raise ValueError("from_time must be YYYYMMDDHHMM")
+    if max_wait_seconds < 0 or max_wait_seconds > 600:
+        raise ValueError("Invalid wait timeout")
     opened = False
     records = []
     try:
@@ -44,6 +48,7 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
         if rc < 0:
             raise JVLinkError("JVOpen failed: " + str(rc))
         opened = True
+        waiting_since = None
         for _ in range(max_records):
             response = link.JVRead(buffer_size)
             if not isinstance(response, tuple) or len(response) < 2:
@@ -53,6 +58,14 @@ def capture(link, db_path, *, sid, data_spec, from_time, max_records=100000,
                 break
             if rc == -1:
                 continue  # Skip file switch marker.
+            if rc == -3:
+                if waiting_since is None:
+                    waiting_since = time.monotonic()
+                if time.monotonic() - waiting_since >= max_wait_seconds:
+                    raise JVLinkError("JVRead download wait timed out")
+                sleep(0.5)
+                continue
+            waiting_since = None
             if rc < 0:
                 raise JVLinkError("JVRead failed: " + str(rc))
             raw = response[1]
