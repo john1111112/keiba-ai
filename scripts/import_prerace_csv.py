@@ -20,7 +20,7 @@ def parse_csv_snapshot(csv_path, *, race_id, race_start_time, observed_at,
     path = Path(csv_path)
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        if reader.fieldnames is None or set(reader.fieldnames) != {"horse_number", "odds_value"}:
+        if reader.fieldnames is None or len(reader.fieldnames) != 2 or set(reader.fieldnames) != {"horse_number", "odds_value"}:
             raise ValueError("CSV must have exactly horse_number,odds_value headers")
         odds = []
         for record in reader:
