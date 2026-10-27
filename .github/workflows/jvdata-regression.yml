@@ -93,3 +93,22 @@ jobs:
           python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
           python -m unittest discover -s tests -p test_live_jvlink_dashboard.py -v
           python -m unittest discover -s tests -p test_odds_notification_safety.py -v
+
+      - name: Package Windows personal beta
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dest = "dist/KEIBA_AI_Windows_Beta"
+          New-Item -ItemType Directory -Path "$dest/data" -Force | Out-Null
+          $paths = @("src", "scripts", "models", "app.py", "requirements.txt", "INSTALL_AUTO_MONITOR.bat", "CHECK_RELEASE.bat", "START_KEIBA_AI.bat", "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md")
+          foreach ($path in $paths) { Copy-Item -Recurse -Force $path $dest }
+          Copy-Item "data/keiba.db" "$dest/data/keiba.db" -Force
+          Compress-Archive -Path $dest -DestinationPath "dist/KEIBA_AI_Windows_Beta.zip" -Force
+      - name: Upload personal beta package
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KEIBA_AI_Windows_Beta
+          path: dist/KEIBA_AI_Windows_Beta.zip
+          retention-days: 30
