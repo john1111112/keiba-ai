@@ -80,7 +80,7 @@ def build_live_dashboard(
     age_limit = (
         int(max_odds_age_seconds)
         if max_odds_age_seconds is not None
-        else int(config.get("max_odds_age_seconds", 120))
+        else int(config.get("max_odds_age_seconds", 720))
     )
     if age_limit <= 0:
         raise ValueError("max_odds_age_seconds must be positive")
