@@ -427,6 +427,12 @@ with tab0:
         with c_c2:
             in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
             in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", False)))
+            in_max_odds_age = st.number_input(
+                "オッズ許容経過時間（秒）",
+                min_value=60, max_value=1200,
+                value=int(cfg.get("max_odds_age_seconds", 720)), step=60,
+                help="JRA-VANは当回レース以外のオッズ更新に10分以上かかる場合があります。",
+            )
             
         in_discord_user = st.text_input(
             "スマホ通知先のDiscordユーザーID（任意）",
@@ -447,6 +453,7 @@ with tab0:
             cfg["min_ev"] = round(in_min_ev, 2)
             cfg["min_win_prob"] = round(in_min_p, 2)
             cfg["windows_toast_enabled"] = in_win_toast
+            cfg["max_odds_age_seconds"] = int(in_max_odds_age)
             cfg["discord_enabled"] = in_discord
             user_id = in_discord_user.strip()
             cfg["discord_user_id"] = user_id
