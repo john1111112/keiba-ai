@@ -29,6 +29,30 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 set "KEIBA_PYTHON=%CD%\.venv\Scripts\python.exe"
+rem Some Windows Python installations create virtual environments without pip.
+rem Repair the existing environment in place. Do not delete the user's files.
+"%KEIBA_PYTHON%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] pip is missing from .venv. Attempting built-in ensurepip repair...
+    "%KEIBA_PYTHON%" -m ensurepip --upgrade
+    if errorlevel 1 (
+        echo [WARN] ensurepip failed. Trying system Python pip bootstrap...
+        where py >nul 2>&1
+        if not errorlevel 1 (
+            py -3 -m pip --python "%KEIBA_PYTHON%" install pip
+        )
+    )
+)
+"%KEIBA_PYTHON%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Unable to initialize pip in .venv.
+    echo [NEXT] Install official Python 3 with pip and venv support.
+    echo [NEXT] Then remove only the .venv folder and rerun this installer.
+    echo [INFO] No Windows background task or JRA-VAN trial was started.
+    pause
+    exit /b 1
+)
+
 echo [1/5] Installing Python dependencies in project-only environment...
 "%KEIBA_PYTHON%" -m pip install -r requirements.txt pywin32
 if errorlevel 1 (
