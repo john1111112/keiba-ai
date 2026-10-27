@@ -42,6 +42,14 @@ class ImporterAuthenticityTests(unittest.TestCase):
             self.assertNotIn('else 478.0',s)
             self.assertNotIn('else 15.0',s)
 
+    def test_historical_import_never_deletes_or_overwrites_records(self):
+        for path in ["scripts/fetch_bulk_real_jra.py","scripts/populate_full_weekend.py"]:
+            s=(ROOT/path).read_text(encoding="utf-8")
+            self.assertNotIn("DELETE FROM race_results",s)
+            self.assertNotIn("DELETE FROM races",s)
+            self.assertNotIn("INSERT OR REPLACE INTO",s)
+            self.assertIn("INSERT OR IGNORE INTO race_results",s)
+
     def test_weekend_missing_father_or_style_is_unknown(self):
         from scripts.populate_full_weekend import get_sire_type, infer_running_style
         self.assertIsNone(get_sire_type(None))
