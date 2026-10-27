@@ -154,6 +154,19 @@ def _python_bitness(candidate: str) -> Optional[int]:
         return None
 
 
+def _probe_jvlink_com(candidate: str) -> bool:
+    """Safe one-time capability probe: COM Dispatch only, never JVInit."""
+    try:
+        probe_script = REPO_ROOT / "scripts" / "probe_jvlink_com.py"
+        checked = subprocess.run(
+            [candidate, str(probe_script)],
+            capture_output=True, text=True, timeout=8, check=False
+        )
+        return checked.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def find_jvlink_python() -> Optional[str]:
     """Pick Python for classic 32-bit JV-Link or official 64-bit SDK 5.0.
 
@@ -176,12 +189,12 @@ def find_jvlink_python() -> Optional[str]:
         except ImportError:
             return False
 
-    if prefer_64 and has_64bit_pywin32():
+    if prefer_64 and has_64bit_pywin32() and _probe_jvlink_com(sys.executable):
         return sys.executable
     worker32 = find_32bit_python()
-    if worker32:
+    if worker32 and _probe_jvlink_com(worker32):
         return worker32
-    if has_64bit_pywin32():
+    if has_64bit_pywin32() and _probe_jvlink_com(sys.executable):
         return sys.executable
     return None
 
@@ -276,6 +289,7 @@ class JVLinkClient:
         self._initialized = False
         self._driver_status = "UNVERIFIED"
         self._test_mode = test_mode or (os.getenv("KEIBA_TEST_MODE") == "1")
+        self._worker_interpreter_cache = None
 
     def connect(self) -> None:
         """
@@ -353,12 +367,17 @@ class JVLinkClient:
         import uuid
         import tempfile
 
-        worker_python = find_jvlink_python()
-        if not worker_python:
-            raise JVLinkBridgeError("Compatible 32/64-bit JV-Link Python worker not found")
-        worker_bitness = _python_bitness(worker_python)
-        if worker_bitness not in (32, 64):
-            raise JVLinkBridgeError("Worker Python architecture could not be verified")
+        # Select/probe COM only once for an entire all-race scan: 0B31 is
+        # queried per race, so probing on every horse/race wastes time.
+        if self._worker_interpreter_cache is None:
+            selected = find_jvlink_python()
+            if not selected:
+                raise JVLinkBridgeError("Compatible 32/64-bit JV-Link SDK/Python worker not found")
+            bits = _python_bitness(selected)
+            if bits not in (32, 64):
+                raise JVLinkBridgeError("Worker Python architecture could not be verified")
+            self._worker_interpreter_cache = (selected, bits)
+        worker_python, worker_bitness = self._worker_interpreter_cache
 
         unique_id = uuid.uuid4().hex
         if output_path is None:
