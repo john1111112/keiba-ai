@@ -239,7 +239,7 @@ for rid,gg in test.groupby("race_id",sort=False):
     adj_i=indexes[np.argmax(adjusted_score[indexes])]
     base_p=score[indexes]/score[indexes].sum()
     adj_p=adjusted_score[indexes]/adjusted_score[indexes].sum()
-    winner_local=np.flatnonzero(gg.win.to_numpy()==1)[0][0]
+    winner_local=int(np.flatnonzero(gg.win.to_numpy()==1)[0])
     prediction_rows.append(dict(
         race_id=str(rid),date=str(gg.date.iloc[0].date()),
         actual_winner=w,
@@ -261,7 +261,8 @@ top1_comparison={
     "broken_races":int(((preds.old_correct==1)&(preds.pattern_correct==0)).sum()),
     "old_winner_nll":round(float(preds.old_winner_nll.mean()),6),
     "pattern_winner_nll":round(float(preds.pattern_winner_nll.mean()),6),
-    "all_hyperparameters_frozen_before_examining_test_outcomes":True,
+    "pattern_boost_exponent_fixed_without_optimizing_2026_top1":True,
+    "2026_aggregate_previously_inspected_in_other_experiments":True,
     "replace_production_model":False,
 }
 preds.to_csv(OUT/"one_per_race_pattern_scoring.csv",index=False)
