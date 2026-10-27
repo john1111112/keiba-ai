@@ -1,0 +1,20 @@
+name: JRA-VAN Interaction Research Gate Tests
+on:
+  pull_request:
+    paths:
+      - 'src/race_interaction_lab.py'
+      - 'scripts/test_race_interaction_lab.py'
+      - '.github/workflows/jra_interaction_tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Research source and timing integrity checks
+        run: python -m unittest -v scripts.test_race_interaction_lab scripts.test_data_trust_gate
