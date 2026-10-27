@@ -2,45 +2,60 @@
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-title KEIBA AI - Install Always-On Race Watch
+title KEIBA AI - Install Auto Race Monitor
 
 echo ================================================================
-echo KEIBA AI: Install automatic race monitoring without opening UI
+echo KEIBA AI - one-time setup for unattended all-race monitoring
 echo ================================================================
-where py >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    set "PYTHON=py"
-    set "PY_ARGS=-3"
-) else (
-    where python >nul 2>&1
-    if %ERRORLEVEL% NEQ 0 (
-        echo [ERROR] Python not found. Install Python and retry.
+
+if not exist ".venv\Scripts\python.exe" (
+    where py >nul 2>&1
+    if not errorlevel 1 (
+        py -3 -m venv .venv
+    ) else (
+        where python >nul 2>&1
+        if errorlevel 1 (
+            echo [ERROR] Install Python 3 first.
+            pause
+            exit /b 1
+        )
+        python -m venv .venv
+    )
+    if errorlevel 1 (
+        echo [ERROR] Python virtual environment creation failed.
         pause
         exit /b 1
     )
-    set "PYTHON=python"
-    set "PY_ARGS="
 )
 
-rem Explicit installation enables Discord candidate alerts while keeping
-rem JRA-VAN source verification, odds freshness, and zero-bet protection.
-"%PYTHON%" %PY_ARGS% scripts\enable_personal_monitor.py
-if %ERRORLEVEL% NEQ 0 (
+set "KEIBA_PYTHON=%CD%\.venv\Scripts\python.exe"
+echo [1/3] Installing Python dependencies in project-only environment...
+"%KEIBA_PYTHON%" -m pip install -r requirements.txt pywin32
+if errorlevel 1 (
+    echo [ERROR] Dependency installation failed. No background monitor registered.
+    pause
+    exit /b 1
+)
+
+echo [2/3] Enabling personal Discord buy-candidate notifications...
+"%KEIBA_PYTHON%" scripts\enable_personal_monitor.py
+if errorlevel 1 (
     echo [ERROR] Notification configuration failed.
     pause
     exit /b 1
 )
 
+echo [3/3] Registering one-minute Windows Task Scheduler monitor...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup_windows_task.ps1" -Action register -IntervalMinutes 1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Windows Task Scheduler registration failed.
+if errorlevel 1 (
+    echo [ERROR] Scheduled task registration failed.
     pause
     exit /b 1
 )
 
-echo [OK] Race monitoring starts automatically in Windows each minute.
-echo [INFO] The Streamlit UI is not required for monitoring.
-echo [INFO] For phone alerts, configure Discord webhook once in KEIBA AI.
-echo [INFO] Your Windows PC must remain on; SDK and JRA-VAN access are required.
+echo [OK] Background monitoring is registered. You do not need to open the app.
+echo [INFO] For phone push configure Discord webhook and optionally your Discord user ID.
+echo [INFO] JRA-VAN Data Lab SDK, registered access and a powered-on Windows PC are required.
+echo [INFO] If using classic 32-bit JV-Link, install pywin32 in 32-bit Python separately.
 pause
 exit /b 0
