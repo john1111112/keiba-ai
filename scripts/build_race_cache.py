@@ -18,6 +18,7 @@ from src.database import load_all_race_data, evaluate_race_completeness_and_expo
 from src.features import build_features, get_feature_cols_by_version
 from src.model import KeibaAIModel, MODEL_PATH, MODEL_V2_28_PATH
 from src.backtest import analyze_rank_performance, run_backtest
+from src.data_trust_gate import require_verified_race_data
 
 
 def compute_walkforward_probabilities(
@@ -141,6 +142,7 @@ def build_cache_pipeline(
     【Phase 3A: 固定日付撤去・不完全レースCSV出力・28特徴量対応・期待値誤計算廃止版】
     - 本番DB・本番モデル・本番キャッシュはデフォルトで一切上書きしない。
     """
+    require_verified_race_data(db_path, purpose="training")
     t0 = time.time()
     feat_path = feat_out_path or (repo_root / "data" / "features.parquet")
     cache_path = rank_cache_out_path or (repo_root / "data" / "race_rank_cache.parquet")
