@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from contextlib import closing
 import json
 import os
 import platform
@@ -176,7 +177,7 @@ def check(root: Path = ROOT, *, include_os_probe: bool = True) -> dict:
     db = data / "alert_state.db"
     if db.is_file():
         try:
-            with sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True, timeout=3) as conn:
+            with closing(sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True, timeout=3)) as conn:
                 row = conn.execute(
                     "SELECT first_sent_at, race_id, horse_number "
                     "FROM alert_delivery WHERE discord_status='DELIVERED' "
