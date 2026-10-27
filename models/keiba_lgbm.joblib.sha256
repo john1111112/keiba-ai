@@ -1,0 +1,6 @@
+{
+  "sha256": "fc9757cb9220e5b629fb292f17a2bf1e7343458f0b575e49301f232e0ac473c4",
+  "feature_version": "v1_31cols",
+  "n_features": 31,
+  "origin": "git-tracked bundled models/keiba_lgbm.joblib"
+}
