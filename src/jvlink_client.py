@@ -141,6 +141,51 @@ def find_32bit_python() -> Optional[str]:
     return None
 
 
+def _python_bitness(candidate: str) -> Optional[int]:
+    """Read interpreter architecture; do not assume from its filename."""
+    try:
+        result = subprocess.run(
+            [candidate, "-c", "import struct; print(struct.calcsize('P') * 8)"],
+            capture_output=True, text=True, timeout=5, check=False
+        )
+        bits = result.stdout.strip()
+        return int(bits) if result.returncode == 0 and bits in ("32", "64") else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def find_jvlink_python() -> Optional[str]:
+    """Pick Python for classic 32-bit JV-Link or official 64-bit SDK 5.0.
+
+    KEIBA_JVLINK_PYTHON overrides the search (must be a valid interpreter).
+    """
+    if platform.system() != "Windows":
+        return None
+    configured = os.getenv("KEIBA_JVLINK_PYTHON", "").strip()
+    if configured:
+        return configured if Path(configured).is_file() and _python_bitness(configured) in (32, 64) else None
+
+    prefer_64 = os.getenv("KEIBA_JVLINK_PREFER_64BIT") == "1"
+    current_64 = struct.calcsize("P") * 8 == 64
+    def has_64bit_pywin32():
+        if not current_64:
+            return False
+        try:
+            import win32com.client
+            return True
+        except ImportError:
+            return False
+
+    if prefer_64 and has_64bit_pywin32():
+        return sys.executable
+    worker32 = find_32bit_python()
+    if worker32:
+        return worker32
+    if has_64bit_pywin32():
+        return sys.executable
+    return None
+
+
 def check_environment_compatibility() -> Dict[str, Any]:
     """
     Windows環境、32bit/64bitアーキテクチャ、pywin32、SDK登録状態を独立診断する。
@@ -180,6 +225,7 @@ def check_environment_compatibility() -> Dict[str, Any]:
             sdk_registered = False
 
     python32_path = find_32bit_python()
+    jvlink_python = find_jvlink_python()
     provider_cfg = load_provider_config()
     jra_van_authorized = bool(provider_cfg.get("jra_van_authorized"))
 
@@ -189,9 +235,9 @@ def check_environment_compatibility() -> Dict[str, Any]:
     if not is_windows:
         overall_status = "BLOCKED"
         issues.append("Operating system is not Windows (JV-Link requires Windows).")
-    elif not python32_path:
+    elif not jvlink_python:
         overall_status = "SETUP_REQUIRED"
-        issues.append("The JV-Link worker requires 32-bit Python and pywin32.")
+        issues.append("A matching 32-bit or 64-bit JV-Link SDK and pywin32 interpreter are required.")
     elif not sdk_registered:
         overall_status = "SETUP_REQUIRED"
         issues.append("JV-Link SDK (JVDTLab.JVLink) is not registered in Windows registry.")
@@ -210,6 +256,8 @@ def check_environment_compatibility() -> Dict[str, Any]:
         "sdk_clsid": sdk_clsid,
         "python32_available": bool(python32_path),
         "python32_path": python32_path,
+        "jvlink_python": jvlink_python,
+        "jvlink_python_bitness": _python_bitness(jvlink_python) if jvlink_python else None,
         "jra_van_authorized": jra_van_authorized,
         "overall_status": overall_status,
         "issues": issues
@@ -305,9 +353,12 @@ class JVLinkClient:
         import uuid
         import tempfile
 
-        python32 = find_32bit_python()
-        if not python32:
-            raise JVLinkBridgeError("No 32-bit Python executable found to run JV-Link worker")
+        worker_python = find_jvlink_python()
+        if not worker_python:
+            raise JVLinkBridgeError("Compatible 32/64-bit JV-Link Python worker not found")
+        worker_bitness = _python_bitness(worker_python)
+        if worker_bitness not in (32, 64):
+            raise JVLinkBridgeError("Worker Python architecture could not be verified")
 
         unique_id = uuid.uuid4().hex
         if output_path is None:
@@ -323,7 +374,7 @@ class JVLinkClient:
 
         worker_script = REPO_ROOT / "src" / "jvlink_worker.py"
         cmd = [
-            python32,
+            worker_python,
             str(worker_script),
             "--sid", self.sid,
             "--spec", data_spec,
@@ -333,6 +384,8 @@ class JVLinkClient:
         ]
         if key:
             cmd.extend(["--key", key])
+        if worker_bitness == 64:
+            cmd.append("--allow-64bit")
 
         invocation_start_ts = int(time.time()) - 2
 
