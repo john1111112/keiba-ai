@@ -83,9 +83,24 @@ paired=output.pivot(index="race_id",columns="model",values="winner_rank")
 assert paired.notna().all().all()
 assert len(paired)==len(output)/2
 base=summary["baseline_28"];extended=summary["extended_asof"]
+def _populated_id_rate(column):
+    ids=test[column].fillna("").astype(str).str.strip().str.lower()
+    return float((~ids.isin(["","nan","none","0","不明"])).mean())
+coverage={
+   "2025_training_races":int(train.race_id.nunique()),
+   "2026_evaluation_races":int(test.race_id.nunique()),
+   "train_horses_with_3_or_more_prior_races_pct":float((train.past_race_count>=3).mean()*100),
+   "test_horses_with_3_or_more_prior_races_pct":float((test.past_race_count>=3).mean()*100),
+   "test_trainer_id_populated_pct":100*_populated_id_rate("trainer_id"),
+   "test_jockey_id_populated_pct":100*_populated_id_rate("jockey_id"),
+   "test_horse_id_populated_pct":100*_populated_id_rate("horse_id"),
+   "test_trainer_has_10_prior_starts_pct":float((test.trainer_prior_runs>=10).mean()*100),
+   "test_recent_jockey_has_10_prior_starts_pct":float((test.jockey_recent_runs>=10).mean()*100),
+}
 report=dict(status="RETROSPECTIVE_NOT_TIMESTAMP_CERTIFIED",train_last_date=str(train.date.max())[:10],
    test_first_date=str(test.date.min())[:10],test_last_date=str(test.date.max())[:10],
    train_races=int(train.race_id.nunique()),test_races=int(test.race_id.nunique()),
+   data_coverage=coverage,
    baseline=base,extended=extended,
    top1_rate_delta_pct_points=100*(extended["top1_rate"]-base["top1_rate"]),
    top3_rate_delta_pct_points=100*(extended["top3_rate"]-base["top3_rate"]),
