@@ -49,6 +49,13 @@ class OrchestrationTest(unittest.TestCase):
                 client.fetch_via_32bit_worker.call_args_list[1].kwargs["data_spec"], "0B31"
             )
             self.assertEqual(saved.call_count, 2)
+            coverage = json.loads(
+                (Path(tmp) / "latest_acquisition_summary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(coverage["race_count"], 0)
+            self.assertEqual(coverage["source"], "jra_van")
             ingested = client.process_records_to_feed.call_args.args[0]
             self.assertEqual([r[:2] for r in ingested], [b"RA", b"SE", b"O1"])
 
