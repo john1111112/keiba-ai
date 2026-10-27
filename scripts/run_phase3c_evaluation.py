@@ -37,6 +37,8 @@ import lightgbm as lgb
 
 
 def run_phase3c_pipeline():
+    from src.data_trust_gate import require_verified_race_data
+    require_verified_race_data(purpose="backtest")
     print("=" * 80)
     print("競馬AI Phase 3C: 市場オッズ基準モデル ＆ AI統合モデル 厳密検証")
     print("=" * 80)
