@@ -604,6 +604,9 @@ def run_monitor_scan(
     processed_races = 0
     all_candidates = []
     notifications_sent = 0
+    unsent_buy_candidates = 0
+    missing_discord_webhook = 0
+    discord_delivery_failures = 0
     errors = []
 
     # 安全ロック判定：設定上のフラグと正規データ認証状態の二重防護
@@ -704,6 +707,8 @@ def run_monitor_scan(
                 # or exhaust retries before that destination exists.
                 if config.get("discord_enabled", False) and not get_discord_webhook():
                     logger.warning("買い候補検出。Discord Webhook未設定のため送信保留")
+                    unsent_buy_candidates += 1
+                    missing_discord_webhook += 1
                     continue
                 event_type = f"EV_{min_ev}_WIN_{min_p}"
                 
@@ -808,6 +813,10 @@ def run_monitor_scan(
                 )
                 if overall_status in ("DELIVERED", "PARTIAL_SUCCESS"):
                     notifications_sent += 1
+                else:
+                    unsent_buy_candidates += 1
+                    if config.get("discord_enabled", False) and d_status != "DELIVERED":
+                        discord_delivery_failures += 1
                 logger.info(f"通知処理完了: レース {race_id} 馬番 {h_num} (status={overall_status})")
 
     eligible_count = sum(1 for c in all_candidates if c["eligible"])
@@ -826,6 +835,9 @@ def run_monitor_scan(
         "candidates_found": len(all_candidates),
         "eligible_candidates": eligible_count,
         "notifications_sent": notifications_sent,
+        "unsent_buy_candidates": unsent_buy_candidates,
+        "missing_discord_webhook": missing_discord_webhook,
+        "discord_delivery_failures": discord_delivery_failures,
         "errors": errors,
         "safety_lock_enabled": safety_lock_enabled,
         "is_certified_source": is_certified_source,
