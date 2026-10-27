@@ -31,6 +31,8 @@ import lightgbm as lgb
 
 
 def run_phase3b_audit_and_evaluation():
+    from src.data_trust_gate import require_verified_race_data
+    require_verified_race_data(purpose="backtest")
     print("=" * 80)
     print("競馬AI Phase 3B: 重大問題の監査・修正 ＆ 厳密ウォークフォワード検証")
     print("=" * 80)
