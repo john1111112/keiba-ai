@@ -62,7 +62,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         "discord_enabled": False,
         "discord_user_id": "",
         "safety_lock_enabled": True,  # 安全第一：正規データ検証完了まで本番通知をロック（デフォルトTrue）
-        "max_retries": 3,
+        "max_retries": 0,  # retry until race alert window closes
     }
     if p.is_file():
         try:
@@ -116,7 +116,8 @@ def is_already_delivered(
     horse_number: int,
     event_type: str,
     safety_lock_active: bool = False,
-    max_retries: int = 3
+    max_retries: int = 0,
+    claim_timeout_seconds: int = 180
 ) -> bool:
     """
     重複通知防止チェック
@@ -132,12 +133,12 @@ def is_already_delivered(
         return False
     with closing(sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True, timeout=30)) as conn:
         row = conn.execute(
-            "SELECT delivery_status, retry_count FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
+            "SELECT delivery_status, retry_count, first_sent_at FROM alert_delivery WHERE race_id = ? AND horse_number = ? AND event_type = ?",
             (str(race_id), int(horse_number), str(event_type))
         ).fetchone()
         if row is None:
             return False
-        status, retries = row[0], (row[1] or 0)
+        status, retries, claim_started_at = row[0], (row[1] or 0), row[2]
         if status in ("DELIVERED", "PARTIAL_SUCCESS"):
             return True
         if status == "SKIPPED_BY_SAFETY_LOCK":
@@ -145,8 +146,16 @@ def is_already_delivered(
             # ロック解除後なら再送を許可
             return safety_lock_active
         if status == "FAILED":
-            return retries >= max_retries
-        return status in ("CLAIMED",)
+            return max_retries > 0 and retries >= max_retries
+        if status in ("CLAIMED", "CLAIMED_RETRY"):
+            try:
+                started = datetime.fromisoformat(str(claim_started_at).replace("Z", "+00:00"))
+                if started.tzinfo is None:
+                    return True
+                return (datetime.now(timezone.utc) - started).total_seconds() < claim_timeout_seconds
+            except (ValueError, TypeError):
+                return True
+        return False
 
 
 def try_claim_alert(db_path: Path, race_id: str, horse_number: int, event_type: str) -> bool:
@@ -684,7 +693,7 @@ def run_monitor_scan(
                 event_type = f"EV_{min_ev}_WIN_{min_p}"
                 
                 # 重複通知防止チェック（安全ロック状態およびリトライ上限を渡す）
-                max_retries = config.get("max_retries", 3)
+                max_retries = config.get("max_retries", 0)
                 if is_already_delivered(
                     state_db, race_id, h_num, event_type,
                     safety_lock_active=safety_lock_enabled,
