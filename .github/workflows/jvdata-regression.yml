@@ -12,6 +12,7 @@ on:
       - "tests/test_jvlink_interpreter_selection.py"
       - "scripts/probe_jvlink_com.py"
       - "INSTALL_AUTO_MONITOR.bat"
+      - "REPAIR_PIP.bat"
       - "scripts/run_scheduled_task.bat"
       - "tests/test_jvlink_feed_orchestration.py"
       - "tests/test_live_jvlink_dashboard.py"
@@ -101,7 +102,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dest = "dist/KEIBA_AI_Windows_Beta"
           New-Item -ItemType Directory -Path "$dest/data" -Force | Out-Null
-          $paths = @("src", "scripts", "models", "app.py", "requirements.txt", "INSTALL_AUTO_MONITOR.bat", "CHECK_RELEASE.bat", "START_KEIBA_AI.bat", "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md")
+          $paths = @("src", "scripts", "models", "app.py", "requirements.txt", "INSTALL_AUTO_MONITOR.bat", "REPAIR_PIP.bat", "CHECK_RELEASE.bat", "START_KEIBA_AI.bat", "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md")
           foreach ($path in $paths) { Copy-Item -Recurse -Force $path $dest }
           Copy-Item "data/keiba.db" "$dest/data/keiba.db" -Force
           Compress-Archive -Path $dest -DestinationPath "dist/KEIBA_AI_Windows_Beta.zip" -Force
