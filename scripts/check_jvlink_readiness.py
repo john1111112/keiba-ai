@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.jvlink_client import check_environment_compatibility, find_32bit_python
+from src.jvlink_client import check_environment_compatibility, find_jvlink_python
 from src.provenance_verifier import load_provider_config
 from src.features import FEATURE_COLS_V2_28
 from src.automated_monitor import load_alert_config
@@ -56,16 +56,18 @@ def run_full_readiness_check() -> dict:
         "python_bitness": compat["python_architecture"],
         "win32com_installed": compat["win32com_available"],
         "python32_available": compat["python32_available"],
-        "python32_path": compat["python32_path"]
+        "python32_path": compat["python32_path"],
+        "jvlink_worker_python": compat.get("jvlink_python"),
+        "jvlink_worker_bitness": compat.get("jvlink_python_bitness")
     }
 
     # 2. JV-Link SDK & COM 独立診断
     com_creatable = False
     com_error = None
     probe_details = {}
-    if compat["python32_path"]:
+    if compat.get("jvlink_python"):
         try:
-            probe = subprocess.run([compat["python32_path"], str(REPO_ROOT / "scripts" / "probe_jvlink_com.py")], capture_output=True, text=True, timeout=12)
+            probe = subprocess.run([compat["jvlink_python"], str(REPO_ROOT / "scripts" / "probe_jvlink_com.py")], capture_output=True, text=True, timeout=12)
             probe_details = json.loads(probe.stdout)
             com_creatable = probe.returncode == 0 and probe_details.get("com_creatable") is True
             com_error = probe_details.get("error")
@@ -77,6 +79,7 @@ def run_full_readiness_check() -> dict:
         "sdk_clsid": compat["sdk_clsid"],
         "com_instantiable": com_creatable,
         "com_error": com_error,
+        "worker_probe": probe_details,
         "jra_van_authorized": compat["jra_van_authorized"]
     }
 
@@ -133,7 +136,7 @@ def run_full_readiness_check() -> dict:
 
     # 5. 8段階独立判定マトリクス (要求仕様厳密準拠)
     # 1. Python環境
-    m_python = "READY" if (compat["is_windows"] and compat["python32_available"] and probe_details.get("pywin32_available", False)) else "NOT_READY"
+    m_python = "READY" if (compat["is_windows"] and compat.get("jvlink_python") and probe_details.get("pywin32_available", False)) else "NOT_READY"
     # 2. SDK導入
     m_sdk = "READY" if com_creatable else "NOT_READY"
     # 3. COM接続
