@@ -168,6 +168,12 @@ def execute_jvlink_fetch(
         # provided (common on non-racing days and before a market opens).
         # It does NOT mean the connection is broken or a race was missed.
         if rc < 0:
+            # JRA-VAN requires JVClose even after an unsuccessful Open. Leaving
+            # the COM session open can cause subsequent calls to fail (-202).
+            try:
+                link.JVClose()
+            except Exception:
+                pass
             return {
                 "fetch_status": "NO_DATA_AVAILABLE" if rc == -1 else f"OPEN_FAILED_CODE_{rc}",
                 "error": f"JVOpen/JVRTOpen failed with return code {rc}",
@@ -445,7 +451,10 @@ def main(argv=None):
         "error": res.get("error")
     }, ensure_ascii=False))
 
-    sys.exit(0 if res.get("success") else 1)
+    # "No data published" is a normal completed request, not a subprocess
+    # transport crash. The 64-bit client must read its structured status.
+    sys.exit(0 if (res.get("success") or
+                  res.get("fetch_status") == "NO_DATA_AVAILABLE") else 1)
 
 
 if __name__ == "__main__":
