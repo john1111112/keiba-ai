@@ -37,6 +37,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [2/4] Checking installed JRA-VAN JV-Link COM (read-only)...
+"%KEIBA_PYTHON%" scripts\probe_jvlink_com.py
+if errorlevel 1 (
+    echo [ERROR] JRA-VAN JV-Link COM is not installed for this Python.
+    echo [NEXT] Install 64-bit JV-Link 5.0, or configure a matching 32-bit worker.
+    echo [INFO] A Data Lab trial was NOT started.
+    pause
+    exit /b 1
+)
+
 echo [2/3] Enabling personal Discord buy-candidate notifications...
 "%KEIBA_PYTHON%" scripts\enable_personal_monitor.py
 if errorlevel 1 (
@@ -45,7 +55,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] Registering one-minute Windows Task Scheduler monitor...
+echo [3/4] Checking activation consent...
+echo [IMPORTANT] Automatic monitoring starts JRA-VAN access immediately.
+echo [IMPORTANT] If this is your first access, it may start a Data Lab trial.
+choice /C YN /M "Authorize starting JRA-VAN automatic monitoring now?"
+if errorlevel 2 (
+    echo [PREPARED] Installation stopped before live JV-Link access.
+    pause
+    exit /b 0
+)
+
+echo [4/4] Registering one-minute Windows Task Scheduler monitor...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup_windows_task.ps1" -Action register -IntervalMinutes 1
 if errorlevel 1 (
     echo [ERROR] Scheduled task registration failed.
