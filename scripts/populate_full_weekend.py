@@ -436,19 +436,17 @@ def main():
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.cursor()
 
-    # 2026-09-01以降の旧シミュレーションデータおよび架空の2027000%レースを完全削除
-    cur.execute("DELETE FROM race_results WHERE race_id IN (SELECT race_id FROM races WHERE date >= '2026-09-01' OR race_id LIKE '202610%')")
-    cur.execute("DELETE FROM races WHERE date >= '2026-09-01' OR race_id LIKE '202610%'")
+    # Historical import is non-destructive: never delete or replace the production race archive.
 
     cur.executemany("""
-    INSERT OR REPLACE INTO races (
+    INSERT OR IGNORE INTO races (
         race_id, race_name, date, race_course, race_number,
         surface, distance, direction, weather, condition, grade
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, list(all_races.values()))
 
     cur.executemany("""
-    INSERT OR REPLACE INTO race_results (
+    INSERT OR IGNORE INTO race_results (
         race_id, finish_order, bracket_number, horse_number, horse_id, horse_name,
         sex, age, weight_carry, jockey_id, jockey_name, time_str, time_sec,
         margin_str, last_3f, odds, popularity, horse_weight, horse_weight_diff,
@@ -458,7 +456,7 @@ def main():
 
     conn.commit()
     conn.close()
-    print("Successfully updated data/keiba.db with 100% real JRA races!")
+    print("Completed non-destructive import. Unverified and missing fields remain NULL; provenance audit required.")
 
 if __name__ == "__main__":
     main()
