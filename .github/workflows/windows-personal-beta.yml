@@ -1,0 +1,79 @@
+name: Package Windows Personal Beta
+
+on:
+  push:
+    branches: [feature/prerace-odds-prediction-recorder]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "models/**"
+      - "data/keiba.db"
+      - "app.py"
+      - "*.bat"
+      - "requirements.txt"
+      - ".github/workflows/windows-personal-beta.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test runtime
+        run: python -m pip install -r requirements.txt
+      - name: Verify monitor, AI and Discord without real credentials
+        run: |
+          python -m compileall -q src scripts app.py
+          python -m unittest discover -s tests -p test_scheduled_live_scan_contract.py -v
+          python -m unittest discover -s tests -p test_live_buy_signal_end_to_end.py -v
+          python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
+          python -m unittest discover -s tests -p test_release_acceptance.py -v
+      - name: Assemble ready-to-install offline source bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = "release/KEIBA_AI_PERSONAL_BETA"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          foreach ($item in @(
+            "app.py", "requirements.txt", "START_KEIBA_AI.bat",
+            "INSTALL_AUTO_MONITOR.bat", "CHECK_RELEASE.bat",
+            "AUTO_MONITOR_README.md", "GO_LIVE_CHECKLIST.md", "src", "scripts", "models"
+          )) {
+            if (!(Test-Path $item)) { throw "Missing required release file: $item" }
+            Copy-Item -Path $item -Destination $stage -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force "$stage/data" | Out-Null
+          foreach ($item in @(
+            "data/keiba.db", "data/features.parquet", "data/race_rank_cache.parquet"
+          )) {
+            if (Test-Path $item) {
+              Copy-Item -Path $item -Destination "$stage/data" -Force
+            }
+          }
+          # Keep secrets and runtime state OUT of the downloadable bundle.
+          # No .venv, webhook, provider license keys, user data, or Git files.
+          $models = Get-ChildItem "$stage/models"
+          if (!($models.Name -contains "keiba_lgbm_win_v2_28cols.joblib") -or
+              !($models.Name -contains "keiba_lgbm_win_v2_28cols.joblib.sha256")) {
+            throw "Production prediction model is missing"
+          }
+          $zip = "release/KEIBA_AI_PERSONAL_BETA_Windows.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() |
+            Out-File -FilePath "release/KEIBA_AI_PERSONAL_BETA_Windows.zip.sha256" -Encoding ascii
+          Write-Host "[OK] Packaged $(Get-Item $zip).Length bytes"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KEIBA-AI-Personal-Beta-Windows
+          path: |
+            release/KEIBA_AI_PERSONAL_BETA_Windows.zip
+            release/KEIBA_AI_PERSONAL_BETA_Windows.zip.sha256
+          retention-days: 30
+          if-no-files-found: error

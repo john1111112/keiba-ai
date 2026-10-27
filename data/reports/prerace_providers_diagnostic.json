@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-10-26T11:12:58.229326",
+  "total_providers": 4,
+  "connected_providers": 0,
+  "all_sources_disconnected": true,
+  "status": "ALL_SOURCES_DISCONNECTED",
+  "details": [
+    {
+      "provider": "JV-Link",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "reason": "win32com library is not installed in current Python environment."
+    },
+    {
+      "provider": "LicensedFeed",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "reason": "Licensed feed directory (C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\feeds\\prerace_odds) or contract (C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\config\\phase12_feed_contract.json) not configured."
+    },
+    {
+      "provider": "NetkeibaLive",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "reason": "利用許諾未確認: Netkeiba利用規約に基づくAPI許諾契約が未設定です (config/netkeiba_license.json 不在)。HTTP 200疎通のみでの接続認可は禁止されています。"
+    },
+    {
+      "provider": "FileSnapshot",
+      "connected": false,
+      "status": "DISCONNECTED",
+      "snapshot_dir": "C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\snapshots",
+      "reason": "Directory C:\\Users\\user\\.gemini\\antigravity\\scratch\\keiba-ai\\data\\snapshots does not exist."
+    }
+  ],
+  "policy": "HTTP 200のみでの認可は禁止。利用許諾・実オッズデータ・公式発表時刻が未確認の場合は未接続(DISCONNECTED)とし、架空データ代用を排除して欠損(MISSING)として処理します。"
+}

@@ -30,8 +30,8 @@ def send_discord_test(webhook_url: Optional[str] = None) -> Dict[str, Any]:
         return {"success": False, "message": "Webhook URLが設定されていません。"}
         
     payload = {
-        "content": "@everyone 🚨【スマホ着信テスト】この通知でスマホが鳴れば成功です！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": "🚨【スマホ着信テスト】この通知でスマホが鳴れば成功です！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
@@ -110,8 +110,8 @@ def send_race_alert(race_info: Dict[str, Any], val_eval: Dict[str, Any], webhook
         
     prefix_icon = "🔥" if "SSランク" in rank else "⚡"
     payload = {
-        "content": f"@everyone 🚨【AI予想算出・即座通知】{prefix_icon} {rank} の勝負レースが検出されました！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": f"🚨【AI予想算出・即座通知】{prefix_icon} {rank} の勝負レースが検出されました！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
@@ -260,8 +260,8 @@ def notify_all_predicted_ss_s_races(df_feat: pd.DataFrame, model=None, webhook_u
         })
 
     summary_payload = {
-        "content": f"@everyone 🚨【AI予想算出・自動一括通知】発走前レースのAI予想が完了し、**🔥SSランク {len(ss_items)}鞍 / ⚡Sランク {len(s_items)}鞍** が認定されました！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": f"🚨【AI予想算出・自動一括通知】発走前レースのAI予想が完了し、**🔥SSランク {len(ss_items)}鞍 / ⚡Sランク {len(s_items)}鞍** が認定されました！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
@@ -297,3 +297,38 @@ def notify_all_predicted_ss_s_races(df_feat: pd.DataFrame, model=None, webhook_u
 def check_and_auto_notify_s_rank(race_info: dict, val_eval: dict, webhook_url: str = None) -> Optional[dict]:
     """互換用（個別レース閲覧時の遅延通知は廃止し、一括予想時通知に統一）"""
     return None
+
+
+import platform
+import subprocess
+
+def send_windows_notification(title: str, message: str) -> bool:
+    """Windowsデスクトップトースト通知（BalloonTip/Toast）を送信する"""
+    if platform.system() != "Windows":
+        return False
+    import os
+    code = r'''
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$icon = New-Object System.Windows.Forms.NotifyIcon
+$icon.Icon = [System.Drawing.SystemIcons]::Information
+$icon.Visible = $true
+$icon.BalloonTipTitle = $env:KEIBA_ALERT_TITLE
+$icon.BalloonTipText = $env:KEIBA_ALERT_MESSAGE
+$icon.ShowBalloonTip(10000)
+Start-Sleep -Seconds 4
+$icon.Dispose()
+'''
+    env = os.environ.copy()
+    env["KEIBA_ALERT_TITLE"] = title
+    env["KEIBA_ALERT_MESSAGE"] = message
+    try:
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", code],
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return True
+    except Exception:
+        return False

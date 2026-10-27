@@ -18,8 +18,8 @@ MODEL_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lg
 MODEL_WIN_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm_win_v2_28cols.joblib"
 BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
 
-# 既知の信頼済み本番モデル SHA-256（Phase 1 バックアップで確定済み）
-TRUSTED_V1_MODEL_SHA256 = "fc9757cb9220e5b6e2667a84f40eb750615472855fa4cf418d99460951f33eb1"
+# 同梱された Git 管理下の v1 モデル SHA-256（配布 ZIP のバイト列を独立検算）
+TRUSTED_V1_MODEL_SHA256 = "fc9757cb9220e5b629fb292f17a2bf1e7343458f0b575e49301f232e0ac473c4"
 
 MIN_VALID_FINISH_ORDER = 1
 MAX_VALID_FINISH_ORDER = 28
@@ -435,12 +435,15 @@ class KeibaAIWinModel(KeibaAIModel):
             res_df["pred_win_prob"] = np.minimum(res_df["pred_win_prob"], p_top3)
 
         # 取消・除外馬の除外と確率0化
-        if "time_str" in res_df.columns:
-            valid_mask = (res_df["finish_order"].fillna(0) >= 0) & (~res_df["time_str"].fillna("").astype(str).str.strip().isin(["", "-"]))
+        if "finish_order" in res_df.columns:
+            if "time_str" in res_df.columns:
+                valid_mask = (res_df["finish_order"].fillna(0) >= 0) & (~res_df["time_str"].fillna("").astype(str).str.strip().isin(["", "-"]))
+            else:
+                valid_mask = (res_df["finish_order"].fillna(0) >= 0)
+            unconfirmed = (res_df["finish_order"].fillna(0) == 0)
+            effective_runners = valid_mask | unconfirmed
         else:
-            valid_mask = (res_df["finish_order"].fillna(0) >= 0)
-        unconfirmed = (res_df["finish_order"].fillna(0) == 0)
-        effective_runners = valid_mask | unconfirmed
+            effective_runners = pd.Series(True, index=res_df.index)
         res_df.loc[~effective_runners, "pred_win_prob"] = 0.0
 
         # レース内合計1.0の正規化
@@ -452,7 +455,10 @@ class KeibaAIWinModel(KeibaAIModel):
         # 単勝期待値の計算
         # 単勝期待回収倍率 = 予測1着確率 × 単勝オッズ
         # 単勝期待利益率 = 単勝期待回収倍率 - 1.0
-        odds_col = pd.to_numeric(res_df.get("odds", np.nan), errors="coerce").fillna(0.0)
+        if "odds" in res_df.columns:
+            odds_col = pd.to_numeric(res_df["odds"], errors="coerce").fillna(0.0)
+        else:
+            odds_col = pd.Series(0.0, index=res_df.index)
         res_df["win_expected_value"] = res_df["pred_win_prob"] * odds_col
         res_df["expected_profit_margin"] = res_df["win_expected_value"] - 1.0
         res_df["expected_value"] = res_df["win_expected_value"]

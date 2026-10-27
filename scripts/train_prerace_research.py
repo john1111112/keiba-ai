@@ -1,0 +1,201 @@
+"""Research-only win model trained from pre-race feature bundles and separate labels.
+
+This is NOT a production prediction model: manual capture times and labels are
+not independently verified. The sealed 2026 holdout is never loaded. No
+betting, EV computation, or automatic prediction is enabled.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+from scripts.validate_prerace_features import (
+    ALLOWED, CATEGORICAL, aware_time, validate_feature_bundle,
+)
+
+NUMERIC = sorted(ALLOWED - CATEGORICAL - {"horse_number"})
+CATS = sorted(CATEGORICAL)
+REQUIRED_LABEL_KEYS = {"race_id", "horse_number", "won"}
+
+
+def _load_dataset(bundles_dir, labels_path):
+    # Preflight ALL bundles before even opening the labels file. A sealed
+    # 2026+ bundle must never cause its corresponding outcomes to be read.
+    paths = sorted(Path(bundles_dir).glob("*.json"))
+    if not paths:
+        raise ValueError("No feature bundles found")
+    if "2026" in Path(labels_path).name or "2026" in str(Path(labels_path).parent):
+        raise ValueError("2026+ labels path is sealed; refusing to open")
+    bundles = []
+    for path in paths:
+        if "2026" in path.name:
+            raise ValueError("2026+ feature path is sealed; refusing to open")
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        start = aware_time(bundle["race_start_time"])
+        if start >= aware_time("2026-01-01T00:00:00+09:00"):
+            raise ValueError("2026+ data is sealed and prohibited for model development")
+        validate_feature_bundle(bundle, as_of_time=bundle["received_at"])
+        bundles.append((start, bundle))
+    labels = json.loads(Path(labels_path).read_text(encoding="utf-8"))
+    if not isinstance(labels, list) or not labels:
+        raise ValueError("Labels must be a nonempty list")
+    by_key = {}
+    for row in labels:
+        if not isinstance(row, dict) or set(row) != REQUIRED_LABEL_KEYS:
+            raise ValueError("Each label must contain only race_id, horse_number, won")
+        race, horse, won = row["race_id"], row["horse_number"], row["won"]
+        if not isinstance(race, str) or not race.strip() or type(horse) is not int or type(won) is not bool:
+            raise ValueError("Invalid label")
+        key = (race, horse)
+        if key in by_key:
+            raise ValueError("Duplicate label")
+        by_key[key] = int(won)
+    dataset, seen_races, used_labels = [], set(), set()
+    for start, bundle in bundles:
+        race = bundle["race_id"]
+        if race in seen_races:
+            raise ValueError("Duplicate race bundle")
+        seen_races.add(race)
+        winners = 0
+        for features in bundle["features"]:
+            key = (race, features["horse_number"])
+            if key not in by_key:
+                raise ValueError("Missing result label for horse")
+            used_labels.add(key)
+            won = by_key[key]
+            winners += won
+            dataset.append((start, race, features, won))
+        if winners != 1:
+            raise ValueError("Exactly one winner required per complete race")
+    if set(by_key) != used_labels:
+        raise ValueError("Labels include horses or races absent from bundles")
+    dataset.sort(key=lambda row: (row[0], row[1], row[2]["horse_number"]))
+    return dataset, paths
+
+
+def train_research_model(bundles_dir, labels_path, *, train_before, validate_before, min_races=20):
+    train_cutoff, val_cutoff = aware_time(train_before), aware_time(validate_before)
+    if not train_cutoff < val_cutoff or val_cutoff.year >= 2026:
+        raise ValueError("Require chronological train/validation cutoffs before sealed 2026")
+    if type(min_races) is not int or min_races < 2:
+        raise ValueError("min_races must be >= 2")
+    dataset, paths = _load_dataset(bundles_dir, labels_path)
+    train = [row for row in dataset if row[0] < train_cutoff]
+    valid = [row for row in dataset if train_cutoff <= row[0] < val_cutoff]
+    excluded = [row for row in dataset if row[0] >= val_cutoff]
+    if len({r[1] for r in train}) < min_races or len({r[1] for r in valid}) < min_races:
+        raise ValueError("Insufficient complete races in train or validation window")
+    if len({r[3] for r in train}) < 2 or len({r[3] for r in valid}) < 2:
+        raise ValueError("Both classes required")
+    # No result columns, horse ID, odds, or race date can enter X.
+    fields = NUMERIC + CATS
+    X_train = [[r[2][key] for key in fields] for r in train]
+    X_valid = [[r[2][key] for key in fields] for r in valid]
+    y_train = np.asarray([r[3] for r in train])
+    y_valid = np.asarray([r[3] for r in valid])
+    numeric_idx = list(range(len(NUMERIC)))
+    cat_idx = list(range(len(NUMERIC), len(fields)))
+    transformer = ColumnTransformer([
+        ("num", Pipeline([("impute", SimpleImputer(strategy="median")),
+                           ("scale", StandardScaler())]), numeric_idx),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_idx),
+    ])
+    model = Pipeline([
+        ("features", transformer),
+        ("classifier", LogisticRegression(max_iter=1000, random_state=0)),
+    ])
+    model.fit(X_train, y_train)
+    prob = model.predict_proba(X_valid)[:, 1]
+    # Fair pre-race reference: assign each runner an equal share of the
+    # race's win probability, without using market odds or results.
+    runners_per_race = {}
+    for item in valid:
+        runners_per_race[item[1]] = runners_per_race.get(item[1], 0) + 1
+    baseline = np.asarray([1.0 / runners_per_race[item[1]] for item in valid])
+    if not np.all(np.isfinite(prob)):
+        raise ValueError("Nonfinite probabilities")
+    # Research-only race normalization. A binary classifier does not guarantee
+    # per-race win probabilities sum to 1; this is NOT calibration.
+    grouped = {}
+    for idx, item in enumerate(valid):
+        grouped.setdefault(item[1], []).append(idx)
+    normalized = np.zeros_like(prob)
+    race_nll, baseline_race_nll = [], []
+    for indices in grouped.values():
+        scores = np.clip(prob[indices], 0.0, 1.0)
+        total_score = float(scores.sum())
+        if not math.isfinite(total_score) or total_score <= 0:
+            raise ValueError("Cannot normalize zero or nonfinite race scores")
+        normalized[indices] = scores / total_score
+        winning_index = next(idx for idx in indices if y_valid[idx] == 1)
+        race_nll.append(-math.log(max(float(normalized[winning_index]), 1e-15)))
+        baseline_race_nll.append(math.log(len(indices)))
+    if not np.all(np.isfinite(normalized)):
+        raise ValueError("Nonfinite normalized scores")
+    # No model file or individual horse predictions are exported.
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    digest.update(Path(labels_path).read_bytes())
+    return {
+        "status": "RESEARCH_ONLY_UNCERTIFIED",
+        "bet_status": "NO_BET",
+        "asof_certified": False,
+        "production_inference_allowed": False,
+        "holdout_2026_accessed": False,
+        "train_races": len({r[1] for r in train}),
+        "validation_races": len({r[1] for r in valid}),
+        "train_horses": len(train),
+        "validation_horses": len(valid),
+        "excluded_post_validation_horses": len(excluded),
+        "train_before": train_cutoff.isoformat(),
+        "validate_before": val_cutoff.isoformat(),
+        "features": fields,
+        "brier_score": float(brier_score_loss(y_valid, prob)),
+        "race_normalized_brier_research_only": float(brier_score_loss(y_valid, normalized)),
+        "race_winner_nll_research_only": float(np.mean(race_nll)),
+        "uniform_race_winner_nll": float(np.mean(baseline_race_nll)),
+        "uniform_race_baseline_brier": float(brier_score_loss(y_valid, baseline)),
+        "uniform_race_baseline_log_loss": float(log_loss(y_valid, baseline, labels=[0, 1])),
+        "log_loss": float(log_loss(y_valid, prob, labels=[0, 1])),
+        "roc_auc": float(roc_auc_score(y_valid, prob)),
+        "input_sha256": digest.hexdigest(),
+        "warning": "Manual provenance unverified; race-normalized scores are NOT calibrated win probabilities; no EV or bets",
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Research-only time-split pre-race model")
+    parser.add_argument("--bundles-dir", required=True)
+    parser.add_argument("--labels", required=True)
+    parser.add_argument("--train-before", required=True)
+    parser.add_argument("--validate-before", required=True)
+    parser.add_argument("--min-races", type=int, default=20)
+    parser.add_argument("--out")
+    args = parser.parse_args()
+    result = train_research_model(args.bundles_dir, args.labels,
+                                  train_before=args.train_before,
+                                  validate_before=args.validate_before,
+                                  min_races=args.min_races)
+    payload = json.dumps(result, ensure_ascii=False, indent=2)
+    print(payload)
+    if args.out:
+        target = Path(args.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(payload + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

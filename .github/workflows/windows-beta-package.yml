@@ -1,0 +1,75 @@
+name: Build Windows personal beta package
+on:
+  push:
+    branches: [feature/prerace-odds-prediction-recorder]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "app.py"
+      - "requirements.txt"
+      - "INSTALL_AUTO_MONITOR.bat"
+      - "REPAIR_PIP.bat"
+      - "CHECK_RELEASE.bat"
+      - "START_KEIBA_AI.bat"
+      - "GO_LIVE_CHECKLIST.md"
+      - ".github/workflows/windows-beta-package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows-beta:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify application compiles
+        run: python -m compileall -q app.py src scripts
+      - name: Verify essential deliverable files
+        shell: pwsh
+        run: |
+          $files = @(
+            "INSTALL_AUTO_MONITOR.bat",
+            "REPAIR_PIP.bat",
+            "CHECK_RELEASE.bat",
+            "START_KEIBA_AI.bat",
+            "requirements.txt",
+            "scripts/run_scheduled_task.bat",
+            "scripts/setup_windows_task.ps1",
+            "scripts/check_release_readiness.py",
+            "models/keiba_lgbm_win_v2_28cols.joblib",
+            "models/keiba_lgbm_win_v2_28cols.joblib.sha256"
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing beta deliverable: $file" }
+          }
+      - name: Package standalone extract-and-install folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "dist/KEIBA_AI_Windows_Beta"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          $paths = @(
+            "src", "scripts", "models", "app.py",
+            "requirements.txt", "INSTALL_AUTO_MONITOR.bat", "REPAIR_PIP.bat",
+            "CHECK_RELEASE.bat", "START_KEIBA_AI.bat",
+            "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md"
+          )
+          foreach ($p in $paths) { Copy-Item -Recurse -Force $p $root }
+          New-Item -ItemType Directory -Force "$root/data" | Out-Null
+          Copy-Item "data/keiba.db" "$root/data/keiba.db" -Force
+          if (Test-Path "data/features.parquet") {
+            Copy-Item "data/features.parquet" "$root/data/features.parquet" -Force
+          }
+          $zip = "dist/KEIBA_AI_Windows_Beta.zip"
+          Compress-Archive -Path $root -DestinationPath $zip -Force
+          Write-Host ("ZIP bytes: " + (Get-Item $zip).Length)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KEIBA_AI_Windows_Beta
+          path: dist/KEIBA_AI_Windows_Beta.zip
+          retention-days: 30

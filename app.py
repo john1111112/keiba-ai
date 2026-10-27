@@ -8,12 +8,14 @@ from pathlib import Path
 
 from src.database import init_db, load_all_race_data, get_db_stats, get_connection, get_races_metadata
 from src.features import build_features, build_features_for_race_with_history
-from src.model import KeibaAIModel, MODEL_PATH
+from src.model import KeibaAIModel, KeibaAIWinModel, MODEL_PATH, MODEL_WIN_V2_28_PATH
+from scripts.build_race_dashboard import build_dashboard
 
 import src.backtest as bt_mod
 importlib.reload(bt_mod)
 import src.notifier as notif_mod
 importlib.reload(notif_mod)
+send_windows_notification = getattr(notif_mod, "send_windows_notification", None)
 import src.betting_strategy as bs_mod
 importlib.reload(bs_mod)
 
@@ -140,6 +142,16 @@ with st.sidebar:
                 st.error(res_test["message"])
     st.divider()
     
+    # Windowsデスクトップ通知
+    st.subheader("🖥️ Windowsデスクトップ通知")
+    if st.button("🔔 デスクトップ通知テスト", use_container_width=True):
+        if send_windows_notification:
+            ok = send_windows_notification("🏇 KEIBA AI", "Windowsデスクトップ通知は正常に稼働しています。")
+            if ok:
+                st.success("デスクトップ通知を送信しました！")
+            else:
+                st.warning("通知送信に失敗しました（Windows環境をご確認ください）。")
+    st.divider()
     # 実在JRAデータ同期・キャッシュ再読込（SELECT専用・DELETE処理完全撤去）
     st.subheader("🌐 JRA公式実在データ管理")
     st.caption("※データベース保護のため、画面からのデータ削除処理は無効化されています。")
@@ -153,8 +165,9 @@ with st.sidebar:
 st.markdown('<div class="main-header">🏇 AI競馬予想システム（過去データ集積型）</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">過去の走破時計・血統・騎手成績・枠順・斤量適性をAIが複合分析し、好走確率と期待値を算出します</div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🔮 レース予想（出馬表＆AI判定）",
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏇 本日レース・AI期待値速報",
+    "🔮 過去レース予想（出馬表＆AI判定）",
     "📈 収益率シミュレーション（厳選投資 vs 全買い）",
     "🎯 実力検証＆跳ね上がり条件",
     "🔔 Discord通知設定・送信",
@@ -162,6 +175,341 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 cache_key = _get_cache_key()
+
+# ==========================================
+# タブ0: 本日レース・AI期待値速報（当日リアルタイム）
+# ==========================================
+with tab0:
+    st.subheader("🏁 本日開催レース・リアルタイムAI単勝勝率 ＆ 期待値分析")
+    st.caption("公式認可データおよび単勝1着モデル（28特徴量）に基づく期待回収倍率ランキング")
+
+    # --- JV-Link 接続・実運用準備 8段階診断マトリクス (Expander) ---
+    with st.expander("📡 JV-Link (JRA-VAN) 接続・実運用準備ステータス（8段階診断マトリクス）", expanded=False):
+        try:
+            from scripts.check_jvlink_readiness import run_full_readiness_check
+            chk = run_full_readiness_check()
+            m = chk["matrix"]
+            
+            c_dia1, c_dia2, c_dia3, c_dia4 = st.columns(4)
+            with c_dia1:
+                st.write("**1. Python環境 (32bit共存)**")
+                if m["python_env"] == "READY":
+                    st.success("✅ READY (32bit配備済)")
+                else:
+                    st.error("❌ NOT_READY")
+                    
+                st.write("**5. 利用権限 (JRA-VAN)**")
+                if m["subscription_auth"] == "AUTHORIZED":
+                    st.success("✅ AUTHORIZED")
+                else:
+                    st.info("ℹ️ 未検証（接続結果に基づき確認）")
+
+            with c_dia2:
+                st.write("**2. SDK導入 (JRA-VAN)**")
+                if m["sdk_installation"] == "READY":
+                    st.success("✅ READY (登録済)")
+                else:
+                    st.warning("⚠️ NOT_READY (未インストール)")
+
+                st.write("**6. 実データ取得 (JRA-VAN)**")
+                if m["live_data_fetch"] == "SUCCESS":
+                    st.success("✅ SUCCESS")
+                elif m["live_data_fetch"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED (実データ0件・待機中)")
+                else:
+                    st.error("❌ FAILED")
+
+            with c_dia3:
+                st.write("**3. COM接続 (JVDTLab.JVLink)**")
+                if m["com_connection"] == "READY":
+                    st.success("✅ READY")
+                else:
+                    st.warning("⚠️ NOT_READY (SDK導入後稼働)")
+
+                st.write("**7. AI予測パイプライン**")
+                if m["ai_prediction"] == "SUCCESS":
+                    st.success("✅ SUCCESS (28特徴量検証済)")
+                elif m["ai_prediction"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED（実データ推論前）")
+                else:
+                    st.error("❌ FAILED")
+
+            with c_dia4:
+                st.write("**4. API仕様検証 (SDK照合)**")
+                if m["api_specification"] == "VERIFIED":
+                    st.success("✅ VERIFIED (公式照合済)")
+                else:
+                    st.warning("⚠️ UNVERIFIED")
+
+                st.write("**8. 通知システム (重複抑止)**")
+                if m["notification"] == "SUCCESS":
+                    st.success("✅ SUCCESS (安全ロック稼働)")
+                elif m["notification"] == "NOT_TESTED":
+                    st.info("ℹ️ NOT_TESTED（本番通知未検証）")
+                else:
+                    st.error("❌ FAILED")
+
+            if chk["action_required"]:
+                st.info("💡 **実運用開始へのステップ**: " + " / ".join(chk["action_required"]))
+        except Exception as e:
+            st.caption(f"診断情報取得ステータス: {e}")
+    
+    col_t1, col_t2 = st.columns([3, 1])
+    with col_t1:
+        snapshot_source = st.selectbox(
+            "📡 データ取得ソース",
+            ["最新JV-Link公式フィード (data/authorized_feed/latest_jvlink_feed.json)", "発走前スケジュール (data/upcoming_races.json)", "手動スナップショット指定"],
+            index=0
+        )
+    with col_t2:
+        st.write("")
+        st.write("")
+        refresh_btn = st.button("🔄 最新オッズ・予測再計算", use_container_width=True)
+
+    if refresh_btn:
+        # Fetch an actual JV-Link snapshot. A cache-only rerun cannot refresh odds.
+        # This read-only UI action never dispatches alerts or places a bet.
+        try:
+            from src.jvlink_client import JVLinkClient
+            with st.spinner("JRA-VANからレース・オッズを取得中..."):
+                fresh_feed = JVLinkClient().fetch_and_build_live_feed()
+            st.cache_data.clear()
+            st.success(f"JV-Link取得完了: {len(fresh_feed.get('races', []))} レース")
+        except Exception as exc:
+            st.warning(f"JV-Linkからの取得に失敗しました（既存データへの切替なし）: {exc}")
+
+    feed_file = Path("data/authorized_feed/latest_jvlink_feed.json")
+    if "upcoming_races" in snapshot_source:
+        feed_file = Path("data/upcoming_races.json")
+    elif "手動" in snapshot_source:
+        custom_p = st.text_input("スナップショットJSONパス", "data/snapshots/sample.json")
+        feed_file = Path(custom_p)
+
+    def _render_today_live_summary():
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        with c_m1:
+            win_model_loaded = MODEL_WIN_V2_28_PATH.exists()
+            st.metric("単勝勝率AIモデル", "モデルファイルあり（稼働は別途検証）" if win_model_loaded else "未ロード")
+        with c_m2:
+            feed_exists = feed_file.exists()
+            st.metric("データ取得状況", "保存フィードあり（認証別途確認）" if feed_exists else "未接続（架空補完なし）")
+        with c_m3:
+            from src.automated_monitor import load_alert_config
+            notification_config = load_alert_config()
+            running_status = "監視停止または未確認"
+            state_file = Path("data/monitor_daemon_status.json")
+            if state_file.is_file():
+                try:
+                    import json
+                    from datetime import datetime, timezone
+                    runtime = json.loads(state_file.read_text(encoding="utf-8"))
+                    last_checked = datetime.fromisoformat(runtime["last_run_at"])
+                    if last_checked.tzinfo is not None and (
+                        datetime.now(timezone.utc) - last_checked
+                    ).total_seconds() <= 180 and runtime.get("daemon_status") in ("RUNNING", "ERROR_RECOVERING"):
+                        last_scan = runtime.get("last_scan_result") or {}
+                        if last_scan.get("unsent_buy_candidates", 0):
+                            missing = last_scan.get("missing_discord_webhook", 0)
+                            running_status = (
+                                "買い候補あり・Discord接続先未設定"
+                                if missing else "買い候補の通知失敗・再試行中"
+                            )
+                        elif last_scan.get("status") in (
+                            "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
+                            "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
+                            "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST", "INFERENCE_BLOCKED"
+                        ):
+                            running_status = "接続・解析エラー（自動再試行中）"
+                        else:
+                            running_status = "監視中（通知安全ロック）" if notification_config.get(
+                                "safety_lock_enabled", True
+                            ) else "監視中（通知条件判定）"
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            st.metric("自動通知状態", running_status)
+        with c_m4:
+            from datetime import datetime
+            st.metric("最終更新", datetime.now().strftime("%H:%M:%S"))
+
+        if not feed_file.exists():
+            st.info(f"💡 現在、{feed_file.name} に本日の認可レースデータが存在しません。\n"
+                    "※ 安全方針により、架空データや確定オッズによる補完・代用は一切行いません（未接続・欠損扱い）。\n"
+                    "公式フィードまたはJV-Linkが接続され次第、自動的に最新オッズと期待値が表示されます。")
+        else:
+            try:
+                # AI予測マニフェストの生成（win_model利用）
+                if feed_file.name == "latest_jvlink_feed.json":
+                    from scripts.build_live_jvlink_dashboard import build_live_dashboard
+                    dash_report = build_live_dashboard(feed_file)
+                else:
+                    dash_report = build_dashboard(feed_file)
+                if dash_report.get("diagnostics"):
+                    st.warning(" / ".join(dash_report["diagnostics"][:3]))
+                if dash_report.get("status") not in (
+                    "VERIFIED_LIVE_READ_ONLY", "INFERENCE_PARTIAL", "READ_ONLY_UNCERTIFIED"
+                ):
+                    st.info(f"取得・解析状態: {dash_report.get('status', 'UNKNOWN')}")
+                rows = dash_report.get("rows", [])
+                if rows:
+                    df_dash = pd.DataFrame(rows)
+                    df_dash = df_dash.rename(columns={
+                        "race_id": "レースID", "race_time": "発走日時",
+                        "horse_number": "馬番", "horse_name": "馬名",
+                        "win_odds": "単勝オッズ", "odds_observed_at": "オッズ観測日時",
+                        "win_probability": "AI単勝勝率", "expected_value": "期待回収倍率",
+                        "recommendation": "推奨判定"
+                    })
+                    # ランキング表示
+                    st.dataframe(df_dash, hide_index=True, use_container_width=True)
+                    
+                    # 注目レース・高期待値馬ピックアップ
+                    if "期待回収倍率" in df_dash.columns and df_dash["期待回収倍率"].notna().any():
+                        top_ev = df_dash.dropna(subset=["期待回収倍率"]).sort_values("期待回収倍率", ascending=False).head(3)
+                        st.markdown("### 🔥 本日のAI期待値 TOP 3")
+                        st.dataframe(top_ev, hide_index=True, use_container_width=True)
+                else:
+                    st.info("現在発走前の対象レースがありません。")
+            except Exception as e:
+                st.warning(f"データ解析ステータス: {e}")
+
+    # Streamlit 1.37+ refreshes the live grid every minute without user clicks.
+    # On earlier versions the normal widget-triggered rerun still works.
+    _daily_grid = (
+        st.fragment(run_every="60s")(_render_today_live_summary)
+        if hasattr(st, "fragment") else _render_today_live_summary
+    )
+    _daily_grid()
+
+    st.divider()
+    
+    # --- 監視状況・通知設定・履歴セクション ---
+    st.markdown("### ⚙️ バックグラウンド自動監視 ＆ 自動通知管理")
+    st.caption("画面を閉じていてもWindows上で自動的にレースを分析し、条件合致時に通知します。")
+
+    col_m1, col_m2 = st.columns(2)
+    
+    with col_m1:
+        st.markdown("#### 📡 監視デーモン稼働状況")
+        daemon_status_file = Path("data/monitor_daemon_status.json")
+        daemon_status = "停止中 (START_KEIBA_AI.bat またはタスクスケジューラで起動)"
+        daemon_pid = None
+        last_run_time = "未実行"
+        cycles = 0
+        if daemon_status_file.is_file():
+            try:
+                import json
+                d_info = json.loads(daemon_status_file.read_text(encoding="utf-8"))
+                daemon_status = d_info.get("daemon_status", "不明")
+                daemon_pid = d_info.get("pid")
+                last_run_time = d_info.get("last_run_at", "未実行")
+                cycles = d_info.get("cycle_count", 0)
+            except Exception:
+                pass
+        
+        st.write(f"**ステータス**: `{daemon_status}`" + (f" (PID: {daemon_pid})" if daemon_pid else ""))
+        st.write(f"**累計実行サイクル**: `{cycles} 回`")
+        st.write(f"**最終スキャン時刻**: `{last_run_time}`")
+        
+        c_btn1, c_btn2 = st.columns(2)
+        with c_btn1:
+            if st.button("▶️ 今すぐ手動スキャン実行", use_container_width=True):
+                from scripts.run_background_scan import run_cycle
+                with st.spinner("スキャン＆推論実行中..."):
+                    res = run_cycle("data/authorized_feed/latest_jvlink_feed.json", "data/alert_state.db", use_jvlink=True)
+                    st.success(f"スキャン完了: 処理レース={res.get('processed_races')}, 候補={res.get('candidates_found')}, 通知={res.get('notifications_sent')}")
+                    st.rerun()
+        with c_btn2:
+            st.caption("※タスクスケジューラ設定は `scripts/setup_windows_task.bat` から行えます。")
+
+    with col_m2:
+        st.markdown("#### 🎯 通知条件・閾値設定")
+        from src.automated_monitor import load_alert_config, save_alert_config
+        cfg = load_alert_config()
+        
+        c_c1, c_c2 = st.columns(2)
+        with c_c1:
+            in_min_ev = st.number_input("最低期待回収倍率 (EV)", min_value=1.0, max_value=10.0, value=float(cfg.get("min_ev", 1.15)), step=0.05)
+            in_win_toast = st.checkbox("Windowsデスクトップ通知", value=bool(cfg.get("windows_toast_enabled", True)))
+        with c_c2:
+            in_min_p = st.number_input("最低単勝勝率 (Win Prob)", min_value=0.05, max_value=1.0, value=float(cfg.get("min_win_prob", 0.20)), step=0.05)
+            in_discord = st.checkbox("Discord通知", value=bool(cfg.get("discord_enabled", False)))
+            in_max_odds_age = st.number_input(
+                "オッズ許容経過時間（秒）",
+                min_value=60, max_value=1200,
+                value=int(cfg.get("max_odds_age_seconds", 720)), step=60,
+                help="JRA-VANは当回レース以外のオッズ更新に10分以上かかる場合があります。",
+            )
+            
+        in_discord_user = st.text_input(
+            "スマホ通知先のDiscordユーザーID（任意）",
+            value=str(cfg.get("discord_user_id", "")),
+            help="自分のDiscordユーザーIDを入れると買い候補通知で自分宛にメンションします。未入力なら通常のWebhook投稿です。",
+        )
+        if in_discord and not in_discord_user.strip():
+            st.caption("通知が鳴らない場合はDiscordの通知設定を確認するか、自分のユーザーIDを指定してください。")
+
+        st.caption("本番通知は初期状態では無効。公式データの検証後にのみ通知できます。")
+        in_alerts_enabled = st.checkbox(
+            "🔔 公式データの検証が成功したら自動通知を許可",
+            value=not bool(cfg.get("safety_lock_enabled", True)),
+            help="有効にしても、取得元署名が確認できない場合は送信されません。",
+        )
+
+        if st.button("💾 条件設定を保存", use_container_width=True):
+            cfg["min_ev"] = round(in_min_ev, 2)
+            cfg["min_win_prob"] = round(in_min_p, 2)
+            cfg["windows_toast_enabled"] = in_win_toast
+            cfg["max_odds_age_seconds"] = int(in_max_odds_age)
+            cfg["discord_enabled"] = in_discord
+            user_id = in_discord_user.strip()
+            cfg["discord_user_id"] = user_id
+            cfg["safety_lock_enabled"] = not in_alerts_enabled
+            if user_id and (
+                not user_id.isascii() or not user_id.isdigit()
+                or not 17 <= len(user_id) <= 20
+            ):
+                st.error("DiscordユーザーIDは17〜20桁の数字で入力してください。")
+            else:
+                save_alert_config(cfg)
+                st.success("通知条件を保存しました！次回監視サイクルから適用されます。")
+
+    # --- 通知履歴テーブル ---
+    st.markdown("#### 📜 通知配信履歴（SQLite: data/alert_state.db）")
+    alert_db = Path("data/alert_state.db")
+    if alert_db.is_file():
+        try:
+            import sqlite3
+            from contextlib import closing
+            with closing(sqlite3.connect(f"file:{alert_db.resolve()}?mode=ro", uri=True)) as conn:
+                hist_df = pd.read_sql_query("""
+                SELECT race_id as レースID, horse_number as 馬番, horse_name as 馬名,
+                       win_odds as 単勝オッズ, round(win_probability, 3) as AI勝率,
+                       round(expected_value, 2) as 期待値, first_sent_at as 送信時刻,
+                       channel as チャネル, delivery_status as 状態
+                FROM alert_delivery ORDER BY id DESC LIMIT 20
+                """, conn)
+            if len(hist_df) > 0:
+                st.dataframe(hist_df, hide_index=True, use_container_width=True)
+            else:
+                st.info("まだ通知履歴はありません。条件に合致するレースが検知され次第、自動記録されます。")
+        except Exception as exc:
+            st.info("通知履歴データベースの初期化待機中...")
+    else:
+        st.info("まだ通知履歴データベースはありません。")
+
+    # --- 直近の監視ログ ---
+    with st.expander("📝 監視ログ（直近の実行ログ）"):
+        log_file = Path("data/background_monitor.log")
+        if log_file.is_file():
+            try:
+                lines = log_file.read_text(encoding="utf-8").splitlines()
+                st.code("\n".join(lines[-25:]), language="text")
+            except Exception:
+                st.caption("ログ読込中...")
+        else:
+            st.caption("ログファイルは監視実行時に自動生成されます。")
+
+
 
 # ==========================================
 # タブ1: レース予想
@@ -176,9 +524,9 @@ with tab1:
         df_feat, fcols = load_features_v4(cache_key)
         model = KeibaAIModel()
         
-        # レース選択を待たず、AI予想データ生成時点で未通知の発走前SS/Sランク全鞍を一括自動プッシュ通知
-        if notify_all_predicted_ss_s_races:
-            notify_all_predicted_ss_s_races(df_feat, model)
+        # Legacy top-3-score batches must NEVER send push notifications on
+        # dashboard reruns. Only the headless, signed JV-Link win-EV monitor
+        # may issue automatic buy-candidate notifications.
         
         cache_rank_df = load_race_rank_df(cache_key)
         if len(cache_rank_df) > 0:
@@ -663,27 +1011,13 @@ with tab4:
                 st.error(f"❌ 送信エラー: {t_res['message']}")
                 
     st.divider()
-    st.markdown("#### 2. 🤖 AI予想算出時の一括自動通知ステータス")
-    notified_list = get_notified_races()
-    st.success(f"現在、AIがSSランク・Sランクと予想した発走前勝負レース **{len(notified_list)}鞍** が、予想算出時点でDiscordへ一括自動通知済みです（サイトを開いてレースを選択する前に自動通知されます）。")
-    col_n1, col_n2 = st.columns(2)
-    with col_n1:
-        if st.button("🚀 今週末の全SS・Sランク予想を今すぐ一括再送信する", use_container_width=True, type="primary"):
-            if NOTIFIED_PATH.exists():
-                NOTIFIED_PATH.unlink()
-            df_feat_cur, _ = load_features_v4(cache_key)
-            m = KeibaAIModel()
-            if notify_all_predicted_ss_s_races:
-                b_res = notify_all_predicted_ss_s_races(df_feat_cur, m, tab_hook_input)
-                if b_res.get("success"):
-                    st.success(f"🎉 {b_res.get('message')}")
-                else:
-                    st.error(b_res.get("message", "送信エラー"))
-    with col_n2:
-        if st.button("🔄 送信済み履歴をリセット", use_container_width=True):
-            if NOTIFIED_PATH.exists():
-                NOTIFIED_PATH.unlink()
-            st.success("送信済み履歴をクリアしました！")
+    st.markdown("#### 2. 自動監視の通知")
+    st.info(
+        "買い候補の自動通知は、Windowsタスクスケジューラの "
+        "KeibaAI_BackgroundMonitor が公式JV-Link取得データと "
+        "単勝1着確率・期待値を検証して送ります。"
+        "画面の再表示や履歴データから通知を再送しません。"
+    )
 
 # ==========================================
 # タブ5: 蓄積データ統計

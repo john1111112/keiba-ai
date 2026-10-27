@@ -1,0 +1,37 @@
+name: JV-Link Offline Unit Tests
+on:
+  workflow_dispatch:
+jobs:
+  offline-tests:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run offline JV-Link tests without SDK or trial
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_jvlink*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_run_jvlink_collection.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_jvlink_capture_status.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_audit_jvlink_raw.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_capture_jvlink_cli.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_fetch_authorized_races.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_alert_policy_freshness.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m unittest discover -s tests -p "test_race_dashboard.py" -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Compile SDK boundary
+        shell: pwsh
+        run: |
+          python -m py_compile src/jvlink_raw_store.py src/jvlink_ingest.py src/jvlink_capture_status.py scripts/capture_jvlink.py scripts/run_jvlink_collection.py scripts/audit_jvlink_raw.py scripts/fetch_authorized_races.py src/alert_policy.py
