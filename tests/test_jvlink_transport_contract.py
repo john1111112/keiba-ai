@@ -72,6 +72,7 @@ class TransportContractTest(unittest.TestCase):
         self.assertEqual(result["fetch_status"], "NO_DATA_AVAILABLE")
         self.assertEqual(result["records_count"], 0)
         self.assertEqual(result["ra_records"], [])
+        self.assertTrue(link.closed)  # JVClose required after rc -1
 
     def test_opened_stream_with_no_record_is_off_day_not_error(self):
         link = FakeJVGetsLink([])
@@ -80,6 +81,31 @@ class TransportContractTest(unittest.TestCase):
         )
         self.assertEqual(result["fetch_status"], "NO_DATA_AVAILABLE")
         self.assertTrue(link.closed)
+
+    def test_worker_no_data_cli_returns_zero_without_faking_success(self):
+        from unittest.mock import patch
+        from src import jvlink_worker
+
+        with patch("src.jvlink_worker.run_worker_capture", return_value={
+            "success": False, "auth_status": "UNVERIFIED",
+            "fetch_status": "NO_DATA_AVAILABLE",
+            "records_count": 0, "error": "No data published"
+        }):
+            with self.assertRaises(SystemExit) as stop:
+                jvlink_worker.main(["--out", "unused.json"])
+            self.assertEqual(stop.exception.code, 0)
+
+    def test_real_worker_error_still_exits_nonzero(self):
+        from unittest.mock import patch
+        from src import jvlink_worker
+
+        with patch("src.jvlink_worker.run_worker_capture", return_value={
+            "success": False, "auth_status": "UNVERIFIED",
+            "fetch_status": "OPEN_FAILED_CODE_-301", "records_count": 0,
+        }):
+            with self.assertRaises(SystemExit) as stop:
+                jvlink_worker.main(["--out", "unused.json"])
+            self.assertEqual(stop.exception.code, 1)
 
     def test_other_jvlink_open_error_is_still_failure(self):
         class BadAuth(FakeJVGetsLink):
