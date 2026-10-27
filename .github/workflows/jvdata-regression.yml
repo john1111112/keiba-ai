@@ -14,6 +14,10 @@ on:
       - "INSTALL_AUTO_MONITOR.bat"
       - "REPAIR_PIP.bat"
       - "scripts/run_scheduled_task.bat"
+      - "scripts/run_scheduled_task_hidden.vbs"
+      - "scripts/hide_windows_monitor_window.ps1"
+      - "scripts/setup_windows_task.ps1"
+      - "tests/test_hidden_task_runner_windows.py"
       - "tests/test_jvlink_feed_orchestration.py"
       - "tests/test_live_jvlink_dashboard.py"
       - "tests/test_odds_notification_safety.py"
@@ -76,6 +80,7 @@ jobs:
           python -m unittest discover -s tests -p test_bundled_dashboard_model.py -v
           python -m unittest discover -s tests -p test_live_buy_signal_end_to_end.py -v
           python -m unittest discover -s tests -p test_scheduled_live_scan_contract.py -v
+          python -m unittest discover -s tests -p test_hidden_task_runner_windows.py -v
           python -m unittest discover -s tests -p test_release_acceptance.py -v
 
   windows-offline-smoke:
