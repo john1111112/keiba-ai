@@ -20,6 +20,9 @@ on:
       - "tests/test_live_buy_signal_end_to_end.py"
       - "tests/test_scheduled_live_scan_contract.py"
       - "tests/test_release_acceptance.py"
+      - "tests/test_bundled_dashboard_model.py"
+      - "src/model.py"
+      - "models/keiba_lgbm.joblib.sha256"
       - "scripts/check_release_readiness.py"
       - "CHECK_RELEASE.bat"
       - "scripts/run_background_scan.py"
@@ -68,7 +71,9 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_live_jvlink_dashboard.py -v
           python -m unittest discover -s tests -p test_odds_notification_safety.py -v
+          python -m unittest discover -s tests -p test_bundled_dashboard_model.py -v
           python -m unittest discover -s tests -p test_release_acceptance.py -v
+          python -m unittest discover -s tests -p test_bundled_dashboard_model.py -v
           python -m unittest discover -s tests -p test_live_buy_signal_end_to_end.py -v
           python -m unittest discover -s tests -p test_scheduled_live_scan_contract.py -v
           python -m unittest discover -s tests -p test_release_acceptance.py -v
