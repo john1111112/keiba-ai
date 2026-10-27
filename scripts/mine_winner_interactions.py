@@ -66,7 +66,7 @@ def add_tokens(df):
     tokens = {}
     def add(family, name, mask):
         a = np.asarray(mask, dtype=bool)
-        if 30 <= int(a.sum()) <= len(a) - 30:
+        if 30 <= int(a[:TRAIN_ROWS].sum()) <= TRAIN_ROWS - 30:
             tokens[name] = (family, a)
     def category(col):
         return df[col].fillna("不明").astype(str).str.strip()
@@ -127,6 +127,7 @@ def add_tokens(df):
 
 # Keep exactly the same vocabulary across the two periods; no peeking at test outcome / prevalence.
 whole = pd.concat([train, test], ignore_index=True)
+TRAIN_ROWS=len(train)
 token_all = add_tokens(whole)
 ntrain=len(train)
 race_context={"course","surface","weather","going","distance","direction"}
