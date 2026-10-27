@@ -1,0 +1,42 @@
+name: Refuse unverified racing predictions
+on:
+  pull_request:
+    paths:
+      - 'src/data_trust_gate.py'
+      - 'app.py'
+      - 'scripts/build_race_cache.py'
+      - 'scripts/auto_notify_s_rank.py'
+      - 'scripts/run_phase3b_walkforward.py'
+      - 'scripts/run_phase3c_evaluation.py'
+      - 'scripts/test_data_trust_gate.py'
+      - '.github/workflows/data_trust_release_gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fail-closed-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check syntax without installing model dependencies
+        run: |
+          python -m py_compile src/data_trust_gate.py scripts/test_data_trust_gate.py app.py \
+            scripts/build_race_cache.py scripts/auto_notify_s_rank.py \
+            scripts/run_phase3b_walkforward.py scripts/run_phase3c_evaluation.py
+      - name: Assert legacy database and forged evidence are refused
+        run: python -m unittest scripts.test_data_trust_gate -v
+      - name: Read-only trust verdict (exit 2 is EXPECTED and required)
+        run: |
+          set +e
+          python -m src.data_trust_gate
+          code=$?
+          set -e
+          if [ "$code" -ne 2 ]; then
+            echo "FAIL: unverified archive was not rejected (exit=$code)"
+            exit 1
+          fi
+          echo "PASS: all unverified historical data refused; no model certification claimed"

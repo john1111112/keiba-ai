@@ -14,10 +14,12 @@ sys.path.insert(0, str(project_root))
 from src.notifier import get_discord_webhook, send_s_rank_alert, get_notified_races, mark_race_as_notified
 from src.model import KeibaAIModel
 from src.betting_strategy import evaluate_race_value
+from src.data_trust_gate import require_verified_race_data
 
 FEATURES_CACHE_PATH = project_root / "data" / "features.parquet"
 
 def scan_and_notify_s_rank():
+    require_verified_race_data(purpose="alert")
     webhook_url = get_discord_webhook()
     if not webhook_url:
         print("[SKIP] Discord Webhook URLが未設定です。")

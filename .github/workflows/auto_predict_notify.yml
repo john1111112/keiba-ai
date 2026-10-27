@@ -1,27 +1,25 @@
-name: Auto Predict & Discord Notify (SS/S Rank)
-
+name: KEIBA predictions (suspended pending verified JRA source)
+# WARNING: Archived data is not source-authenticated. Weekend automation is suspended.
+# Restore the schedule only after an audited JRA-VAN/JV-Link importer and
+# independent pre-race snapshot verification have passed.
 on:
-  schedule:
-    # 毎週土曜・日曜の朝 08:00 JST (金曜・土曜 23:00 UTC) に自動実行してDiscordへプッシュ通知
-    - cron: '0 23 * * 5,6'
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
-  predict-and-notify:
+  refuse-unverified-source:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Reject historical archive lacking official source evidence
+        run: python -m src.data_trust_gate
+      - name: Build predictions ONLY if source verification passed
         run: |
-          pip install -r requirements.txt
-
-      - name: Run AI prediction & auto-notify SS/S rank races to Discord
-        run: |
+          python -m pip install -r requirements.txt
           python scripts/build_race_cache.py
+      - name: Send notifications ONLY after verified predictions
+        run: python scripts/auto_notify_s_rank.py
