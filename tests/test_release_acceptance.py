@@ -35,7 +35,7 @@ class ReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(
             {c["status"] for c in report["checks"]}, {"PENDING"}
         )
-        self.assertIn("no Data Lab", report["note"].lower().replace("-", " "))
+        self.assertIn("no data lab", report["note"].lower().replace("-", " "))
 
     def test_real_recorded_success_still_requires_sdk_and_scheduler_on_machine(self):
         model = self.root / "models" / "keiba_lgbm_win_v2_28cols.joblib"
