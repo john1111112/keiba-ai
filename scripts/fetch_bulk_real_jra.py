@@ -140,7 +140,7 @@ def main():
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.cursor()
     cur.executemany("""
-    INSERT OR REPLACE INTO race_results (
+    INSERT OR IGNORE INTO race_results (
         race_id, finish_order, bracket_number, horse_number, horse_id, horse_name,
         sex, age, weight_carry, jockey_id, jockey_name, time_str, time_sec,
         margin_str, last_3f, odds, popularity, horse_weight, horse_weight_diff,
@@ -149,7 +149,7 @@ def main():
     """, all_results)
     conn.commit()
     conn.close()
-    print("Saved expanded real JRA horse entries to data/keiba.db!", flush=True)
+    print("Non-destructive historical import complete. Existing entries were not overwritten.", flush=True)
 
 if __name__ == "__main__":
     main()
