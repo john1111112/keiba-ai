@@ -194,7 +194,9 @@ def execute_jvlink_fetch(
         # 公式仕様に基づく JVRead ループ
         while True:
             try:
-                response = link.JVGets(None, buffer_size, "")
+                # pywin32 [in,out] SAFEARRAY arguments MUST be allocated.
+                # Passing None can return a valid record length but no bytes.
+                response = link.JVGets(bytearray(buffer_size), buffer_size, bytearray())
             except Exception as exc:
                 error_msg = f"JVGets COM invocation failed: {exc}"
                 break
@@ -250,6 +252,9 @@ def execute_jvlink_fetch(
                 raw = bytes(buff)
             else:
                 error_msg = f"Invalid JVGets byte buffer: {type(buff).__name__}"
+                break
+            if read_rc >= buffer_size:
+                error_msg = "JVGets reached buffer limit; record may be truncated"
                 break
             if len(raw) < read_rc or not raw[:read_rc].endswith(b"\r\n"):
                 error_msg = "JVGets returned truncated or malformed record bytes"
