@@ -56,6 +56,7 @@ model.fit(train[cols],train.finish_order.eq(1).astype(int))
 test['score']=model.predict_proba(test[cols])[:,1]
 assert np.isfinite(test.score).all()
 results=[]
+favorite_hits=[]
 for rid,g in test.groupby('race_id',sort=False):
     g=g.sort_values(['score','horse_number'],ascending=[False,True])
     p=g.score / g.score.sum()
@@ -63,6 +64,10 @@ for rid,g in test.groupby('race_id',sort=False):
     winner=g[g.finish_order.eq(1)].iloc[0]
     winner_idx=g.index[g.finish_order.eq(1)][0]
     winner_rank=int(g.index.get_loc(winner_idx))+1
+    # Comparison only: archived final popularity is NOT certified as-of race time.
+    final_favorite=g.loc[pd.to_numeric(g.popularity,errors='coerce').eq(1)]
+    if len(final_favorite)==1:
+        favorite_hits.append(bool(final_favorite.iloc[0].horse_number==winner.horse_number))
     results.append(dict(race_id=str(rid),date=str(winner.date)[:10],field_size=int(len(g)),
                         predicted_horse_number=int(g.horse_number.iloc[0]),
                         actual_winner_horse_number=int(winner.horse_number),
@@ -90,7 +95,11 @@ report=dict(status='RETROSPECTIVE_CHRONOLOGICAL_VALIDATION_NOT_LIVE_CERTIFIED',
             holdout_outcomes_used_in_fit=False,
             verified_prerace_timestamp_of_archival_features=False,
             prediction_validity='historical retrospective only, not as-of certification',
-            no_roi_estimated=True)
+            no_roi_estimated=True,
+            archived_final_favorite_sample_size=len(favorite_hits),
+            archived_final_favorite_win_count=int(sum(favorite_hits)),
+            archived_final_favorite_hit_rate_reference=(float(np.mean(favorite_hits)) if favorite_hits else None),
+            archived_final_favorite_is_asof_certified=False)
 out=ROOT/'blind_audit_output'
 out.mkdir(exist_ok=True)
 (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
