@@ -18,7 +18,6 @@ on:
       - "tests/test_odds_notification_safety.py"
       - "tests/test_scheduled_live_scan_contract.py"
       - "scripts/run_background_scan.py"
-      - "scripts/run_scheduled_task.bat"
       - "src/automated_monitor.py"
       - "scripts/check_jvlink_readiness.py"
       - "scripts/build_live_jvlink_dashboard.py"
@@ -45,7 +44,6 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_jvdata_spec_regression.py -v
           python -m unittest discover -s tests -p test_jvlink_transport_contract.py -v
-          python -m unittest discover -s tests -p test_jvlink_interpreter_selection.py -v
           python -m unittest discover -s tests -p test_jvlink_interpreter_selection.py -v
           python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
 
@@ -84,6 +82,7 @@ jobs:
       - name: Run offline worker, odds and user-interface smoke tests
         run: |
           python -m unittest discover -s tests -p test_jvlink_transport_contract.py -v
+          python -m unittest discover -s tests -p test_jvlink_interpreter_selection.py -v
           python -m unittest discover -s tests -p test_jvlink_feed_orchestration.py -v
           python -m unittest discover -s tests -p test_live_jvlink_dashboard.py -v
           python -m unittest discover -s tests -p test_odds_notification_safety.py -v
