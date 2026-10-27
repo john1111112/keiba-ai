@@ -16,6 +16,9 @@ class FakeJVGetsLink:
         return 0
 
     def JVGets(self, buffer, size, filename):
+        assert isinstance(buffer, bytearray), "pywin32 requires [in,out] bytearray"
+        assert len(buffer) == size, "buffer must be fully allocated"
+        assert isinstance(filename, bytearray), "filename is an [in,out] parameter"
         self.calls.append(("JVGets", size))
         if self.records:
             payload = self.records.pop(0)
@@ -124,6 +127,17 @@ class TransportContractTest(unittest.TestCase):
         )
         self.assertEqual(result["fetch_status"], "SUCCESS")
         self.assertEqual(result["o1_count"], 1)
+
+    def test_jvgets_refuses_record_at_buffer_capacity(self):
+        class TruncatingLink(FakeJVGetsLink):
+            def JVGets(self, buffer, size, filename):
+                return size, bytes(size), "JV_TESTFILE"
+        result = execute_jvlink_fetch(
+            TruncatingLink([]), "0B15", "20261027000000",
+            buffer_size=1272
+        )
+        self.assertEqual(result["fetch_status"], "FETCH_ERROR")
+        self.assertIn("truncated", str(result.get("error", "")).lower())
 
     def test_stored_jvopen_uses_six_arguments(self):
         link = FakeJVOpenLink([race_rec(), horse_rec(1)])
