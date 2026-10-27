@@ -1,7 +1,6 @@
 import sqlite3
 import re
 import time
-import hashlib
 import requests
 import numpy as np
 import pandas as pd
@@ -42,8 +41,7 @@ def get_sire_type(sire: str) -> str:
     for k, v in SIRE_TYPE_MAP.items():
         if k in sire:
             return v
-    h = int(hashlib.md5(sire.encode("utf-8")).hexdigest(), 16)
-    return SIRE_TYPES[h % len(SIRE_TYPES)]
+    return None  # Unknown pedigree is missing data, never a hash-derived bloodline
 
 def parse_time_sec(t_str: str) -> float:
     if not t_str:
@@ -97,9 +95,7 @@ def infer_running_style(passing_str: str, horse_id: str) -> tuple:
                 return "差し", last_p
             else:
                 return "追込", last_p
-    styles = ["先行", "差し", "追込", "逃げ"]
-    h = int(hashlib.md5(str(horse_id).encode("utf-8")).hexdigest(), 16)
-    return styles[h % len(styles)], 5
+    return None, None  # Do not fabricate observed racing style from horse ID
 
 def fetch_and_parse_race(task):
     day_code, date_str, course, r_num = task
@@ -128,21 +124,21 @@ def fetch_and_parse_race(task):
         status_txt = status_el.get_text(" ", strip=True) if status_el else ""
 
         surface = "ダート" if "ダート" in status_txt else "芝"
-        direction = "左" if "左" in status_txt else ("右" if "右" in status_txt else "右")
+        direction = "左" if "左" in status_txt else ("右" if "右" in status_txt else None)
         m_dist = re.search(r"(\d{3,4})m", status_txt)
-        distance = int(m_dist.group(1)) if m_dist else 1600
+        distance = int(m_dist.group(1)) if m_dist else None
 
         m_wea = re.search(r"天気：\s*([^\s]+)", status_txt)
-        weather = m_wea.group(1) if (m_wea and m_wea.group(1) != "-") else "晴"
+        weather = m_wea.group(1) if (m_wea and m_wea.group(1) != "-") else None
 
         m_cond = re.search(r"馬場：\s*([^\s]+)", status_txt)
-        raw_cond = m_cond.group(1) if (m_cond and m_cond.group(1) != "-") else "良"
+        raw_cond = m_cond.group(1) if (m_cond and m_cond.group(1) != "-") else None
         if raw_cond == "稍":
             condition = "稍重"
         elif raw_cond in ("良", "稍重", "重", "不良"):
             condition = raw_cond
         else:
-            condition = "良"
+            condition = None
 
         race_meta = (full_rid, race_name, date_str, course, r_num, surface, distance, direction, weather, condition, grade)
 
@@ -174,10 +170,10 @@ def fetch_and_parse_race(task):
             hw_el = tr0.find(class_="hr-denma__horseWeight")
             hw_txt = hw_el.get_text(strip=True) if hw_el else ""
             m_hw = re.match(r"(\d+)\(([+-]?\d+)\)", hw_txt)
-            horse_weight = float(m_hw.group(1)) if m_hw else 478.0
-            horse_weight_diff = float(m_hw.group(2)) if m_hw else 0.0
+            horse_weight = float(m_hw.group(1)) if m_hw else None
+            horse_weight_diff = float(m_hw.group(2)) if m_hw else None
 
-            sire = "キズナ"
+            sire = None
             for p_el in tr0.find_all("p"):
                 pt = p_el.get_text(strip=True)
                 if pt.startswith("父："):
@@ -186,8 +182,8 @@ def fetch_and_parse_race(task):
             sire_type = get_sire_type(sire)
 
             tr_a = tr0.find("a", href=re.compile(r"/keiba/directory/trainer/"))
-            trainer_id = re.search(r"/trainer/(\d+)", tr_a["href"]).group(1) if tr_a else "01000"
-            trainer_name = tr_a.get_text(strip=True).replace(" ", "") if tr_a else "調教師"
+            trainer_id = re.search(r"/trainer/(\d+)", tr_a["href"]).group(1) if tr_a else None
+            trainer_name = tr_a.get_text(strip=True).replace(" ", "") if tr_a else None
 
             tds1 = tr1.find_all("td")
             td_info = tds1[0]
@@ -195,13 +191,13 @@ def fetch_and_parse_race(task):
             age_txt = age_el.get_text(strip=True) if age_el else "牡3"
             sex = "セン" if ("せん" in age_txt or "セ" in age_txt) else ("牝" if "牝" in age_txt else "牡")
             m_age = re.search(r"(\d+)", age_txt)
-            age = int(m_age.group(1)) if m_age else 3
+            age = int(m_age.group(1)) if m_age else None
 
             j_a = td_info.find("a", href=re.compile(r"/keiba/directory/jockey/"))
-            jockey_id = re.search(r"/jockey/(\d+)", j_a["href"]).group(1) if j_a else "01100"
-            jockey_name = j_a.get_text(strip=True).replace(" ", "") if j_a else "騎手"
+            jockey_id = re.search(r"/jockey/(\d+)", j_a["href"]).group(1) if j_a else None
+            jockey_name = j_a.get_text(strip=True).replace(" ", "") if j_a else None
 
-            weight_carry = 56.0
+            weight_carry = None
             for p_el in td_info.find_all("p"):
                 pt = p_el.get_text(strip=True)
                 if re.match(r"^\d+(\.\d+)?$", pt):
@@ -233,11 +229,11 @@ def fetch_and_parse_race(task):
 
                 cond_line = date_ps[1].get_text(" ", strip=True)
                 p_surf = "ダート" if "ダ" in cond_line else "芝"
-                p_dir = "左" if "左" in cond_line else "右"
+                p_dir = "左" if "左" in cond_line else ("右" if "右" in cond_line else None)
                 m_pdist = re.search(r"(\d{3,4})m", cond_line)
-                p_dist = int(m_pdist.group(1)) if m_pdist else 1600
-                c_tok = cond_line.split()[-1] if cond_line.split() else "良"
-                p_cond = "稍重" if c_tok == "稍" else (c_tok if c_tok in ("良", "稍重", "重", "不良") else "良")
+                p_dist = int(m_pdist.group(1)) if m_pdist else None
+                c_tok = cond_line.split()[-1] if cond_line.split() else None
+                p_cond = "稍重" if c_tok == "稍" else (c_tok if c_tok in ("良", "稍重", "重", "不良") else None)
 
                 arr_el = td_p.find("span", class_="hr-denma__arrival")
                 arr_txt = arr_el.get_text(strip=True) if arr_el else ""
@@ -248,24 +244,26 @@ def fetch_and_parse_race(task):
 
                 full_td_txt = td_p.get_text(" ", strip=True)
                 m_hnum_pop = re.search(r"(\d+)番\((\d+)人気\)", full_td_txt)
-                p_hnum = int(m_hnum_pop.group(1)) if m_hnum_pop else h_num
-                p_pop = int(m_hnum_pop.group(2)) if m_hnum_pop else 5
+                if not m_hnum_pop:
+                    continue  # Previous race horse number cannot be guessed from this race
+                p_hnum = int(m_hnum_pop.group(1))
+                p_pop = int(m_hnum_pop.group(2))
                 past_pops.append(p_pop)
 
                 p_hw_el = td_p.find("span", class_="hr-denma__horseWeight")
                 p_hw_txt = p_hw_el.get_text(strip=True) if p_hw_el else ""
                 m_phw = re.match(r"(\d+)\(([+-]?\d+)\)", p_hw_txt)
-                p_hw = float(m_phw.group(1)) if m_phw else horse_weight
-                p_hwd = float(m_phw.group(2)) if m_phw else 0.0
+                p_hw = float(m_phw.group(1)) if m_phw else None
+                p_hwd = float(m_phw.group(2)) if m_phw else None
 
                 pj_a = td_p.find("a", href=re.compile(r"/keiba/directory/jockey/"))
-                pj_id = re.search(r"/jockey/(\d+)", pj_a["href"]).group(1) if pj_a else jockey_id
-                pj_name = pj_a.get_text(strip=True).replace(" ", "") if pj_a else jockey_name
+                pj_id = re.search(r"/jockey/(\d+)", pj_a["href"]).group(1) if pj_a else None
+                pj_name = pj_a.get_text(strip=True).replace(" ", "") if pj_a else None
 
                 t_el = td_p.find("span", class_="hr-denma__data--time")
                 p_tstr = t_el.get_text(strip=True) if t_el else ""
                 p_tsec = parse_time_sec(p_tstr)
-                p_l3f = 35.0
+                p_l3f = None
                 if t_el and t_el.parent:
                     rem_t = t_el.parent.get_text(" ", strip=True).replace(p_tstr, "").strip()
                     m_3f = re.search(r"(\d{2}\.\d)", rem_t)
@@ -277,14 +275,14 @@ def fetch_and_parse_race(task):
                 if not last_passing and p_pass:
                     last_passing = p_pass
                 p_style, p_c4 = infer_running_style(p_pass, h_id)
-                p_odds = round(max(1.5, p_pop * 2.8), 1)
+                p_odds = None  # Popularity is not a valid substitute for observed odds
 
                 past_races_collected.append({
-                    "race": (p_full_rid, p_rname, p_date, p_course, p_rnum, p_surf, p_dist, p_dir, "晴", p_cond, "一般"),
+                    "race": (p_full_rid, p_rname, p_date, p_course, p_rnum, p_surf, p_dist, p_dir, None, p_cond, None),
                     "result": (
                         p_full_rid, p_fin, min(8, (p_hnum - 1) // 2 + 1), p_hnum, h_id, h_name,
-                        sex, age, weight_carry, pj_id, pj_name, p_tstr, p_tsec, "", p_l3f,
-                        p_odds, p_pop, p_hw, p_hwd, trainer_id, trainer_name, sire, sire_type, p_style, p_c4, 4
+                        sex, None, None, pj_id, pj_name, p_tstr, p_tsec, "", p_l3f,
+                        p_odds, p_pop, p_hw, p_hwd, None, None, sire, sire_type, p_style, p_c4, None
                     )
                 })
 
@@ -344,18 +342,18 @@ def fetch_and_parse_race(task):
                     margin_str = t_parts[1] if len(t_parts) > 1 else ""
 
                     m_3f = re.search(r"(\d{2}\.\d)$", tds[5].strip())
-                    l3f = float(m_3f.group(1)) if m_3f else 35.0
+                    l3f = float(m_3f.group(1)) if m_3f else None
                     style, c4 = infer_running_style(tds[5], hb["horse_id"])
 
                     m_po = re.search(r"(\d+)\s*\(([\d\.]+)\)", tds[7])
-                    pop = int(m_po.group(1)) if m_po else 8
-                    odds = float(m_po.group(2)) if m_po else 15.0
+                    pop = int(m_po.group(1)) if m_po else None
+                    odds = float(m_po.group(2)) if m_po else None
 
                     results_list.append((
                         full_rid, fin_order, hb["bracket_number"], h_num, hb["horse_id"], hb["horse_name"],
                         hb["sex"], hb["age"], hb["weight_carry"], hb["jockey_id"], hb["jockey_name"],
                         t_str, t_sec, margin_str, l3f, odds, pop, hw, hwd,
-                        hb["trainer_id"], hb["trainer_name"], hb["sire"], hb["sire_type"], style, c4, 4
+                        hb["trainer_id"], hb["trainer_name"], hb["sire"], hb["sire_type"], style, c4, None
                     ))
         else:
             # 発走前レース (10/24, 10/25): denmaページからJRA公式オッズ・人気を取得
@@ -373,13 +371,13 @@ def fetch_and_parse_race(task):
                             live_odds_map[hn] = (int(m_po.group(1)), float(m_po.group(2)))
 
             for hn, hb in sorted(horses_base.items()):
-                pop, odds = live_odds_map.get(hn, (0, 0.0))
+                pop, odds = live_odds_map.get(hn, (None, None))
                 results_list.append((
                     full_rid, 0, hb["bracket_number"], hn, hb["horse_id"], hb["horse_name"],
                     hb["sex"], hb["age"], hb["weight_carry"], hb["jockey_id"], hb["jockey_name"],
                     "", 0.0, "", None, odds, pop, hb["horse_weight"], hb["horse_weight_diff"],
                     hb["trainer_id"], hb["trainer_name"], hb["sire"], hb["sire_type"],
-                    hb["running_style"], hb["corner_4_pos"], 4
+                    hb["running_style"], hb["corner_4_pos"], None
                 ))
 
         if len(results_list) == 0:
