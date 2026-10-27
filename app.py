@@ -308,7 +308,13 @@ with tab0:
                         datetime.now(timezone.utc) - last_checked
                     ).total_seconds() <= 180 and runtime.get("daemon_status") in ("RUNNING", "ERROR_RECOVERING"):
                         last_scan = runtime.get("last_scan_result") or {}
-                        if last_scan.get("status") in (
+                        if last_scan.get("unsent_buy_candidates", 0):
+                            missing = last_scan.get("missing_discord_webhook", 0)
+                            running_status = (
+                                "買い候補あり・Discord接続先未設定"
+                                if missing else "買い候補の通知失敗・再試行中"
+                            )
+                        elif last_scan.get("status") in (
                             "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
                             "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
                             "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST", "INFERENCE_BLOCKED"
