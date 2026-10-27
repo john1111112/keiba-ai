@@ -1,5 +1,5 @@
 """
-JV-Link 32bit 専用取得ワーカー (JV-Link 32-bit Acquisition Worker)
+JV-Link acquisition worker (32-bit default; supports official 64-bit SDK 5.0)
 - 32bit COM DLL である JV-Link SDK (JVDTLab.JVLink) と直接通信する専用プロセス
 - JRA-VAN公式仕様に基づく API 呼び出し:
   - JVInit(sid): 初期化
@@ -334,7 +334,8 @@ def run_worker_capture(
     from_time: str,
     output_path: str,
     mode: str = "rt",
-    key: Optional[str] = None
+    key: Optional[str] = None,
+    allow_64bit: bool = False
 ) -> Dict[str, Any]:
     """
     32bit COM 経由で JV-Link からデータを取得し、JSON ファイルへ安全出力。
@@ -363,8 +364,8 @@ def run_worker_capture(
         _write_output(output_path, result)
         return result
 
-    if not result["is_32bit"]:
-        result["error"] = "JV-Link worker requires 32-bit Python"
+    if not result["is_32bit"] and not (allow_64bit and struct.calcsize("P") * 8 == 64):
+        result["error"] = "JV-Link worker requires 32-bit Python or explicitly enabled 64-bit JV-Link 5.0"
         result["auth_status"] = "WRONG_PYTHON_ARCHITECTURE"
         _write_output(output_path, result)
         return result
@@ -432,6 +433,7 @@ def main(argv=None):
     parser.add_argument("--from-time", default=datetime.now().strftime("%Y%m%d000000"), help="From timestamp")
     parser.add_argument("--mode", choices=["rt", "stored"], default="rt", help="RT or Stored mode")
     parser.add_argument("--key", help="Key for JVRTOpen")
+    parser.add_argument("--allow-64bit", action="store_true", help="Use official JV-Link 5.0 64-bit COM with a 64-bit Python interpreter")
     parser.add_argument("--out", required=True, help="Output JSON path")
     args = parser.parse_args(argv)
 
@@ -441,7 +443,8 @@ def main(argv=None):
         from_time=args.from_time,
         output_path=args.out,
         mode=args.mode,
-        key=args.key
+        key=args.key,
+        allow_64bit=args.allow_64bit
     )
     print(json.dumps({
         "success": res.get("success", False),
