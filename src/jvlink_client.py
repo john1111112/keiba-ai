@@ -544,7 +544,34 @@ class JVLinkClient:
             )
 
         self._driver_status = "AUTHENTICATED"
-        return self.process_records_to_feed(all_records, output_dir=target_dir)
+        feed = self.process_records_to_feed(all_records, output_dir=target_dir)
+        # Acquisition evidence helps diagnose why no buy alert fired:
+        # missing odds are NOT silently reported as a healthy complete market.
+        race_count = len(feed.get("races", []))
+        horse_count = sum(len(r.get("horses", [])) for r in feed.get("races", []))
+        quoted_horses = sum(
+            h.get("win_odds") is not None and h.get("odds_observed_at")
+            is not None
+            for r in feed.get("races", [])
+            for h in r.get("horses", [])
+        )
+        summary = {
+            "status": "RACES_FETCHED_ODDS_PARTIAL"
+            if quoted_horses < horse_count else "RACES_AND_ODDS_FETCHED",
+            "race_count": race_count,
+            "horse_count": horse_count,
+            "horses_with_timestamped_odds": quoted_horses,
+            "horses_without_timestamped_odds": horse_count - quoted_horses,
+            "odds_request_errors": odds_errors,
+            "source": "jra_van",
+        }
+        evidence = target_dir / "latest_acquisition_summary.json"
+        temporary = evidence.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        temporary.replace(evidence)
+        return feed
 
     def process_records_to_feed(
         self,
