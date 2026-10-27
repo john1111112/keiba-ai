@@ -18,8 +18,8 @@ MODEL_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lg
 MODEL_WIN_V2_28_PATH = Path(__file__).resolve().parent.parent / "models" / "keiba_lgbm_win_v2_28cols.joblib"
 BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
 
-# 既知の信頼済み本番モデル SHA-256（Phase 1 バックアップで確定済み）
-TRUSTED_V1_MODEL_SHA256 = "fc9757cb9220e5b6e2667a84f40eb750615472855fa4cf418d99460951f33eb1"
+# 同梱された Git 管理下の v1 モデル SHA-256（配布 ZIP のバイト列を独立検算）
+TRUSTED_V1_MODEL_SHA256 = "fc9757cb9220e5b629fb292f17a2bf1e7343458f0b575e49301f232e0ac473c4"
 
 MIN_VALID_FINISH_ORDER = 1
 MAX_VALID_FINISH_ORDER = 28
