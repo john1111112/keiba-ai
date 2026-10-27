@@ -24,6 +24,22 @@ class JVLinkInterpreterSelectionTests(unittest.TestCase):
              patch.dict(os.environ, {"KEIBA_JVLINK_PYTHON": r"C:\\missing\\python.exe"}):
             self.assertIsNone(jvlink_client.find_jvlink_python())
 
+    def test_auto_chooses_working_64bit_com_when_32bit_com_missing(self):
+        win32 = types.ModuleType("win32com")
+        win32.__path__ = []
+        client_mod = types.ModuleType("win32com.client")
+        win32.client = client_mod
+        with patch("src.jvlink_client.platform.system", return_value="Windows"), \
+             patch.dict(sys.modules, {"win32com": win32, "win32com.client": client_mod}), \
+             patch.dict(os.environ, {
+                 "KEIBA_JVLINK_PYTHON": "", "KEIBA_JVLINK_PREFER_64BIT": "0"
+             }), \
+             patch("src.jvlink_client.struct.calcsize", return_value=8), \
+             patch("src.jvlink_client.find_32bit_python", return_value="python32.exe"), \
+             patch("src.jvlink_client._probe_jvlink_com",
+                   side_effect=lambda path: path == sys.executable):
+            self.assertEqual(jvlink_client.find_jvlink_python(), sys.executable)
+
     def test_worker_command_enables_64bit_when_selected(self):
         commands = []
         def completed_command(command, **kwargs):
@@ -49,6 +65,11 @@ class JVLinkInterpreterSelectionTests(unittest.TestCase):
             self.assertEqual(response["fetch_status"], "NO_DATA_AVAILABLE")
             self.assertIn("--allow-64bit", commands[0])
             self.assertFalse(list(Path(tmp).glob("temp.json.*.tmp")))
+            client.fetch_via_32bit_worker(
+                "0B15", "20261027000000", output_path=Path(tmp) / "temp.json"
+            )
+            self.assertEqual(len(commands), 2)
+            self.assertEqual(client._worker_interpreter_cache[1], 64)
 
     def test_32bit_worker_does_not_use_64bit_switch(self):
         commands = []
