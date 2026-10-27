@@ -21,6 +21,22 @@ class ScheduledLiveScanTest(unittest.TestCase):
         self.assertNotIn("authorized_feed\\latest.json", content)
         self.assertIn("exit /b %ERRORLEVEL%", content)
 
+    def test_local_installer_probes_sdk_and_requires_explicit_trial_consent(self):
+        repo = Path(__file__).resolve().parents[1]
+        installer = (repo / "INSTALL_AUTO_MONITOR.bat").read_text(encoding="utf-8")
+        self.assertIn("find_jvlink_python", installer)
+        self.assertIn("Authorize starting JRA-VAN automatic monitoring now?", installer)
+        self.assertIn("choice /C YN", installer)
+        self.assertLess(
+            installer.index("choice /C YN"),
+            installer.index("setup_windows_task.ps1")
+        )
+        self.assertLess(
+            installer.index("find_jvlink_python"),
+            installer.index("choice /C YN")
+        )
+        self.assertIn("exit /b 1", installer)
+
     def test_registration_is_independent_of_opening_the_dashboard(self):
         repo = Path(__file__).resolve().parents[1]
         installer = (repo / "INSTALL_AUTO_MONITOR.bat").read_text(encoding="utf-8")
