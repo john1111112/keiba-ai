@@ -92,7 +92,10 @@ class ScheduledLiveScanTest(unittest.TestCase):
             expected = {
                 "status": "SCAN_OK", "processed_races": 1,
                 "model_inference_allowed": True, "eligible_candidates": 1,
-                "notifications_sent": 0, "candidates_found": 1
+                "notifications_sent": 0, "candidates_found": 1,
+                "unsent_buy_candidates": 1, "missing_discord_webhook": 1,
+                "discord_delivery_failures": 0,
+                "is_certified_source": True
             }
 
             def write_feed(**kwargs):
@@ -114,6 +117,9 @@ class ScheduledLiveScanTest(unittest.TestCase):
                 self.assertTrue(scan.call_args.kwargs["dry_run"])
                 self.assertEqual(result["status"], "SCAN_OK")
                 self.assertEqual(result["captured_count"], 1)
+                self.assertEqual(result["unsent_buy_candidates"], 1)
+                self.assertEqual(result["missing_discord_webhook"], 1)
+                self.assertTrue(result["is_certified_source"])
                 self.assertEqual(result["bet_status"], "NO_BET")
 
     def test_no_races_published_is_quiet_success_and_never_reuses_feed(self):
