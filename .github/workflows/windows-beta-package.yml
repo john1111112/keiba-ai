@@ -8,6 +8,7 @@ on:
       - "app.py"
       - "requirements.txt"
       - "INSTALL_AUTO_MONITOR.bat"
+      - "REPAIR_PIP.bat"
       - "CHECK_RELEASE.bat"
       - "START_KEIBA_AI.bat"
       - "GO_LIVE_CHECKLIST.md"
@@ -33,6 +34,7 @@ jobs:
         run: |
           $files = @(
             "INSTALL_AUTO_MONITOR.bat",
+            "REPAIR_PIP.bat",
             "CHECK_RELEASE.bat",
             "START_KEIBA_AI.bat",
             "requirements.txt",
@@ -53,7 +55,7 @@ jobs:
           New-Item -ItemType Directory -Force $root | Out-Null
           $paths = @(
             "src", "scripts", "models", "app.py",
-            "requirements.txt", "INSTALL_AUTO_MONITOR.bat",
+            "requirements.txt", "INSTALL_AUTO_MONITOR.bat", "REPAIR_PIP.bat",
             "CHECK_RELEASE.bat", "START_KEIBA_AI.bat",
             "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md"
           )
