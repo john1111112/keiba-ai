@@ -29,6 +29,7 @@ from src.jvlink_client import check_environment_compatibility, find_jvlink_pytho
 from src.provenance_verifier import load_provider_config
 from src.features import FEATURE_COLS_V2_28
 from src.automated_monitor import load_alert_config
+from src.notifier import get_discord_webhook
 
 
 def run_full_readiness_check() -> dict:
@@ -131,7 +132,7 @@ def run_full_readiness_check() -> dict:
         "safety_lock_enabled": alert_cfg.get("safety_lock_enabled", True),
         "windows_toast_enabled": alert_cfg.get("windows_toast_enabled", True),
         "discord_enabled": alert_cfg.get("discord_enabled", False),
-        "has_discord_webhook": bool(alert_cfg.get("discord_webhook_url"))
+        "has_discord_webhook": bool(get_discord_webhook())
     }
 
     # 5. 8段階独立判定マトリクス (要求仕様厳密準拠)
