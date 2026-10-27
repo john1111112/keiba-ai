@@ -55,7 +55,7 @@ def load_alert_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
     default_config = {
         "min_ev": 1.15,
         "min_win_prob": 0.20,
-        "max_odds_age_seconds": 120,
+        "max_odds_age_seconds": 720,
         "min_seconds_to_start": 300,
         "max_seconds_to_start": 1800,
         "windows_toast_enabled": True,
