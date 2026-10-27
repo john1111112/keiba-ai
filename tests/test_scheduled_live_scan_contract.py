@@ -189,6 +189,25 @@ class ScheduledLiveScanTest(unittest.TestCase):
                     "ERROR_RECOVERING"
                 )
 
+    def test_buy_candidate_detected_but_discord_missing_is_visible_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "last_background_scan.json"
+            with patch("scripts.run_background_scan.run_cycle", return_value={
+                "status": "COMPLETED", "processed_races": 4,
+                "eligible_candidates": 1, "notifications_sent": 0,
+                "unsent_buy_candidates": 1, "missing_discord_webhook": 1,
+                "discord_delivery_failures": 0
+            }):
+                rc = main(["--out", str(out), "--use-jvlink"])
+            self.assertEqual(rc, 1)
+            status = json.loads(
+                (Path(tmp) / "monitor_daemon_status.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(status["daemon_status"], "ERROR_RECOVERING")
+            self.assertEqual(status["last_scan_result"]["unsent_buy_candidates"], 1)
+
     def test_scheduled_cli_clean_scan_exit_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch("scripts.run_background_scan.run_cycle", return_value={
