@@ -185,9 +185,24 @@ def try_claim_alert(db_path: Path, race_id: str, horse_number: int, event_type: 
             if row and row[0] in ("FAILED", "SKIPPED_BY_SAFETY_LOCK"):
                 cur.execute("""
                 UPDATE alert_delivery
-                SET delivery_status = 'CLAIMED_RETRY'
-                WHERE race_id = ? AND horse_number = ? AND event_type = ? AND delivery_status IN ('FAILED', 'SKIPPED_BY_SAFETY_LOCK')
-                """, (str(race_id), int(horse_number), str(event_type)))
+                SET delivery_status = 'CLAIMED_RETRY', first_sent_at = ?
+                WHERE race_id = ? AND horse_number = ? AND event_type = ?
+                  AND delivery_status IN ('FAILED', 'SKIPPED_BY_SAFETY_LOCK')
+                """, (now_iso, str(race_id), int(horse_number), str(event_type)))
+                return cur.rowcount == 1
+            if row and row[0] in ("CLAIMED", "CLAIMED_RETRY"):
+                # Recover a crashed or abandoned sender after 3 minutes.
+                # UPDATE is conditional to prevent two workers reclaiming it.
+                cutoff = (datetime.now(timezone.utc) -
+                          timedelta(seconds=180)).isoformat()
+                cur.execute("""
+                UPDATE alert_delivery
+                SET delivery_status = 'CLAIMED_RETRY', first_sent_at = ?
+                WHERE race_id = ? AND horse_number = ? AND event_type = ?
+                  AND delivery_status IN ('CLAIMED', 'CLAIMED_RETRY')
+                  AND first_sent_at < ?
+                """, (now_iso, str(race_id), int(horse_number),
+                      str(event_type), cutoff))
                 return cur.rowcount == 1
             return False
     except Exception:
