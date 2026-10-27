@@ -1,0 +1,30 @@
+name: Historical winning-condition interaction research
+on:
+  pull_request:
+    paths:
+      - 'scripts/mine_winner_interactions.py'
+      - '.github/workflows/winner_pattern_mining.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Research dependencies
+        run: python -m pip install "numpy>=1.24,<3" "pandas>=2,<3" "lightgbm>=4,<5" "scikit-learn>=1.3,<2"
+      - name: Mine historical winners and evaluate fixed patterns
+        run: python -m scripts.mine_winner_interactions
+      - name: Preserve all preselected results even if test fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-winning-patterns
+          path: interaction_rule_output/
+          if-no-files-found: warn
+          retention-days: 30
