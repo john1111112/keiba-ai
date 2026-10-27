@@ -165,12 +165,15 @@ def main(argv=None):
         import os
         heartbeat = {
             "daemon_status": (
-                "ERROR_RECOVERING" if result.get("status") in {
+                "ERROR_RECOVERING" if (
+                result.get("unsent_buy_candidates", 0) > 0
+                or result.get("status") in {
                     "JVLINK_FETCH_FAILED", "FEED_VALIDATION_REJECTED",
                     "SCAN_BLOCKED", "NO_UPCOMING_MANIFEST",
                     "MODEL_LOAD_ERROR", "MODEL_FILE_NOT_FOUND",
                     "INFERENCE_BLOCKED"
-                } else "RUNNING"
+                }
+            ) else "RUNNING"
             ),
             "run_mode": "WINDOWS_TASK_SCHEDULER",
             "pid": os.getpid(),
@@ -197,7 +200,7 @@ def main(argv=None):
     # live scheduled tasks must still report missing/failed data as errors.
     if result.get("status") == "NO_UPCOMING_MANIFEST" and not args.use_jvlink:
         return 0
-    return 1 if result.get("status") in failures else 0
+    return 1 if result.get("status") in failures or result.get("unsent_buy_candidates", 0) > 0 else 0
 
 
 if __name__ == "__main__":
