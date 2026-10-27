@@ -37,6 +37,20 @@ class ScheduledLiveScanTest(unittest.TestCase):
         )
         self.assertIn("exit /b 1", installer)
 
+    def test_missing_pip_self_heal_runs_before_dependency_install(self):
+        root = Path(__file__).resolve().parents[1]
+        installer = (root / "INSTALL_AUTO_MONITOR.bat").read_text(encoding="utf-8")
+        self.assertIn("-m ensurepip --upgrade", installer)
+        self.assertIn("-m pip --version", installer)
+        self.assertIn("No Windows background task or JRA-VAN trial was started", installer)
+        self.assertLess(
+            installer.index("-m ensurepip --upgrade"),
+            installer.index("-m pip install -r requirements.txt pywin32")
+        )
+        repair = (root / "REPAIR_PIP.bat").read_text(encoding="utf-8")
+        self.assertIn("-m ensurepip --upgrade", repair)
+        self.assertIn("INSTALL_AUTO_MONITOR.bat", repair)
+
     def test_registration_is_independent_of_opening_the_dashboard(self):
         repo = Path(__file__).resolve().parents[1]
         installer = (repo / "INSTALL_AUTO_MONITOR.bat").read_text(encoding="utf-8")
