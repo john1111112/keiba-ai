@@ -222,6 +222,49 @@ for rule in chosen_rules:
                    "training_random_lift":round(row["train_lift"],3),
                    "training_adjusted_q":round(float(candidates_df.loc[candidates_df.pattern.eq(" × ".join(rule)),"train_q_BH"].iloc[0]),4),
                    **evidence})
+# PREDECLARED scoring rule for top-one selection: no test labels determine weights.
+# Use the strongest matching TRAIN lift; overlapping patterns cannot amplify
+# the same runner score repeatedly. Exponent 0.5 is fixed, NOT tuned on 2026.
+pattern_strength=np.ones(len(test),dtype=float)
+for rule in chosen_rules:
+    mask=np.logical_and.reduce([token_all[t][1][ntrain:] for t in rule])
+    x=next(r["train_lift"] for r in all_records if r["parts"]==rule)
+    pattern_strength[mask]=np.maximum(pattern_strength[mask],float(x))
+adjusted_score=score*np.sqrt(pattern_strength)
+prediction_rows=[]
+for rid,gg in test.groupby("race_id",sort=False):
+    indexes=gg.index.to_numpy()
+    w=int(gg.loc[gg.win.eq(1)].horse_number.iloc[0])
+    base_i=indexes[np.argmax(score[indexes])]
+    adj_i=indexes[np.argmax(adjusted_score[indexes])]
+    base_p=score[indexes]/score[indexes].sum()
+    adj_p=adjusted_score[indexes]/adjusted_score[indexes].sum()
+    winner_local=np.flatnonzero(gg.win.to_numpy()==1)[0][0]
+    prediction_rows.append(dict(
+        race_id=str(rid),date=str(gg.date.iloc[0].date()),
+        actual_winner=w,
+        old_pick=int(test.horse_number.iloc[base_i]),
+        pattern_pick=int(test.horse_number.iloc[adj_i]),
+        old_correct=int(test.horse_number.iloc[base_i]==w),
+        pattern_correct=int(test.horse_number.iloc[adj_i]==w),
+        old_winner_nll=float(-math.log(max(float(base_p[winner_local]),1e-15))),
+        pattern_winner_nll=float(-math.log(max(float(adj_p[winner_local]),1e-15)))))
+preds=pd.DataFrame(prediction_rows)
+top1_comparison={
+    "races":int(len(preds)),
+    "old_28_top1_wins":int(preds.old_correct.sum()),
+    "pattern_boosted_top1_wins":int(preds.pattern_correct.sum()),
+    "old_28_top1_rate":round(float(preds.old_correct.mean()),6),
+    "pattern_boosted_top1_rate":round(float(preds.pattern_correct.mean()),6),
+    "fixed_pattern_boost_exponent":0.5,
+    "corrected_races":int(((preds.old_correct==0)&(preds.pattern_correct==1)).sum()),
+    "broken_races":int(((preds.old_correct==1)&(preds.pattern_correct==0)).sum()),
+    "old_winner_nll":round(float(preds.old_winner_nll.mean()),6),
+    "pattern_winner_nll":round(float(preds.pattern_winner_nll.mean()),6),
+    "all_hyperparameters_frozen_before_examining_test_outcomes":True,
+    "replace_production_model":False,
+}
+preds.to_csv(OUT/"one_per_race_pattern_scoring.csv",index=False)
 report={
     "status":"HISTORICAL_PATTERN_MINING_NOT_LIVE_CERTIFIED",
     "training_last_date":str(train.date.max().date()),
@@ -233,6 +276,7 @@ report={
     "selection_method":selection,
     "selected_rule_count":len(tested),
     "pattern_results":tested,
+    "one_pick_per_race_model_comparison":top1_comparison,
     "important_limitations":[
         "Saved race-weather/going and runner data do not contain independently verified pre-race capture timestamps.",
         "No inner-versus-outer track geometry field is available; Kyoto outer-course claims are prohibited.",
