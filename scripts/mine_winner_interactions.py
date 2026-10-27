@@ -69,7 +69,7 @@ def add_tokens(df):
         if 30 <= int(a[:TRAIN_ROWS].sum()) <= TRAIN_ROWS - 30:
             tokens[name] = (family, a)
     def category(col):
-        return df[col].fillna("不明").astype(str).str.strip()
+        return df[col].astype("object").fillna("不明").astype(str).str.strip()
     course = category("race_course")
     for c in ["東京", "中山", "京都", "阪神", "中京", "新潟", "札幌", "函館", "福島", "小倉"]:
         add("course", "競馬場="+c, course.eq(c))
