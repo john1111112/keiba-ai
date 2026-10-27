@@ -20,7 +20,7 @@ def enable_monitor_config(config_path=None):
             raise ValueError("Alert config must be a JSON object")
     # Only the explicit installer turns on background notifications.
     # Existing EV, probability, and deadline thresholds are retained.
-    config.update({"discord_enabled": True, "safety_lock_enabled": False})
+    config.update({"discord_enabled": True, "safety_lock_enabled": False, "max_retries": 0})
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
