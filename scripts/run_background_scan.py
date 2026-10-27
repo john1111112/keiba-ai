@@ -127,6 +127,11 @@ def run_cycle(manifest, db, *, now=None, dry_run=False, config_path=None, use_jv
             "candidates_found": res.get("candidates_found", 0),
             "eligible_candidates": res.get("eligible_candidates", 0),
             "notifications_sent": res.get("notifications_sent", 0),
+            "unsent_buy_candidates": res.get("unsent_buy_candidates", 0),
+            "missing_discord_webhook": res.get("missing_discord_webhook", 0),
+            "discord_delivery_failures": res.get("discord_delivery_failures", 0),
+            "safety_lock_enabled": res.get("safety_lock_enabled", True),
+            "is_certified_source": res.get("is_certified_source", False),
             "errors": res.get("errors", [])
         }
     except (OSError, ValueError, TypeError, KeyError) as exc:
