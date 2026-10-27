@@ -31,6 +31,7 @@ analyze_rank_performance = getattr(bt_mod, "analyze_rank_performance")
 evaluate_race_value = getattr(bs_mod, "evaluate_race_value")
 
 from src.analyzer import analyze_winning_conditions
+from src.data_trust_gate import inspect_source_readiness, UntrustedRaceDataError, require_verified_race_data
 
 
 st.set_page_config(
@@ -49,6 +50,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 init_db()
+
+# Never show a trusted prediction or cached recommendation from an uncertified archive.
+_source_report = inspect_source_readiness()
+if not _source_report["verified_for_predictions"]:
+    st.error("実データの出典を検証できません。架空データ混入の可能性があるため予測・バックテスト・通知を停止しています。")
+    st.caption(_source_report["reason"])
+    st.stop()
 
 FEATURES_CACHE_PATH = Path(__file__).resolve().parent / "data" / "features.parquet"
 RACE_RANK_CACHE_PATH = Path(__file__).resolve().parent / "data" / "race_rank_cache.parquet"
