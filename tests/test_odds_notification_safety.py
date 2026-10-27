@@ -104,7 +104,8 @@ class OddsNotificationSafetyTest(unittest.TestCase):
             self.assertTrue(is_already_delivered(db, "race1", 1, "EV_ALERT"))
             self.assertFalse(try_claim_alert(db, "race1", 1, "EV_ALERT"))
             stale = (datetime.now(timezone.utc) - timedelta(minutes=4)).isoformat()
-            with sqlite3.connect(db) as conn:
+            from contextlib import closing
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute(
                     "UPDATE alert_delivery SET first_sent_at=? WHERE race_id=?",
                     (stale, "race1")
