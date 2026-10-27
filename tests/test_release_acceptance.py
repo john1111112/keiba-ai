@@ -10,7 +10,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.check_release_readiness import check
+from scripts.check_release_readiness import check, inspect_discord_webhook
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -48,7 +48,7 @@ class ReleaseReadinessTests(unittest.TestCase):
             "discord_enabled": True, "safety_lock_enabled": False
         })
         self.put("data/discord_config.json", {
-            "webhook_url": "https://discord.com/api/webhooks/000/TEST"
+            "webhook_url": "https://discord.com/api/webhooks/000/TEST_FAKE_TOKEN_1234"
         })
         stamp = datetime.now(timezone.utc).isoformat()
         self.put("data/monitor_daemon_status.json", {
@@ -99,6 +99,41 @@ class ReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(states["RUNNING_WHILE_UI_CLOSED"], "PENDING")
         self.assertEqual(states["REAL_JRA_FEED"], "PENDING")
         self.assertEqual(states["REAL_AI_INFERENCE"], "PENDING")
+
+    def test_discord_url_diagnostics_never_disclose_token(self):
+        examples = [
+            ("https://discordapp.com/api/webhooks/123456789/SECRET_TOKEN_1234", "discordapp.com"),
+            ("https://discord.com/channels/123456789/987654321", "lacks"),
+            ("https://example.com/api/webhooks/123456789/SECRET_TOKEN_1234", "host"),
+            ("https://discord.com/api/webhooks/123456789/SECRET_TOKEN_1234 ", "whitespace"),
+            ("https://discord.com/api/webhooks/123456789/", "lacks"),
+        ]
+        for url, hint in examples:
+            with self.subTest(hint=hint):
+                ok, msg = inspect_discord_webhook(url)
+                self.assertFalse(ok)
+                self.assertIn(hint, msg)
+                self.assertNotIn("SECRET_TOKEN_1234", msg)
+        ok, msg = inspect_discord_webhook(
+            "https://discord.com/api/webhooks/123456789/SECRET_TOKEN_1234"
+        )
+        self.assertTrue(ok)
+        self.assertNotIn("SECRET_TOKEN_1234", msg)
+
+    def test_saved_but_invalid_discord_url_explains_actual_problem(self):
+        self.put("data/alert_config.json", {
+            "discord_enabled": True, "safety_lock_enabled": False
+        })
+        self.put("data/discord_config.json", {
+            "webhook_url": "https://discord.com/channels/123456789/987654321"
+        })
+        report = check(self.root, include_os_probe=False)
+        found = next(c for c in report["checks"] if c["code"] == "DISCORD_CONFIG")
+        self.assertEqual(found["status"], "PENDING")
+        self.assertIn("discord_enabled=True", found["evidence"])
+        self.assertIn("safety_lock_off=True", found["evidence"])
+        self.assertIn("lacks", found["evidence"])
+        self.assertNotIn("123456789", found["evidence"])
 
     def test_release_checker_never_sends_a_notification_or_calls_jvinit(self):
         script = (
