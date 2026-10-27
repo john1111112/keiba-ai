@@ -524,9 +524,9 @@ with tab1:
         df_feat, fcols = load_features_v4(cache_key)
         model = KeibaAIModel()
         
-        # レース選択を待たず、AI予想データ生成時点で未通知の発走前SS/Sランク全鞍を一括自動プッシュ通知
-        if notify_all_predicted_ss_s_races:
-            notify_all_predicted_ss_s_races(df_feat, model)
+        # Legacy top-3-score batches must NEVER send push notifications on
+        # dashboard reruns. Only the headless, signed JV-Link win-EV monitor
+        # may issue automatic buy-candidate notifications.
         
         cache_rank_df = load_race_rank_df(cache_key)
         if len(cache_rank_df) > 0:
@@ -1011,27 +1011,13 @@ with tab4:
                 st.error(f"❌ 送信エラー: {t_res['message']}")
                 
     st.divider()
-    st.markdown("#### 2. 🤖 AI予想算出時の一括自動通知ステータス")
-    notified_list = get_notified_races()
-    st.success(f"現在、AIがSSランク・Sランクと予想した発走前勝負レース **{len(notified_list)}鞍** が、予想算出時点でDiscordへ一括自動通知済みです（サイトを開いてレースを選択する前に自動通知されます）。")
-    col_n1, col_n2 = st.columns(2)
-    with col_n1:
-        if st.button("🚀 今週末の全SS・Sランク予想を今すぐ一括再送信する", use_container_width=True, type="primary"):
-            if NOTIFIED_PATH.exists():
-                NOTIFIED_PATH.unlink()
-            df_feat_cur, _ = load_features_v4(cache_key)
-            m = KeibaAIModel()
-            if notify_all_predicted_ss_s_races:
-                b_res = notify_all_predicted_ss_s_races(df_feat_cur, m, tab_hook_input)
-                if b_res.get("success"):
-                    st.success(f"🎉 {b_res.get('message')}")
-                else:
-                    st.error(b_res.get("message", "送信エラー"))
-    with col_n2:
-        if st.button("🔄 送信済み履歴をリセット", use_container_width=True):
-            if NOTIFIED_PATH.exists():
-                NOTIFIED_PATH.unlink()
-            st.success("送信済み履歴をクリアしました！")
+    st.markdown("#### 2. 自動監視の通知")
+    st.info(
+        "買い候補の自動通知は、Windowsタスクスケジューラの "
+        "KeibaAI_BackgroundMonitor が公式JV-Link取得データと "
+        "単勝1着確率・期待値を検証して送ります。"
+        "画面の再表示や履歴データから通知を再送しません。"
+    )
 
 # ==========================================
 # タブ5: 蓄積データ統計
