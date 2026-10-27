@@ -19,6 +19,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +51,29 @@ def _recent(ts: Any, *, max_seconds: int = 180) -> bool:
         return -15 <= age <= max_seconds
     except (TypeError, ValueError, OverflowError):
         return False
+
+
+def inspect_discord_webhook(value: Any) -> tuple[bool, str]:
+    """Validate the actual saved URL without ever printing its secret token."""
+    if not isinstance(value, str) or not value.strip():
+        return False, "Discord webhook URL has not been saved"
+    if value != value.strip():
+        return False, "Discord webhook URL contains leading or trailing whitespace"
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme != "https":
+            return False, "Discord webhook must use HTTPS"
+        if parsed.hostname == "discordapp.com":
+            return False, "Old discordapp.com domain: replace with discord.com"
+        if parsed.hostname != "discord.com" or parsed.username or parsed.password or parsed.port is not None:
+            return False, "URL host is not discord.com; this may be a channel URL rather than a webhook"
+        if not re.fullmatch(r"/api/webhooks/[0-9]+/[A-Za-z0-9_.-]{8,}/?", parsed.path):
+            return False, "Discord URL lacks an /api/webhooks/<id>/<token> path"
+        if parsed.fragment:
+            return False, "Webhook URL contains an unexpected fragment"
+        return True, "Discord webhook URL structure is valid (delivery not yet tested)"
+    except (ValueError, TypeError):
+        return False, "Discord webhook URL cannot be parsed"
 
 
 def check(root: Path = ROOT, *, include_os_probe: bool = True) -> dict:
@@ -123,17 +148,19 @@ def check(root: Path = ROOT, *, include_os_probe: bool = True) -> dict:
 
     config = _read_json(data / "alert_config.json")
     discord = _read_json(data / "discord_config.json")
-    webhook = str(discord.get("webhook_url", ""))
-    discord_ok = (
-        config.get("discord_enabled") is True
-        and config.get("safety_lock_enabled") is False
-        and webhook.startswith("https://discord.com/api/webhooks/")
-    )
+    webhook_ok, webhook_detail = inspect_discord_webhook(discord.get("webhook_url"))
+    discord_enabled = config.get("discord_enabled") is True
+    safety_lock_off = config.get("safety_lock_enabled") is False
+    discord_ok = discord_enabled and safety_lock_off and webhook_ok
+    discord_reason = "; ".join([
+        f"discord_enabled={discord_enabled}",
+        f"safety_lock_off={safety_lock_off}",
+        webhook_detail,
+    ])
     checks.append(_result(
         "DISCORD_CONFIG", discord_ok,
-        "Buy-signal notifications enabled and Discord webhook present"
-        if discord_ok else "Discord webhook missing, alerts disabled, or safety lock still on",
-        "Save the Discord webhook in KEIBA AI and enable personal auto-monitor notifications."
+        discord_reason,
+        "Fix the reported Discord URL format or configuration flag (never share the secret token)."
     ))
 
     heartbeat = _read_json(data / "monitor_daemon_status.json")
