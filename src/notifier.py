@@ -30,8 +30,8 @@ def send_discord_test(webhook_url: Optional[str] = None) -> Dict[str, Any]:
         return {"success": False, "message": "Webhook URLが設定されていません。"}
         
     payload = {
-        "content": "@everyone 🚨【スマホ着信テスト】この通知でスマホが鳴れば成功です！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": "🚨【スマホ着信テスト】この通知でスマホが鳴れば成功です！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
@@ -110,8 +110,8 @@ def send_race_alert(race_info: Dict[str, Any], val_eval: Dict[str, Any], webhook
         
     prefix_icon = "🔥" if "SSランク" in rank else "⚡"
     payload = {
-        "content": f"@everyone 🚨【AI予想算出・即座通知】{prefix_icon} {rank} の勝負レースが検出されました！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": f"🚨【AI予想算出・即座通知】{prefix_icon} {rank} の勝負レースが検出されました！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
@@ -260,8 +260,8 @@ def notify_all_predicted_ss_s_races(df_feat: pd.DataFrame, model=None, webhook_u
         })
 
     summary_payload = {
-        "content": f"@everyone 🚨【AI予想算出・自動一括通知】発走前レースのAI予想が完了し、**🔥SSランク {len(ss_items)}鞍 / ⚡Sランク {len(s_items)}鞍** が認定されました！",
-        "allowed_mentions": {"parse": ["everyone", "users", "roles"]},
+        "content": f"🚨【AI予想算出・自動一括通知】発走前レースのAI予想が完了し、**🔥SSランク {len(ss_items)}鞍 / ⚡Sランク {len(s_items)}鞍** が認定されました！",
+        "allowed_mentions": {"parse": []},
         "username": "AI競馬予想エージェント",
         "avatar_url": "https://img.icons8.com/color/96/horse.png",
         "embeds": [{
