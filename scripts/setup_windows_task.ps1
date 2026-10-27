@@ -11,13 +11,19 @@ $ErrorActionPreference = "Stop"
 $TaskName = "KeibaAI_BackgroundMonitor"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RunnerBat = Join-Path $PSScriptRoot "run_scheduled_task.bat"
+$QuietRunner = Join-Path $PSScriptRoot "run_scheduled_task_hidden.vbs"
 
 if ($Action -eq "register") {
     if (-not (Test-Path -LiteralPath $RunnerBat)) {
         throw "Missing scheduled runner: $RunnerBat"
     }
-    # A per-minute task survives Windows restarts and requires no Streamlit.
-    & schtasks.exe /Create /TN $TaskName /TR ('"' + $RunnerBat + '"') /SC MINUTE /MO $IntervalMinutes /F | Out-Host
+    if (-not (Test-Path -LiteralPath $QuietRunner)) {
+        throw "Missing hidden task launcher: $QuietRunner"
+    }
+    # Launch via wscript.exe so Task Scheduler does not flash cmd.exe every minute.
+    # This preserves the original batch runner, exit code and 1-minute cadence.
+    $taskCommand = 'wscript.exe "' + $QuietRunner + '"'
+    & schtasks.exe /Create /TN $TaskName /TR $taskCommand /SC MINUTE /MO $IntervalMinutes /F | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Task registration failed (exit code $LASTEXITCODE)"
     }
