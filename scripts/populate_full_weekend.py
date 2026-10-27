@@ -37,7 +37,7 @@ SIRE_TYPES = ["サンデー系", "キンカメ系", "ロベルト系", "ミス�
 
 def get_sire_type(sire: str) -> str:
     if not sire:
-        return "サンデー系"
+        return None
     for k, v in SIRE_TYPE_MAP.items():
         if k in sire:
             return v
@@ -158,13 +158,15 @@ def fetch_and_parse_race(task):
             if not n_el or not n_el.get_text(strip=True).isdigit():
                 continue
             h_num = int(n_el.get_text(strip=True))
-            bracket = int(b_el.get_text(strip=True)) if (b_el and b_el.get_text(strip=True).isdigit()) else min(8, (h_num - 1) // 2 + 1)
+            bracket = int(b_el.get_text(strip=True)) if (b_el and b_el.get_text(strip=True).isdigit()) else None
 
             h_a = tr0.find("a", href=re.compile(r"/keiba/directory/horse/"))
             if not h_a:
                 continue
             m_hid = re.search(r"/horse/(\d+)", h_a["href"])
-            h_id = m_hid.group(1) if m_hid else f"h_{full_rid}_{h_num}"
+            if not m_hid:
+                continue  # No verified identity: never fabricate a horse ID
+            h_id = m_hid.group(1)
             h_name = h_a.get_text(strip=True)
 
             hw_el = tr0.find(class_="hr-denma__horseWeight")
@@ -188,8 +190,8 @@ def fetch_and_parse_race(task):
             tds1 = tr1.find_all("td")
             td_info = tds1[0]
             age_el = td_info.find(class_="hr-denma__horseAge")
-            age_txt = age_el.get_text(strip=True) if age_el else "牡3"
-            sex = "セン" if ("せん" in age_txt or "セ" in age_txt) else ("牝" if "牝" in age_txt else "牡")
+            age_txt = age_el.get_text(strip=True) if age_el else ""
+            sex = "セン" if ("せん" in age_txt or "セ" in age_txt) else ("牝" if "牝" in age_txt else ("牡" if "牡" in age_txt else None))
             m_age = re.search(r"(\d+)", age_txt)
             age = int(m_age.group(1)) if m_age else None
 
@@ -228,7 +230,7 @@ def fetch_and_parse_race(task):
                     continue
 
                 cond_line = date_ps[1].get_text(" ", strip=True)
-                p_surf = "ダート" if "ダ" in cond_line else "芝"
+                p_surf = "ダート" if "ダ" in cond_line else ("芝" if "芝" in cond_line else None)
                 p_dir = "左" if "左" in cond_line else ("右" if "右" in cond_line else None)
                 m_pdist = re.search(r"(\d{3,4})m", cond_line)
                 p_dist = int(m_pdist.group(1)) if m_pdist else None
@@ -280,7 +282,7 @@ def fetch_and_parse_race(task):
                 past_races_collected.append({
                     "race": (p_full_rid, p_rname, p_date, p_course, p_rnum, p_surf, p_dist, p_dir, None, p_cond, None),
                     "result": (
-                        p_full_rid, p_fin, min(8, (p_hnum - 1) // 2 + 1), p_hnum, h_id, h_name,
+                        p_full_rid, p_fin, None, p_hnum, h_id, h_name,
                         sex, None, None, pj_id, pj_name, p_tstr, p_tsec, "", p_l3f,
                         p_odds, p_pop, p_hw, p_hwd, None, None, sire, sire_type, p_style, p_c4, None
                     )
