@@ -1,19 +1,12 @@
 import re
 import time
 import sqlite3
-import hashlib
 import requests
 from requests.adapters import HTTPAdapter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "keiba.db"
-SIRE_TYPES = ["サンデー系", "キンカメ系", "ロベルト系", "ミスプロ系", "A.P.Indy系"]
-
-def get_sire_type(h_id: str) -> str:
-    h = int(hashlib.md5(str(h_id).encode("utf-8")).hexdigest(), 16)
-    return SIRE_TYPES[h % len(SIRE_TYPES)]
-
 def parse_time_sec(t_str: str) -> float:
     m = re.match(r"(\d+):(\d+\.\d+)", t_str.strip())
     if m:
@@ -48,21 +41,21 @@ def parse_netkeiba_html(html: str, full_rid: str):
         h_num = int(texts[2])
 
         m_ha = re.search(r"/horse/(\d+)/", tds[3])
-        h_id = m_ha.group(1) if m_ha else f"h_{full_rid}_{h_num}"
-        h_name = texts[3] if texts[3] else "競走馬"
+        h_id = m_ha.group(1) if m_ha else None
+        h_name = texts[3] if texts[3] else None
 
         sex = "セン" if ("セ" in texts[4] or "せん" in texts[4]) else ("牝" if "牝" in texts[4] else "牡")
         m_age = re.search(r"(\d+)", texts[4])
-        age = int(m_age.group(1)) if m_age else 3
+        age = int(m_age.group(1)) if m_age else None
 
         try:
             wc = float(texts[5])
         except Exception:
-            wc = 56.0
+            wc = None
 
         m_ja = re.search(r"/jockey/(?:result/recent/)?(\d+)/", tds[6])
-        j_id = m_ja.group(1) if m_ja else "01100"
-        j_name = texts[6].replace(" ", "") if texts[6] else "騎手"
+        j_id = m_ja.group(1) if m_ja else None
+        j_name = texts[6].replace(" ", "") if texts[6] else None
 
         t_str = texts[7]
         t_sec = parse_time_sec(t_str)
@@ -74,33 +67,33 @@ def parse_netkeiba_html(html: str, full_rid: str):
             c4 = pass_nums[-1]
             style = "逃げ" if fp <= 1 else ("先行" if fp <= 4 else ("差し" if fp <= 9 else "追込"))
         else:
-            style, c4 = "先行", 5
+            style, c4 = None, None
 
         try:
             l3f = float(texts[15])
         except Exception:
-            l3f = 35.0
+            l3f = None
 
         try:
             odds = float(texts[16])
         except Exception:
-            odds = 15.0
+            odds = None
 
-        pop = int(texts[17]) if texts[17].isdigit() else 8
+        pop = int(texts[17]) if texts[17].isdigit() else None
 
         m_hw = re.match(r"(\d{3})\(([+-]?\d+)\)", texts[18])
-        hw = float(m_hw.group(1)) if m_hw else 478.0
-        hwd = float(m_hw.group(2)) if m_hw else 0.0
+        hw = float(m_hw.group(1)) if m_hw else None
+        hwd = float(m_hw.group(2)) if m_hw else None
 
         m_ta = re.search(r"/trainer/(?:result/recent/)?(\d+)/", tds[18] if len(tds) <= 19 else "".join(tds[18:]))
-        tr_id = m_ta.group(1) if m_ta else "01000"
-        tr_name = texts[19] if len(texts) > 19 else "調教師"
+        tr_id = m_ta.group(1) if m_ta else None
+        tr_name = texts[19] if len(texts) > 19 and texts[19] else None
 
-        sire_type = get_sire_type(h_id)
+        sire_type = None  # Unknown: do not fabricate bloodline from horse ID
         results.append((
             full_rid, fin, b_num, h_num, h_id, h_name, sex, age, wc,
             j_id, j_name, t_str, t_sec, margin_str, l3f, odds, pop, hw, hwd,
-            tr_id, tr_name, "キズナ", sire_type, style, c4, 4
+            tr_id, tr_name, None, sire_type, style, c4, None
         ))
 
     if len(results) < 5:
