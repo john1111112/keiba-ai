@@ -63,6 +63,21 @@ class ScheduledLiveScanTest(unittest.TestCase):
         self.assertIn("run_scheduled_task.bat", scheduler)
         self.assertNotIn("-File \"app.py\"", installer)
 
+    def test_scheduled_task_uses_hidden_wscript_launcher(self):
+        root = Path(__file__).resolve().parents[1]
+        scheduler = (root / "scripts" / "setup_windows_task.ps1").read_text(encoding="utf-8")
+        silent = (root / "scripts" / "run_scheduled_task_hidden.vbs").read_text(encoding="utf-8")
+        updater = (root / "scripts" / "hide_windows_monitor_window.ps1").read_text(encoding="utf-8")
+        self.assertIn('run_scheduled_task_hidden.vbs', scheduler)
+        self.assertIn('wscript.exe', scheduler)
+        self.assertIn('/SC MINUTE', scheduler)
+        self.assertIn('run_scheduled_task.bat', silent)
+        self.assertIn('shell.Run(command, 0, True)', silent)
+        self.assertIn('WScript.Quit exitCode', silent)
+        self.assertIn('Set-ScheduledTask -TaskName', updater)
+        self.assertIn('-Action $newAction', updater)
+        self.assertNotIn('Unregister-ScheduledTask', updater)
+
     def test_opening_dashboard_does_not_start_duplicate_monitor(self):
         repo = Path(__file__).resolve().parents[1]
         launcher = (repo / "START_KEIBA_AI.bat").read_text(encoding="utf-8")
