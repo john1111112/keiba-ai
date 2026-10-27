@@ -89,6 +89,55 @@ class OddsNotificationSafetyTest(unittest.TestCase):
             with self.subTest(user_id=invalid), self.assertRaises(ValueError):
                 build_discord_buy_alert_payload("race", "message", invalid)
 
+    def test_abandoned_claim_can_be_recovered_once(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from datetime import timedelta
+        from src.automated_monitor import (
+            init_alert_db, try_claim_alert, is_already_delivered
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "alerts.db"
+            init_alert_db(db)
+            self.assertTrue(try_claim_alert(db, "race1", 1, "EV_ALERT"))
+            self.assertTrue(is_already_delivered(db, "race1", 1, "EV_ALERT"))
+            self.assertFalse(try_claim_alert(db, "race1", 1, "EV_ALERT"))
+            stale = (datetime.now(timezone.utc) - timedelta(minutes=4)).isoformat()
+            with sqlite3.connect(db) as conn:
+                conn.execute(
+                    "UPDATE alert_delivery SET first_sent_at=? WHERE race_id=?",
+                    (stale, "race1")
+                )
+            self.assertFalse(is_already_delivered(db, "race1", 1, "EV_ALERT"))
+            self.assertTrue(try_claim_alert(db, "race1", 1, "EV_ALERT"))
+            self.assertFalse(try_claim_alert(db, "race1", 1, "EV_ALERT"))
+            self.assertTrue(is_already_delivered(db, "race1", 1, "EV_ALERT"))
+
+    def test_failed_discord_retries_until_race_window_ends(self):
+        import tempfile
+        from pathlib import Path
+        from src.automated_monitor import (
+            init_alert_db, try_claim_alert, is_already_delivered,
+            record_alert_delivery
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "alerts.db"
+            init_alert_db(db)
+            self.assertTrue(try_claim_alert(db, "race2", 3, "BUY"))
+            for _ in range(5):
+                record_alert_delivery(
+                    db, "race2", 3, "runner", "BUY", 4.2, 0.35, 1.47,
+                    "discord", "FAILED", discord_status="FAILED"
+                )
+                self.assertFalse(
+                    is_already_delivered(db, "race2", 3, "BUY", max_retries=0)
+                )
+                self.assertTrue(try_claim_alert(db, "race2", 3, "BUY"))
+            self.assertTrue(
+                is_already_delivered(db, "race2", 3, "BUY", max_retries=3)
+            )
+
     def test_windows_only_is_delivered_only_if_toast_succeeds(self):
         self.assertEqual(classify_notification_delivery(
             True, False, "DELIVERED", "NOT_SENT"
