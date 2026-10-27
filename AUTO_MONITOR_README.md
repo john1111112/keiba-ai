@@ -7,7 +7,7 @@ JRAの当日全レースを定期取得し、AIの単勝勝率と最新オッズ
 ## 最初の1回だけ
 1. JRA-VAN Data Lab.のSDKと利用資格を別途準備する。こちらから契約・無料体験は開始しない。
 2. DiscordのWebhook URLをアプリの通知設定に一度保存する（既に設定済みなら不要）。
-3. Windows PCで **`INSTALL_AUTO_MONITOR.bat`** をダブルクリックする。
+3. Windows PCで **`INSTALL_AUTO_MONITOR.bat`** をダブルクリックする（初回はPython依存パッケージの導入が必要）。
 
 Discordでスマホの通知音が鳴らない場合は、アプリの「スマホ通知先のDiscordユーザーID」に
 自分の17〜20桁のユーザーIDを登録する。メンションは登録した本人にだけ送られ、
@@ -17,6 +17,24 @@ Discordでスマホの通知音が鳴らない場合は、アプリの「スマ�
 `KeibaAI_BackgroundMonitor` を1分間隔で登録・即時実行する。
 以降は **Streamlit/ブラウザの起動不要**。Windowsを再起動してもタスクは残る。
 PCの電源OFF・スリープ中には監視できず、Windowsにログインした状態での稼働を想定。
+
+## JV-Link環境（32bit / 64bit）
+`INSTALL_AUTO_MONITOR.bat` はプロジェクト専用の `.venv` を作成し、
+AI・通知用のPythonライブラリと64bit用pywin32を導入します。アプリの画面起動は不要です。
+
+JRA-VAN公式は2026年8月にJV-Link **5.0 64bit版**を公開しています。
+従来の32bit版も利用できます。ソフトは実際にCOMを生成できるPythonを
+選択して実行します。**32bit版と64bit版では別の利用キーが必要**です。
+SDKのインストール・利用キー登録・無料体験開始は自動で行いません。
+
+自動選択が難しい場合は、Windowsの環境変数 `KEIBA_JVLINK_PYTHON` に
+JV-Linkと同じbit数の `python.exe` の絶対パスを設定してください。
+32bit版を使う場合、その32bit Python側にも `pywin32` が必要です。
+環境診断には `scripts/check_jvlink_readiness.py` を使用します。
+
+オッズの初期鮮度上限は720秒。JRA-VANによると当回以外のレースで
+更新に最大710秒ほどかかる場合があるため、120秒固定では買い候補を
+見落とす可能性がありました。画面の通知設定で調整できます。
 
 ## 処理
 - 1分ごとに `0B15` で当日レース・出走馬を取得し、各対象レースの `0B31` 単勝オッズを確認。
