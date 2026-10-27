@@ -210,6 +210,50 @@ class TransportContractTest(unittest.TestCase):
             self.assertEqual(json.loads(output_path.read_text())["ra_count"], 1)
         self.assertEqual(progids, ["JVDTLab.JVLink"])
 
+    def test_opt_in_64bit_worker_accepts_official_64bit_com(self):
+        import json
+        import sys
+        import tempfile
+        import types
+        from pathlib import Path
+        from unittest.mock import patch
+
+        link = FakeJVGetsLink([race_rec(), horse_rec(1)])
+        link.JVInit = lambda sid: 0
+        win32 = types.ModuleType("win32com")
+        win32.__path__ = []
+        client = types.ModuleType("win32com.client")
+        client.Dispatch = lambda progid: link
+        win32.client = client
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            sys.modules, {"win32com": win32, "win32com.client": client}
+        ), patch("src.jvlink_worker.check_is_32bit", return_value=False), patch(
+            "src.jvlink_worker.struct.calcsize", return_value=8
+        ):
+            result = run_worker_capture(
+                sid="UNKNOWN", data_spec="0B15",
+                from_time="20261027000000",
+                output_path=str(Path(tmp) / "worker.json"),
+                allow_64bit=True
+            )
+            self.assertTrue(result["success"])
+            self.assertTrue(link.closed)
+
+    def test_64bit_worker_requires_explicit_opt_in(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "src.jvlink_worker.check_is_32bit", return_value=False
+        ):
+            result = run_worker_capture(
+                sid="UNKNOWN", data_spec="0B15",
+                from_time="20261027000000",
+                output_path=str(Path(tmp) / "worker.json")
+            )
+            self.assertFalse(result["success"])
+            self.assertEqual(result["auth_status"], "WRONG_PYTHON_ARCHITECTURE")
+
     def test_truncated_jvgets_is_rejected(self):
         raw = race_rec()
         class Truncated(FakeJVGetsLink):
