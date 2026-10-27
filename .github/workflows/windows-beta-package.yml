@@ -58,6 +58,11 @@ jobs:
             "GO_LIVE_CHECKLIST.md", "AUTO_MONITOR_README.md"
           )
           foreach ($p in $paths) { Copy-Item -Recurse -Force $p $root }
+          New-Item -ItemType Directory -Force "$root/data" | Out-Null
+          Copy-Item "data/keiba.db" "$root/data/keiba.db" -Force
+          if (Test-Path "data/features.parquet") {
+            Copy-Item "data/features.parquet" "$root/data/features.parquet" -Force
+          }
           $zip = "dist/KEIBA_AI_Windows_Beta.zip"
           Compress-Archive -Path $root -DestinationPath $zip -Force
           Write-Host ("ZIP bytes: " + (Get-Item $zip).Length)
