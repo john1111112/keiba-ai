@@ -95,6 +95,46 @@ def _original_archive(path, expected_sha, expected_spec, *, current_week=False):
         return dict(r)
 
 
+def _official_se_index(source_archive):
+    """Match normalized runner IDs and finish against the exact official SE bytes.
+
+    The full SQLite file hash alone does not protect the research DB from
+    separately edited horse identifiers or finish rankings.
+    """
+    evidence = {}
+    with closing(_connect(source_archive)) as con:
+        for row in con.execute(
+                "SELECT id,record_type,race_key,data_kubun,sha256,payload "
+                "FROM jv_record WHERE record_type='SE'"):
+            rec_id, kind, race_key, kubun, sha, raw = row
+            if (not isinstance(raw, bytes) or len(raw) != 555
+                or raw[:2] != b"SE" or raw[-2:] != b"\r\n"
+                or hashlib.sha256(raw).hexdigest() != sha):
+                raise V9AuditBlocked("Corrupt original SE payload/hash in verified archive")
+            try:
+                official_race = raw[11:27].decode("ascii")
+                official_number = int(raw[28:30].decode("ascii"))
+                official_horse = raw[30:40].decode("ascii")
+                official_kubun = raw[2:3].decode("ascii")
+                finish_bytes = raw[334:336].decode("ascii").strip()
+                official_finish = int(finish_bytes) if finish_bytes and finish_bytes.isdigit() else None
+                if official_finish == 0:
+                    official_finish = None
+            except (UnicodeError, ValueError) as exc:
+                raise V9AuditBlocked("Invalid raw SE identity fields") from exc
+            if (official_race != race_key or official_kubun != kubun
+                or len(official_race) != 16 or not official_race.isdigit()
+                or len(official_horse) != 10 or not official_horse.isdigit()
+                or not 1 <= official_number <= 28):
+                raise V9AuditBlocked("Original raw SE metadata inconsistent with payload")
+            evidence[rec_id] = {
+                "horse_id": official_horse, "race_id": official_race,
+                "horse_number": official_number, "finish": official_finish,
+                "raw_sha256": sha, "data_kubun": kubun,
+            }
+    return evidence
+
+
 def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
     """Produce aggregate eligibility/missingness counters; NEVER emit predictions."""
     research_db = Path(research_db).resolve()
@@ -107,6 +147,7 @@ def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
         raise V9AuditBlocked("Prospective cards must reside in matching prerace_evidence folder")
 
     receipts = {}
+    raw_se_evidence = {}
     historical = defaultdict(list)
     with closing(_connect(research_db)) as db:
         _require_tables(db, {"source_receipts", "race", "runner", "audit"})
@@ -131,11 +172,13 @@ def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
             if name in receipts:
                 raise V9AuditBlocked("Duplicated historical receipt")
             receipts[name] = captured
+            raw_se_evidence[name] = _official_se_index(research_db.parent / name)
         if not receipts:
             raise V9AuditBlocked("No verified historical raw archives available")
         query = (
-            "SELECT h.race_id,h.horse_id,h.finish_post,h.source_file,h.source_sha256,"
-            "h.data_kubun,r.race_date,r.runners_declared,r.complete_postrace_result "
+            "SELECT h.race_id,h.horse_id,h.horse_number,h.finish_post,h.source_file,"
+            "h.source_id,h.source_sha256,h.data_kubun,"
+            "r.race_date,r.runners_declared,r.complete_postrace_result "
             "FROM runner h JOIN race r ON r.race_id=h.race_id"
         )
         seen = set()
@@ -144,6 +187,16 @@ def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
                 continue
             if row["source_file"] not in receipts:
                 raise V9AuditBlocked("Runner has no verified historical source receipt")
+            original = raw_se_evidence[row["source_file"]].get(row["source_id"])
+            if original is None or (
+                original["horse_id"] != row["horse_id"]
+                or original["race_id"] != row["race_id"]
+                or original["horse_number"] != row["horse_number"]
+                or original["finish"] != row["finish_post"]
+                or original["raw_sha256"] != row["source_sha256"]
+                or original["data_kubun"] != row["data_kubun"]
+            ):
+                raise V9AuditBlocked("Research runner disagrees with original official SE bytes")
             key = (row["race_id"], row["horse_id"])
             if key in seen:
                 raise V9AuditBlocked("Duplicate horse/race identity in V7 research DB")
