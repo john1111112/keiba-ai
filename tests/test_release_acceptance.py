@@ -62,7 +62,8 @@ class ReleaseReadinessTests(unittest.TestCase):
         })
         self.put("data/authorized_feed/latest_jvlink_feed.json", {"races": []})
         db = self.root / "data" / "alert_state.db"
-        with sqlite3.connect(db) as conn:
+        conn = sqlite3.connect(db)
+        try:
             conn.execute(
                 "CREATE TABLE alert_delivery "
                 "(id INTEGER PRIMARY KEY, first_sent_at TEXT,"
@@ -72,6 +73,9 @@ class ReleaseReadinessTests(unittest.TestCase):
                 "INSERT INTO alert_delivery VALUES (1, ?, 'RACE1', 3, 'DELIVERED')",
                 (stamp,)
             )
+            conn.commit()
+        finally:
+            conn.close()
         report = check(self.root, include_os_probe=False)
         checks = {c["code"]: c for c in report["checks"]}
         for code in (
