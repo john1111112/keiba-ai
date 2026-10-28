@@ -76,7 +76,7 @@ class V9ResearchAuditTests(unittest.TestCase):
                         raw[28:30] = f"{horse_number:02d}".encode("ascii")
                         raw[30:40] = horse_id.encode("ascii")
                         raw[334:336] = f"{day:02d}".encode("ascii")
-                        raw[-2:] = b"\\r\\n"
+                        raw[-2:] = b"\r\n"
                         payload = bytes(raw)
                         digest = hashlib.sha256(payload).hexdigest()
                         raw_db.execute("INSERT INTO jv_record VALUES (?,?,?,?,?,?)",
