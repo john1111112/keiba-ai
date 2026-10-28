@@ -17,8 +17,10 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
+import tempfile
 
 JST = timezone(timedelta(hours=9))
 MIN_PRIOR_STARTS = 3
@@ -93,7 +95,7 @@ def _original_archive(path, expected_sha, expected_spec, *, current_week=False):
         return dict(r)
 
 
-def audit_v9(research_db, snapshot_dbs):
+def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
     """Produce aggregate eligibility/missingness counters; NEVER emit predictions."""
     research_db = Path(research_db).resolve()
     snapshots = [Path(x).resolve() for x in snapshot_dbs]
@@ -158,6 +160,8 @@ def audit_v9(research_db, snapshot_dbs):
                 "race_id": row["race_id"],
                 "date": row["race_date"],
                 "source_received": receipts[row["source_file"]],
+                "source_file": row["source_file"],
+                "raw_record_sha256": row["source_sha256"],
                 "normalized_finish_rank": (n - finish) / (n - 1),
             })
 
@@ -171,6 +175,9 @@ def audit_v9(research_db, snapshot_dbs):
         "runners_with_insufficient_prior_starts": 0,
         "runners_with_unknown_historical_identity": 0,
         "prior_runs_used": 0,
+        "traceable_form_rows": 0,
+        "form_features_are_probabilities": False,
+        "prerace_issued_betting_alert": False,
         "snapshot_source_archive_hash_verified": True,
         "research_source_archive_hash_verified": True,
         "independent_publication_time_attestation": False,
@@ -181,6 +188,7 @@ def audit_v9(research_db, snapshot_dbs):
         "warning": "Valid prospective form evidence is NOT a historical as-of backtest, and does not approve training or betting.",
     }
     distinct = set()
+    trace = []
     for snap in snapshots:
         with closing(_connect(snap)) as con:
             _require_tables(con, {"capture_evidence", "race_prerace", "runner_prerace"})
@@ -246,19 +254,82 @@ def audit_v9(research_db, snapshot_dbs):
                         continue
                     report["runners_with_3_prior_starts_observed_before_snapshot"] += 1
                     report["prior_runs_used"] += MIN_PRIOR_STARTS
+                    # A source-traceable PREVIEW only, never a betting signal.
+                    # Do not leak target finish, final odds or postrace conditions.
+                    used = prior[:MIN_PRIOR_STARTS]
+                    trace.append({
+                        "target_race_id": race_id,
+                        "target_horse_id": hid,
+                        "target_horse_number": runner["horse_number"],
+                        "snapshot_observed_at_utc": receipt["capture_finished_at_utc"],
+                        "snapshot_source_archive_sha256": receipt["source_archive_sha256"],
+                        "target_runner_se_sha256": runner["se_raw_sha256"],
+                        "known_prior_runs": len(prior),
+                        "last3_relative_finish_score_NOT_WIN_PROBABILITY": round(
+                            sum(p["normalized_finish_rank"] for p in used) / MIN_PRIOR_STARTS, 8),
+                        "last3_official_result_sources": [
+                            {"prior_race_id": p["race_id"],
+                             "race_date": p["date"],
+                             "source_file": p["source_file"],
+                             "raw_record_sha256": p["raw_record_sha256"],
+                             "original_archive_captured_at_utc": p["source_received"].isoformat(),
+                             "normalized_finish_rank": round(p["normalized_finish_rank"], 8)}
+                            for p in used
+                        ],
+                    })
+    report["traceable_form_rows"] = len(trace)
     if report["eligible_future_races"] == 0:
         report["status"] = "V9_NO_COMPLETE_FUTURE_CARD_YET"
+    if include_feature_ledger:
+        report["_research_only_trace"] = trace
     return report
+
+
+def _write_research_trace(path, research_db, trace):
+    """Persist read-only analysis result, never to the user's original databases."""
+    base = Path(research_db).resolve().parent / "v9_evidence"
+    path = Path(path).resolve()
+    if path.parent != base or path.suffix.lower() != ".json" or path.exists():
+        raise V9AuditBlocked("Ledger path must be a NEW JSON file in v9_evidence")
+    base.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": "V9_UNCERTIFIED_RESEARCH_FORM_PREVIEW",
+        "training_approved": False,
+        "prediction_approved": False,
+        "betting_recommendations": [],
+        "discord_sent": False,
+        "warning": "Not a backtest. Official result source capture must predate target snapshot.",
+        "entries": trace,
+    }
+    fd, tmp = tempfile.mkstemp(prefix="v9_", suffix=".partial", dir=str(base))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        # Source is never overwritten; destination must be previously absent.
+        if path.exists():
+            raise V9AuditBlocked("Refusing to overwrite existing ledger")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Read-only cross-era JRA-VAN evidence audit")
     parser.add_argument("--research-db", required=True)
     parser.add_argument("--snapshots-dir", required=True)
+    parser.add_argument("--ledger-json", help="NEW output JSON under research-root/v9_evidence only")
     args = parser.parse_args(argv)
     snapshots = sorted(Path(args.snapshots_dir).glob("prerace_evidence*.sqlite3"))
     try:
-        result = audit_v9(args.research_db, snapshots)
+        result = audit_v9(args.research_db, snapshots,
+                          include_feature_ledger=bool(args.ledger_json))
+        if args.ledger_json:
+            trace = result.pop("_research_only_trace")
+            _write_research_trace(args.ledger_json, args.research_db, trace)
+            result["research_trace_json"] = str(Path(args.ledger_json).resolve())
     except (V9AuditBlocked, OSError, sqlite3.DatabaseError) as exc:
         result = {
             "status": "V9_AUDIT_BLOCKED",
