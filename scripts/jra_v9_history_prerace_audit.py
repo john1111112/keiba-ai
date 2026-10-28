@@ -1,0 +1,400 @@
+"""V9: read-only audit of historical JRA-VAN results vs prospective RA/SE cards.
+
+This module is intentionally NOT a training authorizer. In particular:
+  * Historical race outcome and final odds are forbidden as CURRENT race inputs.
+  * An older official RESULT may be a prior-run feature only when the original
+    JV-Link archive was acquired BEFORE the new prospective card snapshot.
+  * A current-week card is not proof that old backtests had pre-off snapshots.
+  * A source receipt's self-description and the PC clock are not an independent
+    attestation of odds, publication time, or provenance.
+Never import legacy keiba.db or unlock notifications from this report.
+"""
+from __future__ import annotations
+
+import argparse
+from collections import defaultdict
+from contextlib import closing
+from datetime import datetime, timezone, timedelta
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+import tempfile
+
+JST = timezone(timedelta(hours=9))
+MIN_PRIOR_STARTS = 3
+
+
+class V9AuditBlocked(RuntimeError):
+    pass
+
+
+def _utc(value):
+    if not isinstance(value, str):
+        raise V9AuditBlocked("Missing source observation timestamp")
+    try:
+        x = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise V9AuditBlocked("Invalid source timestamp") from exc
+    if x.tzinfo is None or x.utcoffset() is None:
+        raise V9AuditBlocked("Naive timestamp cannot prove historical availability")
+    return x.astimezone(timezone.utc)
+
+
+def _digest(path):
+    if not path.is_file():
+        raise V9AuditBlocked("Original JRA-VAN raw archive missing")
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(2 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _connect(path):
+    try:
+        db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        return db
+    except sqlite3.Error as exc:
+        raise V9AuditBlocked("Source research DB not readable") from exc
+
+
+def _require_tables(con, required):
+    available = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    missing = required - available
+    if missing:
+        raise V9AuditBlocked("Required research/evidence schema missing: " + ",".join(sorted(missing)))
+
+
+def _original_archive(path, expected_sha, expected_spec, *, current_week=False):
+    if not (isinstance(expected_sha, str) and len(expected_sha) == 64):
+        raise V9AuditBlocked("Malformed source receipt hash")
+    if _digest(path) != expected_sha:
+        raise V9AuditBlocked("Original raw archive HASH_MISMATCH: " + path.name)
+    with closing(_connect(path)) as con:
+        _require_tables(con, {"acquisition", "jv_record"})
+        items = con.execute(
+            "SELECT data_spec,from_time,captured_at_utc,record_count,sdk_result,origin "
+            "FROM acquisition").fetchall()
+        if len(items) != 1:
+            raise V9AuditBlocked("Raw capture must have exactly one acquisition receipt")
+        r = items[0]
+        if (r["data_spec"] != expected_spec or
+            r["sdk_result"] != "JVOpen+JVGets_EOF_SUCCESS" or
+            r["origin"] != "JRA-VAN/JV-Link COM"):
+            raise V9AuditBlocked("Raw source provenance receipt not acceptable")
+        if current_week and r["from_time"] != "00000000000000":
+            raise V9AuditBlocked("Future-card source is not current-week RACE capture")
+        if con.execute("SELECT COUNT(*) FROM jv_record").fetchone()[0] != r["record_count"]:
+            raise V9AuditBlocked("Original record count does not match acquisition receipt")
+        _utc(r["captured_at_utc"])
+        return dict(r)
+
+
+def _official_se_index(source_archive):
+    """Match normalized runner IDs and finish against the exact official SE bytes.
+
+    The full SQLite file hash alone does not protect the research DB from
+    separately edited horse identifiers or finish rankings.
+    """
+    evidence = {}
+    with closing(_connect(source_archive)) as con:
+        for row in con.execute(
+                "SELECT id,record_type,race_key,data_kubun,sha256,payload "
+                "FROM jv_record WHERE record_type='SE'"):
+            rec_id, kind, race_key, kubun, sha, raw = row
+            if (not isinstance(raw, bytes) or len(raw) != 555
+                or raw[:2] != b"SE" or raw[-2:] != b"\r\n"
+                or hashlib.sha256(raw).hexdigest() != sha):
+                raise V9AuditBlocked("Corrupt original SE payload/hash in verified archive")
+            try:
+                official_race = raw[11:27].decode("ascii")
+                official_number = int(raw[28:30].decode("ascii"))
+                official_horse = raw[30:40].decode("ascii")
+                official_kubun = raw[2:3].decode("ascii")
+                finish_bytes = raw[334:336].decode("ascii").strip()
+                official_finish = int(finish_bytes) if finish_bytes and finish_bytes.isdigit() else None
+                if official_finish == 0:
+                    official_finish = None
+            except (UnicodeError, ValueError) as exc:
+                raise V9AuditBlocked("Invalid raw SE identity fields") from exc
+            if (official_race != race_key or official_kubun != kubun
+                or len(official_race) != 16 or not official_race.isdigit()
+                or len(official_horse) != 10 or not official_horse.isdigit()
+                or not 1 <= official_number <= 28):
+                raise V9AuditBlocked("Original raw SE metadata inconsistent with payload")
+            evidence[rec_id] = {
+                "horse_id": official_horse, "race_id": official_race,
+                "horse_number": official_number, "finish": official_finish,
+                "raw_sha256": sha, "data_kubun": kubun,
+            }
+    return evidence
+
+
+def audit_v9(research_db, snapshot_dbs, *, include_feature_ledger=False):
+    """Produce aggregate eligibility/missingness counters; NEVER emit predictions."""
+    research_db = Path(research_db).resolve()
+    snapshots = [Path(x).resolve() for x in snapshot_dbs]
+    if not research_db.is_file() or research_db.name == "keiba.db":
+        raise V9AuditBlocked("No verified research database or legacy DB forbidden")
+    if len(snapshots) != len(set(snapshots)):
+        raise V9AuditBlocked("Duplicate pre-off snapshot DB")
+    if any(x == research_db or x.parent.parent != research_db.parent for x in snapshots):
+        raise V9AuditBlocked("Prospective cards must reside in matching prerace_evidence folder")
+
+    receipts = {}
+    raw_se_evidence = {}
+    historical = defaultdict(list)
+    with closing(_connect(research_db)) as db:
+        _require_tables(db, {"source_receipts", "race", "runner", "audit"})
+        evidence = dict(db.execute("SELECT key,value_json FROM audit").fetchall())
+        try:
+            if (json.loads(evidence["source_hashes_verified"]) is not True or
+                json.loads(evidence["training_unlocked"]) is not False or
+                json.loads(evidence["legacy_keiba_db_used"]) is not False):
+                raise V9AuditBlocked("V7 research safety flags not valid")
+        except (KeyError, ValueError, TypeError) as exc:
+            raise V9AuditBlocked("Missing V7 research safety audit") from exc
+        for item in db.execute("SELECT source_file,sha256,data_spec,captured_at_utc,record_count FROM source_receipts"):
+            name = item["source_file"]
+            if Path(name).name != name or not name.startswith(("jv_RACE_", "jv_RCVN_")):
+                raise V9AuditBlocked("Unsafe source archive name")
+            if item["data_spec"] not in ("RACE", "RCVN"):
+                raise V9AuditBlocked("Unknown historical data type")
+            archive = _original_archive(research_db.parent / name, item["sha256"], item["data_spec"])
+            captured = _utc(item["captured_at_utc"])
+            if captured != _utc(archive["captured_at_utc"]) or item["record_count"] != archive["record_count"]:
+                raise V9AuditBlocked("Research receipt differs from official raw receipt")
+            if name in receipts:
+                raise V9AuditBlocked("Duplicated historical receipt")
+            receipts[name] = captured
+            raw_se_evidence[name] = _official_se_index(research_db.parent / name)
+        if not receipts:
+            raise V9AuditBlocked("No verified historical raw archives available")
+        query = (
+            "SELECT h.race_id,h.horse_id,h.horse_number,h.finish_post,h.source_file,"
+            "h.source_id,h.source_sha256,h.data_kubun,"
+            "r.race_date,r.runners_declared,r.complete_postrace_result "
+            "FROM runner h JOIN race r ON r.race_id=h.race_id"
+        )
+        seen = set()
+        for row in db.execute(query):
+            if not row["horse_id"] or not row["source_sha256"]:
+                continue
+            if row["source_file"] not in receipts:
+                raise V9AuditBlocked("Runner has no verified historical source receipt")
+            original = raw_se_evidence[row["source_file"]].get(row["source_id"])
+            if original is None or (
+                original["horse_id"] != row["horse_id"]
+                or original["race_id"] != row["race_id"]
+                or original["horse_number"] != row["horse_number"]
+                or original["finish"] != row["finish_post"]
+                or original["raw_sha256"] != row["source_sha256"]
+                or original["data_kubun"] != row["data_kubun"]
+            ):
+                raise V9AuditBlocked("Research runner disagrees with original official SE bytes")
+            key = (row["race_id"], row["horse_id"])
+            if key in seen:
+                raise V9AuditBlocked("Duplicate horse/race identity in V7 research DB")
+            seen.add(key)
+            n, finish = row["runners_declared"], row["finish_post"]
+            if (row["complete_postrace_result"] != 1
+                or type(n) is not int or type(finish) is not int
+                or not 5 <= n <= 28 or not 1 <= finish <= n
+                or row["data_kubun"] not in ("6", "7")):
+                continue
+            # The archive may have been received after the race but only before
+            # the PROSPECTIVE target event is it a valid prior observation.
+            historical[row["horse_id"]].append({
+                "race_id": row["race_id"],
+                "date": row["race_date"],
+                "source_received": receipts[row["source_file"]],
+                "source_file": row["source_file"],
+                "raw_record_sha256": row["source_sha256"],
+                "normalized_finish_rank": (n - finish) / (n - 1),
+            })
+
+    report = {
+        "status": "V9_RESEARCH_AUDIT_ONLY_NO_TRAINING",
+        "historical_verified_source_archives": len(receipts),
+        "prospective_snapshots_checked": 0,
+        "eligible_future_races": 0,
+        "future_runner_rows": 0,
+        "runners_with_3_prior_starts_observed_before_snapshot": 0,
+        "runners_with_insufficient_prior_starts": 0,
+        "runners_with_unknown_historical_identity": 0,
+        "prior_runs_used": 0,
+        "traceable_form_rows": 0,
+        "form_features_are_probabilities": False,
+        "prerace_issued_betting_alert": False,
+        "snapshot_source_archive_hash_verified": True,
+        "research_source_archive_hash_verified": True,
+        "independent_publication_time_attestation": False,
+        "train_model": False,
+        "training_unlocked": False,
+        "betting_recommendations": [],
+        "alerts_sent": False,
+        "warning": "Valid prospective form evidence is NOT a historical as-of backtest, and does not approve training or betting.",
+    }
+    distinct = set()
+    trace = []
+    for snap in snapshots:
+        with closing(_connect(snap)) as con:
+            _require_tables(con, {"capture_evidence", "race_prerace", "runner_prerace"})
+            meta = con.execute(
+                "SELECT source_archive_name,source_archive_sha256,capture_finished_at_utc,"
+                "source_type,clock_attestation,research_only,training_unlocked,alerts_sent "
+                "FROM capture_evidence").fetchall()
+            if len(meta) != 1:
+                raise V9AuditBlocked("Prospective snapshot must have one receipt")
+            receipt = meta[0]
+            if (receipt["source_type"] != "JVOpen RACE option=2"
+                or receipt["research_only"] != 1
+                or receipt["training_unlocked"] != 0
+                or receipt["alerts_sent"] != 0):
+                raise V9AuditBlocked("Prospective evidence safety flags do not match v8.1")
+            source_name = receipt["source_archive_name"]
+            if (Path(source_name).name != source_name
+                or not source_name.startswith("current_week_RACE_")):
+                raise V9AuditBlocked("Invalid prospective source archive name")
+            raw = _original_archive(snap.parent / source_name, receipt["source_archive_sha256"], "RACE", current_week=True)
+            observed = _utc(receipt["capture_finished_at_utc"])
+            if observed < _utc(raw["captured_at_utc"]):
+                raise V9AuditBlocked("Snapshot completed before raw source started")
+            report["prospective_snapshots_checked"] += 1
+            for race in con.execute(
+                "SELECT race_id,post_time_utc,observed_at_utc,runners_declared FROM race_prerace"):
+                race_id = race["race_id"]
+                race_key = (race_id, race["observed_at_utc"])
+                if race_key in distinct:
+                    # Duplicate samples must not inflate backtest sample counts.
+                    continue
+                distinct.add(race_key)
+                post = _utc(race["post_time_utc"])
+                obs = _utc(race["observed_at_utc"])
+                if obs != observed or post <= obs + timedelta(minutes=15):
+                    raise V9AuditBlocked("Card is not a correctly timed prospective snapshot")
+                runners = con.execute(
+                    "SELECT horse_id,horse_number,se_raw_sha256 FROM runner_prerace WHERE race_id=?",
+                    (race_id,)).fetchall()
+                n = race["runners_declared"]
+                if (type(n) is not int or not 5 <= n <= 28
+                    or len(runners) != n
+                    or len({r["horse_id"] for r in runners}) != n
+                    or len({r["horse_number"] for r in runners}) != n
+                    or any(not r["se_raw_sha256"] for r in runners)):
+                    raise V9AuditBlocked("Incomplete or duplicated prospective race field")
+                report["eligible_future_races"] += 1
+                for runner in runners:
+                    report["future_runner_rows"] += 1
+                    hid = runner["horse_id"]
+                    if hid not in historical:
+                        report["runners_with_unknown_historical_identity"] += 1
+                    # Conservative day-level cutoff. The target day's old races
+                    # are never treated as before today's off without precise time.
+                    cutoff_date = obs.astimezone(JST).date().isoformat()
+                    prior = [
+                        h for h in historical.get(hid, [])
+                        if h["date"] < cutoff_date and h["source_received"] <= obs
+                    ]
+                    prior.sort(key=lambda h: (h["date"], h["race_id"]), reverse=True)
+                    if len(prior) < MIN_PRIOR_STARTS:
+                        report["runners_with_insufficient_prior_starts"] += 1
+                        continue
+                    report["runners_with_3_prior_starts_observed_before_snapshot"] += 1
+                    report["prior_runs_used"] += MIN_PRIOR_STARTS
+                    # A source-traceable PREVIEW only, never a betting signal.
+                    # Do not leak target finish, final odds or postrace conditions.
+                    used = prior[:MIN_PRIOR_STARTS]
+                    trace.append({
+                        "target_race_id": race_id,
+                        "target_horse_id": hid,
+                        "target_horse_number": runner["horse_number"],
+                        "snapshot_observed_at_utc": receipt["capture_finished_at_utc"],
+                        "snapshot_source_archive_sha256": receipt["source_archive_sha256"],
+                        "target_runner_se_sha256": runner["se_raw_sha256"],
+                        "known_prior_runs": len(prior),
+                        "last3_relative_finish_score_NOT_WIN_PROBABILITY": round(
+                            sum(p["normalized_finish_rank"] for p in used) / MIN_PRIOR_STARTS, 8),
+                        "last3_official_result_sources": [
+                            {"prior_race_id": p["race_id"],
+                             "race_date": p["date"],
+                             "source_file": p["source_file"],
+                             "raw_record_sha256": p["raw_record_sha256"],
+                             "original_archive_captured_at_utc": p["source_received"].isoformat(),
+                             "normalized_finish_rank": round(p["normalized_finish_rank"], 8)}
+                            for p in used
+                        ],
+                    })
+    report["traceable_form_rows"] = len(trace)
+    if report["eligible_future_races"] == 0:
+        report["status"] = "V9_NO_COMPLETE_FUTURE_CARD_YET"
+    if include_feature_ledger:
+        report["_research_only_trace"] = trace
+    return report
+
+
+def _write_research_trace(path, research_db, trace):
+    """Persist read-only analysis result, never to the user's original databases."""
+    base = Path(research_db).resolve().parent / "v9_evidence"
+    path = Path(path).resolve()
+    if path.parent != base or path.suffix.lower() != ".json" or path.exists():
+        raise V9AuditBlocked("Ledger path must be a NEW JSON file in v9_evidence")
+    base.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": "V9_UNCERTIFIED_RESEARCH_FORM_PREVIEW",
+        "training_approved": False,
+        "prediction_approved": False,
+        "betting_recommendations": [],
+        "discord_sent": False,
+        "warning": "Not a backtest. Official result source capture must predate target snapshot.",
+        "entries": trace,
+    }
+    fd, tmp = tempfile.mkstemp(prefix="v9_", suffix=".partial", dir=str(base))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        # Source is never overwritten; destination must be previously absent.
+        if path.exists():
+            raise V9AuditBlocked("Refusing to overwrite existing ledger")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only cross-era JRA-VAN evidence audit")
+    parser.add_argument("--research-db", required=True)
+    parser.add_argument("--snapshots-dir", required=True)
+    parser.add_argument("--ledger-json", help="NEW output JSON under research-root/v9_evidence only")
+    args = parser.parse_args(argv)
+    snapshots = sorted(Path(args.snapshots_dir).glob("prerace_evidence*.sqlite3"))
+    try:
+        result = audit_v9(args.research_db, snapshots,
+                          include_feature_ledger=bool(args.ledger_json))
+        if args.ledger_json:
+            trace = result.pop("_research_only_trace")
+            _write_research_trace(args.ledger_json, args.research_db, trace)
+            result["research_trace_json"] = str(Path(args.ledger_json).resolve())
+    except (V9AuditBlocked, OSError, sqlite3.DatabaseError) as exc:
+        result = {
+            "status": "V9_AUDIT_BLOCKED",
+            "reason": str(exc)[:300],
+            "training_unlocked": False, "alerts_sent": False,
+            "betting_recommendations": [],
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
