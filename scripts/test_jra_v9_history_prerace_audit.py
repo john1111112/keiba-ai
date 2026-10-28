@@ -35,7 +35,8 @@ class V9ResearchAuditTests(unittest.TestCase):
                 "CREATE TABLE acquisition("
                 "data_spec TEXT,from_time TEXT,captured_at_utc TEXT,"
                 "record_count INTEGER,sdk_result TEXT,origin TEXT);"
-                "CREATE TABLE jv_record(id INTEGER PRIMARY KEY);"
+                "CREATE TABLE jv_record(id INTEGER PRIMARY KEY,record_type TEXT,"
+                "race_key TEXT,data_kubun TEXT,sha256 TEXT,payload BLOB);"
             )
             db.execute("INSERT INTO acquisition VALUES (?,?,?,?,?,?)",
                        ("RACE", from_time, ts, 0, "JVOpen+JVGets_EOF_SUCCESS", "JRA-VAN/JV-Link COM"))
@@ -48,22 +49,46 @@ class V9ResearchAuditTests(unittest.TestCase):
                 "CREATE TABLE audit(key TEXT,value_json TEXT);"
                 "CREATE TABLE race(race_id TEXT,race_date TEXT,runners_declared INTEGER,"
                 "complete_postrace_result INTEGER);"
-                "CREATE TABLE runner(race_id TEXT,horse_id TEXT,finish_post INTEGER,"
-                "source_file TEXT,source_sha256 TEXT,data_kubun TEXT);"
+                "CREATE TABLE runner(race_id TEXT,horse_id TEXT,horse_number INTEGER,"
+                "finish_post INTEGER,source_file TEXT,source_id INTEGER,"
+                "source_sha256 TEXT,data_kubun TEXT);"
             )
             db.execute("INSERT INTO source_receipts VALUES (?,?,?,?,?)",
-                       (self.history_raw.name, sha(self.history_raw), "RACE",
-                        "2026-10-27T11:00:00+00:00", 0))
+                       (self.history_raw.name, "will_fill_after_raw_records", "RACE",
+                        "2026-10-27T11:00:00+00:00", 5))
             db.executemany("INSERT INTO audit VALUES (?,?)",
                            [("source_hashes_verified", "true"),
                             ("training_unlocked", "false"),
                             ("legacy_keiba_db_used", "false")])
-            for horse, num_runs in (("horse1", 3), ("horse2", 2)):
-                for d in range(num_runs):
-                    rid = "2026-03-%02d" % (d+1) + "-" + horse
-                    db.execute("INSERT INTO race VALUES (?,?,?,?)", (rid, "2026-03-%02d" % (d+1), 12, 1))
-                    db.execute("INSERT INTO runner VALUES (?,?,?,?,?,?)",
-                               (rid, horse, d+1, self.history_raw.name, "f"*64, "6"))
+            # Records below are deliberately synthetic fixed-length SE fixtures;
+            # no simulated racing results are ever treated as source evidence.
+            with sqlite3.connect(self.history_raw) as raw_db:
+                record_id = 0
+                for horse_number, num_runs in ((1, 3), (2, 2)):
+                    horse_id = f"{horse_number:010d}"
+                    for day in range(1, num_runs+1):
+                        race_id = f"202603{day:02d}010101{horse_number:02d}"
+                        record_id += 1
+                        raw = bytearray(b" " * 555)
+                        raw[0:2] = b"SE"
+                        raw[2:3] = b"6"
+                        raw[11:27] = race_id.encode("ascii")
+                        raw[28:30] = f"{horse_number:02d}".encode("ascii")
+                        raw[30:40] = horse_id.encode("ascii")
+                        raw[334:336] = f"{day:02d}".encode("ascii")
+                        raw[-2:] = b"\\r\\n"
+                        payload = bytes(raw)
+                        digest = hashlib.sha256(payload).hexdigest()
+                        raw_db.execute("INSERT INTO jv_record VALUES (?,?,?,?,?,?)",
+                                       (record_id, "SE", race_id, "6", digest, payload))
+                        db.execute("INSERT INTO race VALUES (?,?,?,?)",
+                                   (race_id, f"2026-03-{day:02d}", 12, 1))
+                        db.execute("INSERT INTO runner VALUES (?,?,?,?,?,?,?,?)",
+                                   (race_id, horse_id, horse_number, day,
+                                    self.history_raw.name, record_id, digest, "6"))
+                raw_db.execute("UPDATE acquisition SET record_count=?", (record_id,))
+            db.execute("UPDATE source_receipts SET sha256=?",
+                       (sha(self.history_raw),))
 
     def _card(self):
         with sqlite3.connect(self.snapshot) as db:
@@ -85,7 +110,7 @@ class V9ResearchAuditTests(unittest.TestCase):
                        ("2026103001010101", "2026-10-30T07:00:00+00:00",
                         "2026-10-29T07:10:00+00:00",5))
             db.executemany("INSERT INTO runner_prerace VALUES (?,?,?,?)",
-                           [("2026103001010101", "horse"+str(i), i, "f"*64) for i in range(1,6)])
+                           [("2026103001010101", f"{i:010d}", i, "f"*64) for i in range(1,6)])
 
     def test_one_eligible_future_card_and_history(self):
         result = audit_v9(self.research, [self.snapshot])
@@ -103,7 +128,7 @@ class V9ResearchAuditTests(unittest.TestCase):
         self.assertEqual(result["traceable_form_rows"], 1)
         trace = result["_research_only_trace"]
         self.assertEqual(len(trace), 1)
-        self.assertEqual(trace[0]["target_horse_id"], "horse1")
+        self.assertEqual(trace[0]["target_horse_id"], "0000000001")
         self.assertEqual(trace[0]["known_prior_runs"], 3)
         self.assertEqual(len(trace[0]["last3_official_result_sources"]), 3)
         self.assertTrue(all(s["original_archive_captured_at_utc"]
@@ -153,6 +178,19 @@ class V9ResearchAuditTests(unittest.TestCase):
         with sqlite3.connect(self.history_raw) as db:
             db.execute("CREATE TABLE attacker_modified_historical_source(x INTEGER)")
         with self.assertRaisesRegex(V9AuditBlocked, "HASH_MISMATCH"):
+            audit_v9(self.research, [self.snapshot])
+
+    def test_research_horse_id_tamper_rejected_even_if_raw_archive_hash_valid(self):
+        with sqlite3.connect(self.research) as db:
+            db.execute("UPDATE runner SET horse_id=? WHERE horse_id=?",
+                       ("9999999999", "0000000001"))
+        with self.assertRaisesRegex(V9AuditBlocked, "disagrees with original official SE bytes"):
+            audit_v9(self.research, [self.snapshot])
+
+    def test_research_finish_tamper_rejected_even_if_raw_archive_hash_valid(self):
+        with sqlite3.connect(self.research) as db:
+            db.execute("UPDATE runner SET finish_post=8")
+        with self.assertRaisesRegex(V9AuditBlocked, "disagrees with original official SE bytes"):
             audit_v9(self.research, [self.snapshot])
 
     def test_card_not_before_off_rejected(self):
