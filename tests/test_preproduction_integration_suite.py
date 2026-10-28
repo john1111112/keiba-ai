@@ -217,28 +217,49 @@ class PreproductionIntegrationTests(unittest.TestCase):
 
     # 5. JV-Link生データから28特徴量・推論への変換結合
     def test_jvlink_to_28features_pipeline(self):
-        # JV-Data の Shift-JIS 固定長レコード (RA: 271バイト目にトラックコード, 273バイト目に距離)
         race_key = "2026102605010101"
-        header = "RA" + " " * 9 + race_key  # 2 + 9 + 16 = 27文字
-        padding_before_track = " " * (271 - len(header))  # 271文字目までパディング
-        ra_line = (
-            header + padding_before_track +
-            "10" + "1600" + " " * (344 - 277) +
-            "1500" + "1" + " " * 50
-        ).encode("cp932")
 
-        # SE レコード: "SE" + 9文字予備 + 16文字レースキー = 27文字
-        horse_name_bytes = "テストホース".encode("cp932").ljust(36, b" ")
-        prefix = ("SE" + " " * 9 + race_key + "1" + "01" + "2022100001").encode("ascii")
-        suffix = ("1" + "04" + " " * 2 + "560" + "00001" + " " * 150).encode("ascii")
-        se_line = prefix + horse_name_bytes + suffix
+        def _rec(kind, size, race=race_key, kubun="2", created="20261026"):
+            record = bytearray(b" " * (size - 2) + b"\r\n")
+            record[:2] = kind.encode("ascii")
+            record[2:3] = kubun.encode("ascii")
+            record[3:11] = created.encode("ascii")
+            record[11:27] = race.encode("ascii")
+            return record
 
-        # O1 レコード: "O1" + 9文字予備 + 16文字レースキー = 27文字
-        o1_padding = " " * (47 - (2 + 9 + 16))
-        o1_line = (
-            "O1" + " " * 9 + race_key + o1_padding +
-            "0520" + "01" + " " * 2 + " " * 200
-        ).encode("cp932")
+        # 公式仕様準拠 RA (1272バイト)
+        ra_raw = _rec("RA", 1272)
+        ra_raw[697:701] = b"1600"  # 距離
+        ra_raw[705:707] = b"11"    # トラックコード (東京・芝)
+        ra_raw[873:877] = b"1500"  # 発走時刻
+        ra_raw[881:883] = b"01"    # 出走頭数
+        ra_raw[888:890] = b"00"    # 馬場状態 (良相当)
+        ra_line = bytes(ra_raw)
+
+        # 公式仕様準拠 SE (555バイト)
+        se_raw = _rec("SE", 555)
+        se_raw[27:28] = b"1"       # 枠番
+        se_raw[28:30] = b"01"      # 馬番
+        se_raw[30:40] = b"2022100001"
+        se_raw[40:76] = "テストホース".encode("cp932").ljust(36, b" ")
+        se_raw[78:79] = b"1"       # 牡
+        se_raw[82:84] = b"04"       # 4歳
+        se_raw[288:291] = b"560"   # 斤量 56.0kg
+        se_raw[296:301] = b"01234" # 騎手コード
+        se_raw[324:327] = b"480"   # 馬体重
+        se_raw[328:331] = b"+02"   # 増減
+        se_line = bytes(se_raw)
+
+        # 公式仕様準拠 O1 (962バイト)
+        o1_raw = _rec("O1", 962, kubun="1")
+        o1_raw[27:35] = b"10261325"
+        o1_raw[35:37] = b"01"      # 登録頭数
+        o1_raw[37:39] = b"01"      # 出走頭数
+        o1_raw[39:40] = b"7"       # 単勝発売中
+        o1_raw[40:41] = b"7"
+        o1_raw[42:43] = b"3"
+        o1_raw[43:51] = b"01005201" # 馬番1, 5.2倍, 1番人気
+        o1_line = bytes(o1_raw)
 
         feed_dict = convert_jvlink_records_to_prerace_feed([ra_line, se_line, o1_line])
         self.assertEqual(feed_dict["source"], "jvlink")

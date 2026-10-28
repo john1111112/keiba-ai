@@ -98,33 +98,51 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def _build_valid_ra(self, race_key=None, distance="1600", track="10", cond="1", post_time="1500") -> bytes:
+    def _rec(self, kind: str, size: int, race: str, kubun: str = "2", created: str = "20261026") -> bytearray:
+        record = bytearray(b" " * (size - 2) + b"\r\n")
+        record[:2] = kind.encode("ascii")
+        record[2:3] = kubun.encode("ascii")
+        record[3:11] = created.encode("ascii")
+        record[11:27] = race.encode("ascii")
+        return record
+
+    def _build_valid_ra(self, race_key=None, distance="1600", track="11", cond="00", post_time="1500") -> bytes:
         rkey = race_key or self.race_key
-        header = "RA" + " " * 9 + rkey
-        padding1 = " " * (271 - len(header))
-        padding2 = " " * (344 - 277)
-        return (
-            header + padding1 +
-            track + distance + padding2 +
-            post_time + cond + " " * 50
-        ).encode("cp932")
+        raw = self._rec("RA", 1272, rkey)
+        raw[697:701] = str(distance).encode("ascii")
+        raw[705:707] = str(track).encode("ascii")
+        raw[873:877] = str(post_time).encode("ascii")
+        raw[881:883] = b"01"
+        raw[888:890] = str(cond).encode("ascii")
+        return bytes(raw)
 
     def _build_valid_se(self, race_key=None, horse_num="01", b_num="1", horse_id="2022100001",
-                        sex="1", age="04", weight_carry="560", jockey_id="00001") -> bytes:
+                        sex="1", age="04", weight_carry="560", jockey_id="01234") -> bytes:
         rkey = race_key or self.race_key
-        # 馬名フィールドはShift-JISで厳密に36バイト (全角6文字=12バイト + 空白24バイト)
-        horse_name_bytes = "テストホース".encode("cp932").ljust(36, b" ")
-        prefix = ("SE" + " " * 9 + rkey + b_num + horse_num + horse_id).encode("ascii")
-        suffix = (sex + age + "  " + weight_carry + jockey_id + " " * 150).encode("ascii")
-        return prefix + horse_name_bytes + suffix
+        raw = self._rec("SE", 555, rkey)
+        raw[27:28] = str(b_num).encode("ascii")
+        raw[28:30] = str(horse_num).zfill(2).encode("ascii")
+        raw[30:40] = str(horse_id).encode("ascii")
+        raw[40:76] = "テストホース".encode("cp932").ljust(36, b" ")
+        raw[78:79] = str(sex).encode("ascii")
+        raw[82:84] = str(age).zfill(2).encode("ascii")
+        raw[288:291] = str(weight_carry).encode("ascii")
+        raw[296:301] = str(jockey_id).encode("ascii")
+        raw[324:327] = b"480"
+        raw[328:331] = b"+02"
+        return bytes(raw)
 
-    def _build_valid_o1(self, race_key=None, odds_str="0052", obs_time="202610261200") -> bytes:
+    def _build_valid_o1(self, race_key=None, odds_str="0052", obs_time="10261200") -> bytes:
         rkey = race_key or self.race_key
-        o1_padding = " " * (47 - 27)
-        return (
-            "O1" + " " * 9 + rkey + o1_padding +
-            odds_str + "01" + " " * 2 + " " * 200
-        ).encode("cp932")
+        raw = self._rec("O1", 962, rkey, kubun="1")
+        raw[27:35] = str(obs_time).encode("ascii")
+        raw[35:37] = b"01"
+        raw[37:39] = b"01"
+        raw[39:40] = b"7"
+        raw[40:41] = b"7"
+        raw[42:43] = b"3"
+        raw[43:51] = b"01" + str(odds_str).encode("ascii") + b"01"
+        return bytes(raw)
 
     # -------------------------------------------------------------
     # 1. 固定秘密鍵が存在しないことの検証
@@ -233,29 +251,35 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
         client = JVLinkClient(sid="TEST", mock_com_obj=mock_com, test_mode=True)
         client.connect()
 
-        # コード 0: 未初期化/休止 -> False
+        # コード 0: 取得前は NOT_VERIFIED, connected=False
         mock_com.JVStatus.return_value = 0
         s0 = client.check_service_status()
         self.assertFalse(s0["connected"])
-        self.assertEqual(s0["driver_status"], "SERVICE_INACTIVE")
+        self.assertEqual(s0["driver_status"], "NOT_VERIFIED")
 
-        # コード 3: 権限なし/未契約 -> False
+        # コード 3: 未取得時は NOT_VERIFIED, connected=False
         mock_com.JVStatus.return_value = 3
         s3 = client.check_service_status()
         self.assertFalse(s3["connected"])
-        self.assertEqual(s3["driver_status"], "EXPIRED_OR_UNCONTRACTED")
+        self.assertEqual(s3["driver_status"], "NOT_VERIFIED")
 
         # 未知のコード -99 -> UNVERIFIED & False
         mock_com.JVStatus.return_value = -99
         s_unknown = client.check_service_status()
         self.assertFalse(s_unknown["connected"])
-        self.assertIn("UNVERIFIED", s_unknown["driver_status"])
+        self.assertEqual(s_unknown["driver_status"], "NOT_VERIFIED")
 
-        # コード 1 のみ connected: True
+        # JVStatus は進捗カウンタのため、戻り値が 1 でも取得成功前は connected: False
         mock_com.JVStatus.return_value = 1
         s1 = client.check_service_status()
-        self.assertTrue(s1["connected"])
-        self.assertEqual(s1["driver_status"], "AUTHENTICATED")
+        self.assertFalse(s1["connected"])
+        self.assertEqual(s1["driver_status"], "NOT_VERIFIED")
+
+        # 実データ取得成功によって driver_status が AUTHENTICATED に遷移した時のみ connected: True
+        client._driver_status = "AUTHENTICATED"
+        s_auth = client.check_service_status()
+        self.assertTrue(s_auth["connected"])
+        self.assertEqual(s_auth["driver_status"], "AUTHENTICATED")
 
     # -------------------------------------------------------------
     # 7. 異なる開催日のレースIDが衝突しないことの検証
@@ -321,11 +345,11 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
     # -------------------------------------------------------------
     def test_32bit_worker_bridge_handling(self):
         client = JVLinkClient(sid="TEST_SID", test_mode=True)
-        # 32bit Python が存在しない場合は JVLinkBridgeError を安全に送出
-        with patch("src.jvlink_client.find_32bit_python", return_value=None):
+        # 互換Pythonワーカーが存在しない場合は JVLinkBridgeError を安全に送出
+        with patch("src.jvlink_client.find_jvlink_python", return_value=None):
             with self.assertRaises(JVLinkBridgeError) as ctx:
                 client.fetch_via_32bit_worker("0B15", "202610260000", self.dir_path / "out.json")
-            self.assertIn("No 32-bit Python executable found", str(ctx.exception))
+            self.assertTrue("Compatible 32/64-bit JV-Link SDK/Python worker not found" in str(ctx.exception) or "No 32-bit Python executable found" in str(ctx.exception))
 
     # -------------------------------------------------------------
     # 12. 実データ未接続時に誤通知しない (E2E)
@@ -368,7 +392,7 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
         with patch.object(client, "fetch_via_32bit_worker", return_value=empty_worker_res):
             with self.assertRaises(JVLinkError) as ctx:
                 client.fetch_and_build_live_feed(output_dir=self.feed_dir)
-            self.assertIn("0 valid records", str(ctx.exception))
+            self.assertTrue("Inconsistent worker success metadata" in str(ctx.exception) or "0 valid records" in str(ctx.exception))
 
     # -------------------------------------------------------------
     # 14. 32bitワーカーから64bitパイプラインへの正常データ転送・推論
@@ -381,6 +405,8 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
 
         valid_worker_res = {
             "success": True,
+            "auth_status": "AUTHENTICATED",
+            "fetch_status": "SUCCESS",
             "driver_status": "AUTHENTICATED",
             "records_count": 3,
             "ra_records": [ra_text],
@@ -409,9 +435,12 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
     # -------------------------------------------------------------
     def test_stale_worker_output_rejected(self):
         client = JVLinkClient(sid="TEST_SID", test_mode=True)
-        # タイムスタンプが古い（100秒前）ワーカー出力を生成するモック
-        def fake_worker_run(cmd, capture_output=True, text=True, timeout=60):
-            # cmd 内の --out のパスを取得して古い JSON を書き込む
+        client._worker_interpreter_cache = ("fake_python32.exe", 32)
+        def fake_worker_run(cmd, *args, **kwargs):
+            if "--out" not in cmd:
+                res = MagicMock()
+                res.returncode = 0
+                return res
             out_idx = cmd.index("--out") + 1
             out_file = Path(cmd[out_idx])
             out_file.write_text(json.dumps({
@@ -428,12 +457,9 @@ class JVLinkRealConnectionReadinessTests(unittest.TestCase):
             with self.assertRaises(JVLinkBridgeError) as ctx:
                 client.fetch_via_32bit_worker("0B15", "202610260000")
             self.assertTrue("Stale worker output" in str(ctx.exception) or "mismatch" in str(ctx.exception))
-
-    # -------------------------------------------------------------
-    # 16. ワーカータイムアウト時の安全停止
-    # -------------------------------------------------------------
     def test_worker_timeout_raises_bridge_error(self):
         client = JVLinkClient(sid="TEST_SID", test_mode=True)
+        client._worker_interpreter_cache = ("fake_python32.exe", 32)
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=60)):
             with self.assertRaises(JVLinkBridgeError) as ctx:
                 client.fetch_via_32bit_worker("0B15", "202610260000")

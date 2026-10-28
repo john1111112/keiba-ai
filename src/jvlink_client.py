@@ -57,6 +57,14 @@ class JVLinkBridgeError(JVLinkError):
 class JVLinkNoDataError(JVLinkError):
     """JV-Link reports no published races/data yet; not a connectivity error."""
     pass
+JVSTATUS_MAP = {
+    0: "UNINITIALIZED",
+    1: "READY",
+    2: "OPENED",
+    3: "READING",
+    4: "COMPLETED",
+    -1: "ERROR",
+}
 
 
 
