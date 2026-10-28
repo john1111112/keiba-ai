@@ -5,7 +5,7 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 
-from scripts.jra_v9_history_prerace_audit import audit_v9, V9AuditBlocked
+from scripts.jra_v9_history_prerace_audit import audit_v9, V9AuditBlocked, _write_research_trace
 
 
 def sha(path):
@@ -97,6 +97,44 @@ class V9ResearchAuditTests(unittest.TestCase):
         self.assertEqual(result["prior_runs_used"], 3)
         self.assertFalse(result["training_unlocked"])
         self.assertFalse(result["alerts_sent"])
+
+    def test_traceable_prior_runs_are_not_prediction_probabilities(self):
+        result = audit_v9(self.research, [self.snapshot], include_feature_ledger=True)
+        self.assertEqual(result["traceable_form_rows"], 1)
+        trace = result["_research_only_trace"]
+        self.assertEqual(len(trace), 1)
+        self.assertEqual(trace[0]["target_horse_id"], "horse1")
+        self.assertEqual(trace[0]["known_prior_runs"], 3)
+        self.assertEqual(len(trace[0]["last3_official_result_sources"]), 3)
+        self.assertTrue(all(s["original_archive_captured_at_utc"]
+                            < trace[0]["snapshot_observed_at_utc"]
+                            for s in trace[0]["last3_official_result_sources"]))
+        self.assertFalse(result["form_features_are_probabilities"])
+        self.assertNotIn("odds", str(trace).lower())
+        self.assertNotIn("target_finish", str(trace).lower())
+
+    def test_trace_save_requires_new_file_in_dedicated_folder(self):
+        data = audit_v9(self.research, [self.snapshot], include_feature_ledger=True)
+        target = self.base / "v9_evidence" / "new_trace.json"
+        _write_research_trace(target, self.research, data["_research_only_trace"])
+        self.assertTrue(target.exists())
+        with self.assertRaisesRegex(V9AuditBlocked, "NEW"):
+            _write_research_trace(target, self.research, [])
+        with self.assertRaisesRegex(V9AuditBlocked, "NEW"):
+            _write_research_trace(self.base / "original.json", self.research, [])
+
+    def test_prior_results_first_acquired_after_snapshot_excluded(self):
+        future = "2026-10-30T10:00:00+00:00"
+        with sqlite3.connect(self.history_raw) as db:
+            db.execute("UPDATE acquisition SET captured_at_utc=?", (future,))
+        with sqlite3.connect(self.research) as db:
+            db.execute("UPDATE source_receipts SET captured_at_utc=?,sha256=?",
+                       (future, sha(self.history_raw)))
+        report = audit_v9(self.research, [self.snapshot])
+        self.assertEqual(report["runners_with_3_prior_starts_observed_before_snapshot"], 0)
+        self.assertEqual(report["traceable_form_rows"], 0)
+        self.assertEqual(report["runners_with_insufficient_prior_starts"], 5)
+        self.assertFalse(report["training_unlocked"])
 
     def test_no_future_card_is_not_a_model_approval(self):
         result = audit_v9(self.research, [])
