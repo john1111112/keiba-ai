@@ -1,0 +1,20 @@
+name: KEIBA v9 JRA-VAN Provenance Research Gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/jra_v9_history_prerace_audit.py'
+      - 'scripts/test_jra_v9_history_prerace_audit.py'
+      - '.github/workflows/v9_jravan_audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source and pre-off audit tests (synthetic fixtures only)
+        run: python -m unittest -v scripts.test_jra_v9_history_prerace_audit scripts.test_data_trust_gate
